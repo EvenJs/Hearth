@@ -1,0 +1,10 @@
+.next/
+out/
+build/
+node_modules/
+pnpm-lock.yaml
+next-env.d.ts
+docs/
+fixtures/
+CLAUDE.md
+AGENTS.md
