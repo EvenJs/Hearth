@@ -146,7 +146,8 @@ BETTER_AUTH_URL        # 本地 http://localhost:3000，线上用 Vercel 域名
 | 服务                       | 限制                               | 对 Hearth 的影响                   |
 | -------------------------- | ---------------------------------- | ---------------------------------- |
 | Vercel Hobby               | 限个人非商业使用；超额后要等 30 天 | 家庭自用没问题                     |
-| Neon Free                  | 0.5 GB 存储；闲置后计算归零        | 第一次打开可能慢一点，几乎感觉不到 |
+| Neon Free | 0.5 GB 存储；闲置 5 分钟后计算归零，下次查询自动唤醒 | 冷启动：隔一段时间第一次打开慢 1 到 2 秒（Neon 唤醒 + Vercel 函数启动），之后正常 |
+| Neon Free | 即时恢复只能回到 **6 小时以内** | 6 小时后才发现的误删、坏迁移救不回来，所以要自己备份（第 10 节） |
 | Claude API（后续 AI 功能） | 按用量付费                         | 不在 MVP 范围                      |
 
 ---
@@ -161,3 +162,34 @@ BETTER_AUTH_URL        # 本地 http://localhost:3000，线上用 Vercel 域名
 | `neon-http` 驱动 | 不支持事务                                |
 | .NET 后端        | 目标是快速能用，全 TS 少一层              |
 | Electron / Expo  | 见需求文档第 8 节                         |
+
+---
+
+## 10. 备份
+
+**为什么要做**：银行流水丢了可以重新导入（CBA 最多导出约两年），但手动改过的分类、归属人、拆分、规则、手动录入的现金和 ANZ Plus 利息、tax_profile 丢了就找不回来。Neon 免费版只能恢复到 6 小时以内。
+
+最可能出事的不是 Neon 本身，而是：AI 写的迁移删错了列、撤销导入有 bug、批量修改改错了。
+
+### 10.1 每月备份（导入完顺手做）
+
+- `pnpm db:backup`：对 prod 跑 `pg_dump -Fc`，存到**仓库外**的 `~/hearth-backups/hearth-YYYY-MM-DD.dump`
+- 连接串用 prod 的**只读角色**，放在仓库外的 `~/.config/hearth/backup.env`，不进 git、不进 Vercel
+- 只保留最近 12 份，旧的脚本自动删
+- 需要本机装 `pg_dump`，版本**不低于** Neon 上的 Postgres 版本（看 Neon 控制台，用 Homebrew 装对应的 `postgresql@<版本>`）
+- 备份文件包含全部财务数据：不进 git、不放公开的网盘
+
+### 10.2 迁移前打快照
+
+- prod 跑 `db:migrate` 之前，先在 Neon 控制台从 prod 建一个 branch，命名 `pre-migrate-YYYYMMDD`
+- 迁移出问题时可以从这个 branch 恢复
+- 确认没问题后删掉（免费版 branch 数量有限）
+
+### 10.3 恢复演练
+
+- 第一次备份后，用 `pg_restore` 恢复到一个新的 dev branch，打开 app 看数据对不对
+- 没恢复过的备份不算备份
+
+### 10.4 冷启动
+
+不需要处理。Neon 唤醒和 Vercel 函数启动加起来一两秒，只在隔一段时间第一次打开时出现。不要为了这个加定时 ping，会白白消耗免费额度。
