@@ -101,12 +101,13 @@
 hearth/
 ├── CLAUDE.md
 ├── docs/
-│   ├── requirements.md
+│   ├── prd.md
 │   ├── tech-stack.md
 │   ├── schema.md
 │   ├── business-rules.md
 │   ├── seed-categories.md
 │   ├── roadmap.md
+│   ├── design/            # 页面清单和设计图
 │   └── tasks/             # 每个里程碑的任务清单
 ├── fixtures/              # 脱敏测试数据
 ├── drizzle/               # 生成的迁移文件

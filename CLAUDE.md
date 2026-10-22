@@ -10,7 +10,7 @@ Hearth 是一个家庭记账 web app，给我和老婆两个人用。核心流�
 
 | 文档 | 什么时候读 |
 |---|---|
-| `docs/requirements.md` | 做任何功能前 |
+| `docs/prd.md` | 做任何功能前 |
 | `docs/tech-stack.md` | 装依赖、选库前 |
 | `docs/schema.md` | 碰数据库前 |
 | `docs/business-rules.md` | 写导入、分类、统计逻辑前。**这是核心逻辑的唯一标准** |
@@ -18,6 +18,7 @@ Hearth 是一个家庭记账 web app，给我和老婆两个人用。核心流�
 | `docs/roadmap.md` | 开始新任务前，确认当前在哪个里程碑 |
 | `docs/tasks/mN.md` | 做具体任务时，按任务编号读对应说明 |
 | `fixtures/README.md` | 写测试前 |
+| `docs/design/README.md` | 做页面前，看页面清单和对应编号的设计图 |
 
 文档和代码冲突时，先停下来问我，不要自己选一个。
 
@@ -68,7 +69,8 @@ pnpm db:seed        种子数据
 
 ### UI
 - 中文界面，金额显示 `Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' })`
-- 手机优先：每个页面先保证 375px 宽能用
+- **电脑优先**：按 1280px 以上宽度设计，可以用侧边栏、宽表格、多列看板
+- 手机只要求"能用"：375px 宽不出现横向滚动、不报错，不做精细排版。唯一例外是快速录入（F3），手机上要顺手
 - 用 shadcn/ui 组件，不要自己从零写按钮、弹窗、表格
 
 ## 工作方式

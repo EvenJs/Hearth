@@ -1,7 +1,7 @@
 # Hearth 开发路线图
 
 > 一次只做一个里程碑。每个里程碑完成的标准：验收清单全部打勾、测试全部通过、自己在手机和电脑上各点一遍、commit 并部署。
-> 规则编号（R1 等）见 `business-rules.md`，功能编号（F1 等）见 `requirements.md`。
+> 规则编号（R1 等）见 `business-rules.md`，功能编号（F1 等）见 `prd.md`。
 > 每个里程碑开始前拆成任务清单，放在 `docs/tasks/`（目前已拆 M0、M1、M2）。
 
 ---
