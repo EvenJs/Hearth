@@ -14,11 +14,13 @@
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:ping": "node --env-file=.env.local scripts/db-ping.ts"
+    "db:ping": "node --env-file=.env.local scripts/db-ping.ts",
+    "user:create": "node --env-file=.env.local scripts/create-user.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "6.0.0",
     "@neondatabase/serverless": "1.2.0",
+    "better-auth": "1.7.12",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "drizzle-orm": "0.45.4",
