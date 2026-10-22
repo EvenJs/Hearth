@@ -25,7 +25,7 @@
 2. 跳过空行和只有空白的行；支持 CRLF 和 LF
 3. 日期 `DD/MM/YYYY` → `YYYY-MM-DD`，非法日期报错
 4. 金额**按字符串转成分**，不用 `parseFloat` 再乘 100（会有浮点误差）。允许前面带 `+` 或 `-`
-   - `"-67.48"` → `-6748`
+   - `"-58.40"` → `-5840`
    - `"+500.00"` → `50000`
    - `"2000.00"` → `200000`
    - `"0.72"` → `72`
@@ -43,7 +43,7 @@
 
 | 输入行                                                                                | 输出                                                                                                                                |
 | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `29/09/2026,"-67.48",VISA DEBIT PURCHASE CARD 0866 COLES 0559 MELBOURNE`              | `{ date: '2026-09-29', amountCents: -6748, description: 'VISA DEBIT PURCHASE CARD 0866 COLES 0559 MELBOURNE', balanceCents: null }` |
+| `29/09/2026,"-58.40",VISA DEBIT PURCHASE CARD 1111 COLES 0559 MELBOURNE`              | `{ date: '2026-09-29', amountCents: -5840, description: 'VISA DEBIT PURCHASE CARD 1111 COLES 0559 MELBOURNE', balanceCents: null }` |
 | `02/09/2026,"2000.00",ANZ M-BANKING FUNDS TFER TRANSFER 815033  FROM       400006691` | `{ date: '2026-09-02', amountCents: 200000, ... }`                                                                                  |
 | `31/02/2026,"-1.00",X`                                                                | 报错：第 n 行日期非法                                                                                                               |
 | 空行                                                                                  | 跳过                                                                                                                                |
@@ -84,7 +84,7 @@ balance[i] − amount[i] == balance[i+1]
 ### R2.1 提取卡号后四位
 
 - 正则：`/\bCARD (?:XX)?(\d{4})\b/i`
-- ANZ：`VISA DEBIT PURCHASE CARD 0866 COLES 0559 MELBOURNE` → `0866`
+- ANZ：`VISA DEBIT PURCHASE CARD 1111 COLES 0559 MELBOURNE` → `1111`
 - CBA：`Myer Pty Ltd Docklands VI AUS Card xx1234 Value Date: 17/09/2026` → `1234`
 - 没有匹配 → `null`
 
@@ -139,14 +139,14 @@ ANZ 和 CBA 用同一套步骤，不适用的步骤自然不生效。按顺序�
 
 | 脱敏后描述                                                             | merchant                                 |
 | ---------------------------------------------------------------------- | ---------------------------------------- |
-| `VISA DEBIT PURCHASE CARD 0866 COLES 0559 MELBOURNE`                   | `COLES 0559 MELBOURNE`                   |
+| `VISA DEBIT PURCHASE CARD 1111 COLES 0559 MELBOURNE`                   | `COLES 0559 MELBOURNE`                   |
 | `EFTPOS MELB ASIAN MARKET\`                                            | `MELB ASIAN MARKET`                      |
 | `EFTPOS SECRET KITCHEN     \MELBOURNE         AU`                      | `SECRET KITCHEN MELBOURNE`               |
 | `EFTPOS 794PIN* CHARGEFOX PTY LTD\NORTH MELBOUR\`                      | `CHARGEFOX PTY LTD NORTH MELBOUR`        |
 | `ANZ INTERNET BANKING BPAY SEENE                         {022288}`     | `BPAY SEENE`                             |
 | `ANZ M-BANKING FUNDS TFER TRANSFER 681801  TO  ****6691`               | `TRANSFER TO ****6691`                   |
 | `EFTPOS ZLR*POCHANA MELBOURNE \MELBOURNE AU`                           | `POCHANA MELBOURNE MELBOURNE`            |
-| `VISA DEBIT PURCHASE CARD 0874 SQ *KUMO MELBOURNE`                     | `KUMO MELBOURNE`                         |
+| `VISA DEBIT PURCHASE CARD 2222 SQ *KUMO MELBOURNE`                     | `KUMO MELBOURNE`                         |
 | `NON-ANZ ATM CBA\HAWTHORN VIC AU`                                      | `ATM CBA HAWTHORN`                       |
 | `ACCOUNT SERVICING FEE`                                                | `ACCOUNT SERVICING FEE`                  |
 | `Myer Pty Ltd Docklands VI AUS Card xx1234 Value Date: 17/09/2026`     | `MYER PTY LTD DOCKLANDS`                 |
@@ -433,14 +433,14 @@ opening_balance + Σ(该账户所有 confirmed 交易，date ∈ [date_from, dat
 
 | 周                | 支出(分) |
 | ----------------- | -------- |
-| 9/1–9/6（部分）   | 6748     |
+| 9/1–9/6（部分）   | 5840     |
 | 9/7–9/13          | 8580     |
-| 9/14–9/20         | -515     |
+| 9/14–9/20         | -705     |
 | 9/21–9/27         | 21120    |
 | 9/28–9/30（部分） | 10740    |
-| 合计              | 46673    |
+| 合计              | 45575    |
 
-9/14 那周是负数：Medicare 报销 +43.90 大于当周支出 38.75，照实显示。
+9/14 那周是负数：Medicare 报销 +45.80 大于当周支出 38.75，照实显示。
 
 ---
 
@@ -601,11 +601,11 @@ owing     = total − payg_withheld − prepaid    （负数表示预计退税�
 
 ### R15.5 例子
 
-`joint-2026-09.csv` #19：COLES -67.48，主拆分 Groceries / Supermarket，Home。
+`joint-2026-09.csv` #19：COLES -58.40，主拆分 Groceries / Supermarket，Home。
 
 | 操作                                                                  | 主拆分                 | 其他拆分                                                   |
 | --------------------------------------------------------------------- | ---------------------- | ---------------------------------------------------------- |
-| 拆出 15.00 → Home & utilities / Household supplies，不选归属人        | -52.48                 | -15.00 Household supplies，Home（category）                |
-| 再拆出 8.00 → Personal & medical / Cosmetics & toiletries，不选归属人 | -44.48                 | 加一行 -8.00 Cosmetics & toiletries，**Male（card 1111）** |
-| 拆出 50.00                                                            | 报错：超过主拆分 44.48 |                                                            |
-| 删除 Cosmetics 那行                                                   | -52.48                 | 只剩 Household supplies                                    |
+| 拆出 15.00 → Home & utilities / Household supplies，不选归属人        | -43.40                 | -15.00 Household supplies，Home（category）                |
+| 再拆出 8.00 → Personal & medical / Cosmetics & toiletries，不选归属人 | -35.40                 | 加一行 -8.00 Cosmetics & toiletries，**Male（card 1111）** |
+| 拆出 50.00                                                            | 报错：超过主拆分 35.40 |                                                            |
+| 删除 Cosmetics 那行                                                   | -43.40                 | 只剩 Household supplies                                    |
