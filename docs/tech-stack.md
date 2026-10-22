@@ -133,7 +133,7 @@ hearth/
 ```
 DATABASE_URL           # Neon 连接串
 BETTER_AUTH_SECRET     # 随机生成
-BETTER_AUTH_URL        # 本地 http://localhost:3000，线上用 Vercel 域名
+BETTER_AUTH_URL        # 本地 http://localhost:5000，线上用 Vercel 域名
 ```
 
 - `.env.local` 不进 git，仓库里只放 `.env.example`
