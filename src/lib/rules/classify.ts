@@ -53,7 +53,7 @@ function byId(categories: readonly Category[], id: string): Category {
   return c;
 }
 
-function bySystemKey(categories: readonly Category[], key: SystemCategoryKey): Category {
+export function bySystemKey(categories: readonly Category[], key: SystemCategoryKey): Category {
   const c = categories.find((x) => x.systemKey === key);
   if (!c) throw new Error(`系统分类不存在: ${key}`);
   return c;

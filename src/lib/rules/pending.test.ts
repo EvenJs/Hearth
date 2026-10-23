@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { processFile } from '@/lib/import/process';
 import { readFixture } from '../../../tests/helpers/fixtures';
 import { buildTestHousehold } from '../../../tests/helpers/household';
-import { findPendingMatches, initialStatus, type PendingTx } from './pending';
+import {
+  confirmPendingTransfer,
+  findPendingMatches,
+  initialStatus,
+  type PendingTx,
+} from './pending';
 
 // 期望值来自 business-rules.md R8.1、R8.2 和 fixtures/README.md "pending 匹配用例"
 // 只测找候选，确认动作（R8.3）在 M3 的事务里做
@@ -122,5 +127,68 @@ describe('findPendingMatches：边界（R8.2）', () => {
       { kind: 'ambiguous', pendingIds: ['A', 'B'] },
       { kind: 'ambiguous', pendingIds: ['A', 'B'] },
     ]);
+  });
+});
+
+describe('confirmPendingTransfer：R8.3 例外，银行那行是内部转账', () => {
+  const result = processFile(readFixture('anz/joint-2026-09.csv'), joint, h);
+  if (!result.ok) throw new Error(result.message);
+  const row = (n: number) => result.rows[n - 1];
+
+  const INTERNAL = h.systemCategory('internal_transfer');
+  const female = h.member('Female').id;
+  const ctx = { categories: h.categories, cards: h.cards, accounts: h.accounts };
+
+  it('R8.3 P10: #11 recognised by R6.1 → auto, primary split becomes internal transfer (system), manual member Female kept', () => {
+    expect(row(11)).toMatchObject({ transferStatus: 'auto', date: '2026-09-15' });
+    expect(
+      confirmPendingTransfer(
+        row(11),
+        { splitCount: 1, primaryMember: { memberId: female, memberSource: 'manual' } },
+        ctx,
+      ),
+    ).toEqual({
+      kind: 'transfer',
+      transferStatus: 'auto',
+      transferAccountId: h.account('CBA Female').id,
+      primarySplit: {
+        categoryId: INTERNAL.id,
+        categorySource: 'system',
+        isPreTax: INTERNAL.isPreTaxDefault,
+        memberId: female,
+        memberSource: 'manual',
+      },
+    });
+  });
+
+  it('R8.3: member that is not manual is recomputed by R5.1 (internal transfer has no default → account)', () => {
+    const got = confirmPendingTransfer(
+      row(11),
+      { splitCount: 1, primaryMember: { memberId: female, memberSource: 'category' } },
+      ctx,
+    );
+    expect(got.kind === 'transfer' && got.primarySplit).toMatchObject({
+      memberId: h.member('Home').id,
+      memberSource: 'account',
+    });
+  });
+
+  it('R8.3: pending with several splits → nothing changes, F8 needs a hint', () => {
+    expect(
+      confirmPendingTransfer(
+        row(11),
+        { splitCount: 2, primaryMember: { memberId: female, memberSource: 'manual' } },
+        ctx,
+      ),
+    ).toEqual({ kind: 'multiple_splits', transferAccountId: h.account('CBA Female').id });
+  });
+
+  it('R8.3: bank row that is not an internal transfer (P1 → #8, #18 external account) → keep the pending as is', () => {
+    const pending = {
+      splitCount: 1,
+      primaryMember: { memberId: female, memberSource: 'manual' as const },
+    };
+    expect(confirmPendingTransfer(row(8), pending, ctx)).toEqual({ kind: 'not_transfer' });
+    expect(confirmPendingTransfer(row(18), pending, ctx)).toEqual({ kind: 'not_transfer' });
   });
 });

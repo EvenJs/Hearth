@@ -140,12 +140,17 @@ function suggestable(t: TransferTx, uncategorizedCategoryId: string): boolean {
 }
 
 // R6.3 兜底建议：在本家庭其他账户里找金额相反、日期 ≤ 2 天、也是未分类的
-// 两边都恰好只有对方这 1 个候选才建议（多候选不配对）。调用方把两边标成 suggested 并互相写 transfer_pair_id
-// 结果按输入顺序，aId 是先出现的那笔
+// txs 是整个家庭的交易（包括以前导入的）；newIds 是本次导入新插入的交易 id
+// 只建议至少一边是新交易的配对：每一对只在后导入的那一边进来时检查一次，拒绝过的两笔旧交易不会再被建议
+// 候选和"两边互相只有对方一个候选"都按整个家庭算，旧交易也算候选
+// newIds 不传时所有交易都当成新的（M2 的用法）
+// 调用方把两边标成 suggested 并互相写 transfer_pair_id。结果按输入顺序，aId 是先出现的那笔
 export function suggestTransfers(
   txs: readonly TransferTx[],
   uncategorizedCategoryId: string,
+  newIds?: ReadonlySet<string>,
 ): TransferSuggestion[] {
+  const isNew = (t: TransferTx) => !newIds || newIds.has(t.id);
   const pool = txs.filter((t) => suggestable(t, uncategorizedCategoryId));
   const candidatesOf = new Map(
     pool.map((t) => [t.id, pool.filter((o) => o.accountId !== t.accountId && mirrors(t, o))]),
@@ -160,6 +165,7 @@ export function suggestTransfers(
     const b = aCands[0];
     const bCands = candidatesOf.get(b.id) ?? [];
     if (bCands.length !== 1 || bCands[0].id !== a.id) continue;
+    if (!isNew(a) && !isNew(b)) continue;
     out.push({ aId: a.id, bId: b.id });
     used.add(a.id).add(b.id);
   }

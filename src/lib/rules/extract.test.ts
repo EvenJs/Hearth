@@ -5,6 +5,7 @@ import { parseCbaCsv } from '../import/cba';
 import {
   extractAndMask,
   extractCardLast4,
+  extractMaskedTransferSuffix,
   extractTransferAccount,
   maskLongDigits,
 } from './extract';
@@ -168,5 +169,38 @@ describe('R2 on fixtures', () => {
     expect(results.map((r) => r.transferAccount)).toEqual(
       results.map((_, i) => (i === 3 ? '7777' : null)),
     );
+  });
+});
+
+describe('extractMaskedTransferSuffix（R12.1 用脱敏后的描述重跑 R6.1）', () => {
+  it.each([
+    ['TRANSFER 681801  TO  ****6691', '6691'],
+    ['TRANSFER 815033  FROM       ****6691', '6691'],
+    ['ANZ FUNDS TFER TO ****1234', '1234'],
+    // CBA 的 xx 尾号脱敏时不受影响，照常能取
+    ['Transfer from xx5678 CommBank app Home', '5678'],
+  ])('R12.1: %s → %s', (masked, expected) => {
+    expect(extractMaskedTransferSuffix(masked)).toBe(expected);
+  });
+
+  it.each([
+    // PayID 转账只有人名
+    'Transfer To MISS X Y PayID Phone from CommBank App Eat Eat',
+    'Fast Transfer From TEST HOLDER JOINT',
+    // 不含 FUNDS TFER / TRANSFER 的不取
+    'EASI AU ****2605',
+    'LOAN REPAYMENT LN REPAY ****6789',
+    // 流水号不是账号
+    'TRANSFER 681801',
+  ])('R12.1: %s → null', (masked) => {
+    expect(extractMaskedTransferSuffix(masked)).toBeNull();
+  });
+
+  it('R12.1: fixtures joint #11 → 0003, #17 → 0002, #18 → 9999 (from the stored, masked description)', () => {
+    const rows = parseAnzCsv(readFixture('anz/joint-2026-09.csv'));
+    const stored = (n: number) => extractAndMask(rows[n - 1].description).description;
+    expect(extractMaskedTransferSuffix(stored(11))).toBe('0003');
+    expect(extractMaskedTransferSuffix(stored(17))).toBe('0002');
+    expect(extractMaskedTransferSuffix(stored(18))).toBe('9999');
   });
 });
