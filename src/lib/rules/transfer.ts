@@ -1,6 +1,9 @@
 // R6 内部转账：R6.1 识别、R6.2 配对、R6.3 兜底建议（business-rules.md R6）
 // 纯函数，不 import 数据库和 Next.js
-import type { Account, CategorySource, TransferStatus } from './types';
+import { bySystemKey } from './classify';
+import { extractMaskedTransferSuffix } from './extract';
+import { recomputeMember, type MemberContext } from './member';
+import type { Account, CategorySource, MemberSource, TransferStatus } from './types';
 
 // ---------- R6.1 ----------
 
@@ -43,6 +46,7 @@ export type TransferTx = {
   transferPairId: string | null;
   categoryId: string;
   categorySource: CategorySource;
+  splitCount: number; // R15 拆分数。R6.2 的另一半有多个拆分时不改分类
 };
 
 const MAX_DAYS_APART = 2;
@@ -68,7 +72,7 @@ export type PairResult = {
   counterpartId: string;
   // 另一半配对后的字段
   counterpart: Pick<TransferTx, 'transferStatus' | 'categoryId' | 'categorySource'>;
-  // 另一半是 manual 分类，没改它，F8 要提示
+  // 另一半是 manual 分类或有多个拆分，没改它，F8 要提示
   manualCategoryKept: boolean;
 };
 
@@ -101,8 +105,8 @@ export function findPair(
     };
   }
 
-  // 另一半是 manual 分类 → 只配对，什么都不改
-  if (c.categorySource === 'manual') {
+  // 另一半是 manual 分类，或者有多个拆分（用户手动拆的，同 R7.2 跳过多拆分）→ 只配对，什么都不改
+  if (c.categorySource === 'manual' || c.splitCount > 1) {
     return {
       counterpartId: c.id,
       counterpart: {
@@ -170,4 +174,105 @@ export function suggestTransfers(
     used.add(a.id).add(b.id);
   }
   return out;
+}
+
+// ---------- R12 第 6 步：R6.2 整个家庭配对，然后 R6.3 建议 ----------
+
+// R6.2：以前导入的 auto 转账，表里没存对方账户，完整账号也已经脱敏了
+// 和 R12.1 一样从脱敏后的描述重跑 R6.1：****1234 当成 4 位尾号。尾号对上多个家庭账户时认不出 → null
+export function storedTransferAccountId(
+  maskedDescription: string,
+  account: Account,
+  allAccounts: readonly Account[],
+): string | null {
+  const transferAccount = extractMaskedTransferSuffix(maskedDescription);
+  return detectTransfer({ transferAccount }, account, allAccounts).transferAccountId;
+}
+
+// 家庭里还没配对的 confirmed 交易 + 主拆分上 R5.1 要用的字段
+export type HouseholdTransferTx = TransferTx & {
+  cardLast4: string | null;
+  memberId: string;
+  memberSource: MemberSource;
+};
+
+// R6.2 另一半要改成内部转账时写的字段（transaction.transfer_status + 主拆分）
+export type CounterpartUpdate = {
+  transferStatus: 'auto';
+  categoryId: string;
+  categorySource: 'system';
+  isPreTax: boolean;
+  memberId: string;
+  memberSource: MemberSource;
+};
+
+export type PairPlan = {
+  aId: string; // 去找另一半的那笔 auto 转账
+  bId: string; // 另一半
+  counterpartUpdate: CounterpartUpdate | null; // null = 另一半不用改
+  manualCategoryKept: boolean; // 另一半是 manual 或多个拆分，没改，F8 提示
+};
+
+export type TransferPlan = { pairs: PairPlan[]; suggestions: TransferSuggestion[] };
+
+const byDateThenId = (a: TransferTx, b: TransferTx) =>
+  a.date < b.date ? -1 : a.date > b.date ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+
+// R12 第 6 步。txs：整个家庭还没配对的 confirmed 交易（以前导入的 transferAccountId 用 storedTransferAccountId 补上）
+// newIds：本次导入新插入的交易 id，R6.3 只从它们出发
+// R6.2 按日期从早到晚处理每笔还没配对的 auto 转账，配上的两笔后面不再参与；然后在配对后的状态上跑 R6.3
+// 调用方负责两边互相写 transfer_pair_id、写 counterpartUpdate、把建议的两边标成 suggested
+export function planTransfers(
+  txs: readonly HouseholdTransferTx[],
+  newIds: ReadonlySet<string>,
+  ctx: MemberContext,
+): TransferPlan {
+  const internal = bySystemKey(ctx.categories, 'internal_transfer');
+  const uncategorized = bySystemKey(ctx.categories, 'uncategorized');
+  const state = new Map(txs.map((t) => [t.id, { ...t }]));
+  const all = [...state.values()];
+
+  const pairs: PairPlan[] = [];
+  const autos = all
+    .filter((t) => t.transferStatus === 'auto' && t.transferPairId === null)
+    .sort(byDateThenId);
+  for (const a of autos) {
+    if (a.transferPairId !== null) continue; // 已经被前面的转账当成另一半配上了
+    const found = findPair(a, all, internal.id);
+    if (!found) continue;
+    const b = state.get(found.counterpartId)!;
+
+    let counterpartUpdate: CounterpartUpdate | null = null;
+    if (b.transferStatus !== 'auto' && found.counterpart.transferStatus === 'auto') {
+      // 另一半改成内部转账，归属人按 R5.1 重算（manual 不动）
+      const member = recomputeMember(
+        {
+          memberId: b.memberId,
+          memberSource: b.memberSource,
+          accountId: b.accountId,
+          cardLast4: b.cardLast4,
+        },
+        internal.id,
+        ctx,
+      );
+      counterpartUpdate = {
+        transferStatus: 'auto',
+        categoryId: internal.id,
+        categorySource: 'system',
+        isPreTax: internal.isPreTaxDefault,
+        ...member,
+      };
+      Object.assign(b, counterpartUpdate);
+    }
+    a.transferPairId = b.id;
+    b.transferPairId = a.id;
+    pairs.push({
+      aId: a.id,
+      bId: b.id,
+      counterpartUpdate,
+      manualCategoryKept: found.manualCategoryKept,
+    });
+  }
+
+  return { pairs, suggestions: suggestTransfers(all, uncategorized.id, newIds) };
 }

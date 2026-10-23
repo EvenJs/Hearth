@@ -1,9 +1,8 @@
-// CSV 导入（business-rules.md R12）。M3-3：第 1 到 5 步和第 8 步
+// CSV 导入（business-rules.md R12），第 1 到 10 步
 // 业务判断全部用 src/lib/ 的纯函数，这里只负责读写数据库和串流程
-// R6.2 配对、R6.3 建议、R9 对账（第 6、7 步）在 M3-4 加进同一个事务
 // 不保存上传的原文件；日志和报错里不打印原始描述
 import { randomUUID } from 'node:crypto';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import {
   card,
@@ -16,10 +15,17 @@ import {
 } from '@/db/schema';
 import { canImportCsv } from '@/lib/import/banks';
 import { checkBalanceContinuity, deriveBalances, type BalanceWarning } from '@/lib/import/cba';
-import { parseBankCsv } from '@/lib/import/index';
 import { processFile, type HouseholdConfig } from '@/lib/import/process';
+import { bySystemKey } from '@/lib/rules/classify';
 import { confirmPendingTransfer, findPendingMatches } from '@/lib/rules/pending';
-import type { MemberSource, ProcessedRow } from '@/lib/rules/types';
+import { pendingsToCheck, reconcile, type Reconciliation } from '@/lib/rules/reconcile';
+import {
+  planTransfers,
+  storedTransferAccountId,
+  type HouseholdTransferTx,
+  type TransferPlan,
+} from '@/lib/rules/transfer';
+import type { CategorySource, MemberSource, ParsedRow, ProcessedRow } from '@/lib/rules/types';
 import type { HouseholdContext } from './context';
 
 export type ImportInput = {
@@ -36,14 +42,18 @@ export type ImportWarnings = {
   balance: BalanceWarning[]; // R1B.1
   possibleDuplicates: { transactionId: string; pendingIds: string[] }[]; // R8.2 ≥ 2 个候选
   pendingTransferSplits: string[]; // R8.3 例外：pending 有多个拆分，没改，F8 提示
+  reconciliation: Reconciliation; // R9，差额只能在导入时算准，存下来给结果页
 };
 
-// 本次新插入的交易和被确认的 pending，M3-4 的 R6.2、R6.3 从这里出发
+// 本次新插入的交易和被确认的 pending
 export type ImportedTransaction = {
   id: string;
   kind: 'inserted' | 'confirmed_pending';
   transferAccountId: string | null; // R6.1 匹配到的对方账户，不入库
 };
+
+// R8.4 导入结果页要列出的 pending
+export type PendingToCheck = { id: string; date: string; amountCents: number; merchant: string };
 
 export type ImportSuccess = {
   ok: true;
@@ -52,10 +62,14 @@ export type ImportSuccess = {
   insertedCount: number;
   duplicateCount: number;
   matchedPendingCount: number;
+  uncategorizedCount: number; // 本批次的交易里，R6 之后主拆分仍是未分类的（suggested 也算）
+  pendingToCheck: PendingToCheck[]; // R8.4
   openingBalanceCents: number | null;
   closingBalanceCents: number | null;
+  reconciliation: Reconciliation; // R9
   warnings: ImportWarnings;
   transactions: ImportedTransaction[];
+  transfers: TransferPlan; // R6.2 配对、R6.3 建议
 };
 
 export type ImportFailure = {
@@ -76,9 +90,20 @@ function chunks<T>(items: readonly T[]): T[][] {
   return out;
 }
 
-function fail(reason: ImportFailure['reason'], message: string, line: number | null = null) {
-  return { ok: false, reason, message, line } satisfies ImportFailure;
+function fail(
+  reason: ImportFailure['reason'],
+  message: string,
+  line: number | null = null,
+): ImportFailure {
+  return { ok: false, reason, message, line };
 }
+
+const splitCountSql = sql<number>`(select count(*)::int from ${transactionSplit} s where s.transaction_id = ${transaction.id})`;
+
+const primarySplitJoin = and(
+  eq(transactionSplit.transactionId, transaction.id),
+  eq(transactionSplit.isPrimary, true),
+);
 
 // R5、R6.1、R7 要用的家庭配置
 // 账户和分类连已归档的一起读：转给已归档账户的钱 R6.1 照样认得出，规则指向已归档分类也不会找不到
@@ -153,6 +178,8 @@ export async function importCsv(ctx: HouseholdContext, input: ImportInput): Prom
   const config = await loadHouseholdConfig(ctx);
   const account = config.accounts.find((a) => a.id === input.accountId);
   if (!account) return fail('not_importable', '账户不存在');
+  const accountById = new Map(config.accounts.map((a) => [a.id, a]));
+  const uncategorized = bySystemKey(config.categories, 'uncategorized');
 
   // ---------- R12 第 1、2 步：事务外 ----------
 
@@ -160,21 +187,22 @@ export async function importCsv(ctx: HouseholdContext, input: ImportInput): Prom
   if (!processed.ok) return fail('parse', processed.message, processed.line);
   const rows = processed.rows;
 
-  const warnings: ImportWarnings = {
-    balance: [],
-    possibleDuplicates: [],
-    pendingTransferSplits: [],
-  };
+  const balanceWarnings: BalanceWarning[] = [];
   let openingBalanceCents: number | null = null;
   let closingBalanceCents: number | null = null;
 
   if (account.bank === 'cba') {
     // R1B.1 只记警告；R1B.2 期初期末自动得出，忽略传进来的
-    // 余额检查要用解析后的原始顺序，processFile 输出和文件顺序一致，再解析一次只为拿 ParsedRow
-    const parsed = parseBankCsv(account.bank, input.text);
-    if (!parsed.ok) return fail('parse', parsed.message, parsed.line);
-    warnings.balance = checkBalanceContinuity(parsed.rows);
-    ({ openingBalanceCents, closingBalanceCents } = deriveBalances(parsed.rows));
+    // processFile 的输出和文件顺序一致，只用到日期、金额、余额、行号；描述用脱敏后的
+    const parsed: ParsedRow[] = rows.map((r) => ({
+      date: r.date,
+      amountCents: r.amountCents,
+      description: r.rawDescription,
+      balanceCents: r.balanceCents,
+      rowIndex: r.rowIndex,
+    }));
+    balanceWarnings.push(...checkBalanceContinuity(parsed));
+    ({ openingBalanceCents, closingBalanceCents } = deriveBalances(parsed));
   } else {
     const opening = input.openingBalanceCents ?? null;
     const closing = input.closingBalanceCents ?? null;
@@ -199,6 +227,8 @@ export async function importCsv(ctx: HouseholdContext, input: ImportInput): Prom
 
   return db.transaction(async (tx) => {
     const hh = ctx.householdId;
+    const possibleDuplicates: ImportWarnings['possibleDuplicates'] = [];
+    const pendingTransferSplits: string[] = [];
 
     // 4. 创建 import_batch，计数最后再更新
     const [batch] = await tx
@@ -218,6 +248,8 @@ export async function importCsv(ctx: HouseholdContext, input: ImportInput): Prom
         createdBy: ctx.userId,
       })
       .returning({ id: importBatch.id });
+
+    // ---------- 5. 逐行：去重、pending 匹配、插入 ----------
 
     // R4.2：(account_id, dedupe_key) 已存在的跳过
     const existing = new Set<string>();
@@ -246,16 +278,10 @@ export async function importCsv(ctx: HouseholdContext, input: ImportInput): Prom
         amountCents: transaction.amountCents,
         memberId: transactionSplit.memberId,
         memberSource: transactionSplit.memberSource,
-        splitCount: sql<number>`(select count(*)::int from ${transactionSplit} s where s.transaction_id = ${transaction.id})`,
+        splitCount: splitCountSql,
       })
       .from(transaction)
-      .innerJoin(
-        transactionSplit,
-        and(
-          eq(transactionSplit.transactionId, transaction.id),
-          eq(transactionSplit.isPrimary, true),
-        ),
-      )
+      .innerJoin(transactionSplit, primarySplitJoin)
       .where(
         and(
           eq(transaction.householdId, hh),
@@ -316,7 +342,8 @@ export async function importCsv(ctx: HouseholdContext, input: ImportInput): Prom
               ),
             );
         } else if (exception.kind === 'multiple_splits') {
-          warnings.pendingTransferSplits.push(pending.id);
+          // transfer_status 保持 none：另一半导入时如果是 auto，R6.2 照样能找到它（manual，只配对不改）
+          pendingTransferSplits.push(pending.id);
         }
 
         matchedPendingCount++;
@@ -333,11 +360,11 @@ export async function importCsv(ctx: HouseholdContext, input: ImportInput): Prom
       toInsert.push({ id, row });
       transactions.push({ id, kind: 'inserted', transferAccountId: row.transferAccountId });
       if (match.kind === 'ambiguous') {
-        warnings.possibleDuplicates.push({ transactionId: id, pendingIds: match.pendingIds });
+        possibleDuplicates.push({ transactionId: id, pendingIds: match.pendingIds });
       }
     }
 
-    // 5. 新交易：transaction（CBA 带 balance_cents）+ 一行主拆分
+    // 新交易：transaction（CBA 带 balance_cents）+ 一行主拆分
     for (const part of chunks(toInsert)) {
       await tx.insert(transaction).values(
         part.map(({ id, row }) => ({
@@ -375,16 +402,183 @@ export async function importCsv(ctx: HouseholdContext, input: ImportInput): Prom
       );
     }
 
-    // 8. 更新 import_batch 计数
+    // ---------- 6. R6.2 配对（整个家庭）、R6.3 兜底建议 ----------
+
+    // 整个家庭还没配对的 confirmed 交易（pending 不参与，等它被导入确认时再检查）
+    const unpaired = await tx
+      .select({
+        id: transaction.id,
+        accountId: transaction.accountId,
+        date: transaction.date,
+        amountCents: transaction.amountCents,
+        rawDescription: transaction.rawDescription,
+        cardLast4: transaction.cardLast4,
+        transferStatus: transaction.transferStatus,
+        categoryId: transactionSplit.categoryId,
+        categorySource: transactionSplit.categorySource,
+        memberId: transactionSplit.memberId,
+        memberSource: transactionSplit.memberSource,
+        splitCount: splitCountSql,
+      })
+      .from(transaction)
+      .innerJoin(transactionSplit, primarySplitJoin)
+      .where(
+        and(
+          eq(transaction.householdId, hh),
+          eq(transaction.status, 'confirmed'),
+          isNull(transaction.transferPairId),
+        ),
+      );
+
+    // 本次的交易用内存里 R6.1 的结果；以前导入的 auto 转账从脱敏后的描述重认
+    const knownTransferAccount = new Map(transactions.map((t) => [t.id, t.transferAccountId]));
+    const householdTxs: HouseholdTransferTx[] = unpaired.map((t) => ({
+      id: t.id,
+      accountId: t.accountId,
+      date: t.date,
+      amountCents: t.amountCents,
+      transferStatus: t.transferStatus,
+      transferAccountId: knownTransferAccount.has(t.id)
+        ? knownTransferAccount.get(t.id)!
+        : t.transferStatus === 'auto'
+          ? storedTransferAccountId(
+              t.rawDescription,
+              accountById.get(t.accountId)!,
+              config.accounts,
+            )
+          : null,
+      transferPairId: null,
+      categoryId: t.categoryId,
+      categorySource: t.categorySource as CategorySource,
+      splitCount: t.splitCount,
+      cardLast4: t.cardLast4,
+      memberId: t.memberId,
+      memberSource: t.memberSource as MemberSource,
+    }));
+
+    const newIds = new Set(toInsert.map((t) => t.id));
+    const transfers = planTransfers(householdTxs, newIds, config);
+
+    const byId = (id: string) => and(eq(transaction.id, id), eq(transaction.householdId, hh));
+    for (const p of transfers.pairs) {
+      await tx.update(transaction).set({ transferPairId: p.bId }).where(byId(p.aId));
+      const u = p.counterpartUpdate;
+      await tx
+        .update(transaction)
+        .set({ transferPairId: p.aId, ...(u ? { transferStatus: u.transferStatus } : {}) })
+        .where(byId(p.bId));
+      if (u) {
+        await tx
+          .update(transactionSplit)
+          .set({
+            categoryId: u.categoryId,
+            categorySource: u.categorySource,
+            isPreTax: u.isPreTax,
+            memberId: u.memberId,
+            memberSource: u.memberSource,
+          })
+          .where(
+            and(
+              eq(transactionSplit.transactionId, p.bId),
+              eq(transactionSplit.householdId, hh),
+              eq(transactionSplit.isPrimary, true),
+            ),
+          );
+      }
+    }
+    // R6.3：两边都标 suggested 并配对，分类和归属人不动（确认前还是未分类）
+    for (const s of transfers.suggestions) {
+      await tx
+        .update(transaction)
+        .set({ transferStatus: 'suggested', transferPairId: s.bId })
+        .where(byId(s.aId));
+      await tx
+        .update(transaction)
+        .set({ transferStatus: 'suggested', transferPairId: s.aId })
+        .where(byId(s.bId));
+    }
+
+    // ---------- 7. R9 对账：用数据库里该账户的交易，不只是本次文件 ----------
+
+    const inRange = await tx
+      .select({
+        date: transaction.date,
+        amountCents: transaction.amountCents,
+        status: transaction.status,
+      })
+      .from(transaction)
+      .where(
+        and(
+          eq(transaction.householdId, hh),
+          eq(transaction.accountId, account.id),
+          gte(transaction.date, dateFrom),
+          lte(transaction.date, dateTo),
+        ),
+      );
+    const reconciliation = reconcile({
+      openingBalanceCents,
+      closingBalanceCents,
+      dateFrom,
+      dateTo,
+      transactions: inRange,
+    });
+
+    // ---------- 8. 更新 import_batch ----------
+
+    const warnings: ImportWarnings = {
+      balance: balanceWarnings,
+      possibleDuplicates,
+      pendingTransferSplits,
+      reconciliation,
+    };
     await tx
       .update(importBatch)
       .set({
         insertedCount: toInsert.length,
         duplicateCount,
         matchedPendingCount,
+        reconciled: reconciliation.status === 'none' ? null : reconciliation.status === 'passed',
         warnings,
       })
       .where(eq(importBatch.id, batch.id));
+
+    // ---------- 10. 返回结果 ----------
+
+    const batchIds = transactions.map((t) => t.id);
+    const uncategorizedCount =
+      batchIds.length === 0
+        ? 0
+        : await tx.$count(
+            transactionSplit,
+            and(
+              eq(transactionSplit.householdId, hh),
+              eq(transactionSplit.isPrimary, true),
+              eq(transactionSplit.categoryId, uncategorized.id),
+              inArray(transactionSplit.transactionId, batchIds),
+            ),
+          );
+
+    // R8.4：该账户里还是 pending 的
+    const stillPending = await tx
+      .select({
+        id: transaction.id,
+        date: transaction.date,
+        amountCents: transaction.amountCents,
+        merchant: transaction.merchant,
+        status: transaction.status,
+      })
+      .from(transaction)
+      .where(
+        and(
+          eq(transaction.householdId, hh),
+          eq(transaction.accountId, account.id),
+          eq(transaction.status, 'pending'),
+        ),
+      )
+      .orderBy(transaction.date);
+    const pendingToCheck = pendingsToCheck(stillPending, dateTo).map(
+      ({ id, date, amountCents, merchant }) => ({ id, date, amountCents, merchant }),
+    );
 
     return {
       ok: true,
@@ -393,10 +587,14 @@ export async function importCsv(ctx: HouseholdContext, input: ImportInput): Prom
       insertedCount: toInsert.length,
       duplicateCount,
       matchedPendingCount,
+      uncategorizedCount,
+      pendingToCheck,
       openingBalanceCents,
       closingBalanceCents,
+      reconciliation,
       warnings,
       transactions,
+      transfers,
     } satisfies ImportSuccess;
   });
 }
