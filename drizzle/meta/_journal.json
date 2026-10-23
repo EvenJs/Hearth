@@ -8,6 +8,13 @@
       "when": 1792710837064,
       "tag": "0000_productive_ulik",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792715090835,
+      "tag": "0001_m1_1_business_tables",
+      "breakpoints": true
     }
   ]
 }
