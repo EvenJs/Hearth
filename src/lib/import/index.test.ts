@@ -10,6 +10,11 @@ describe('parseBankCsv（R1 按 bank 选解析器）', () => {
     expect(result.ok && result.rows).toHaveLength(19);
   });
 
+  it('R1: cba uses the CBA parser', () => {
+    const result = parseBankCsv('cba', readFixture('cba/female-2026-09.csv'));
+    expect(result.ok && result.rows).toHaveLength(20);
+  });
+
   it.each(['anz_plus', 'cash', 'other'] as const)('R1: %s cannot import CSV (P9)', (bank) => {
     const result = parseBankCsv(bank, readFixture('anz/joint-2026-09.csv'));
     expect(result).toEqual({ ok: false, message: '这个账户不能导入 CSV', line: null });
