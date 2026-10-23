@@ -244,6 +244,9 @@ dedupe_key = sha256( account_id | date | amount_cents | normalizedDescription | 
 
 结果：`transfer_status = auto`，分类设为系统分类"内部转账"，`category_source = system`
 
+- 对上**多个**家庭账户（如提取到 `5678`，家里有 `115678` 和 `225678`）→ 不认成转账，走 R7，留给 R6.3 兜底
+- 没有尾号的账户（现金）不参与匹配
+
 | 对方账号          | 家庭账户尾号    | 结果                       |
 | ----------------- | --------------- | -------------------------- |
 | `012345400006691` | 某账户 `6691`   | auto                       |
@@ -268,7 +271,7 @@ dedupe_key = sha256( account_id | date | amount_cents | normalizedDescription | 
 找到恰好 1 笔 → 两边互相写 `transfer_pair_id`。另一半如果还不是转账（比如 CBA 那边只显示人名，被分成了 Uncategorised）：
 
 - `transfer_status` 改成 `auto`，分类改成内部转账，`category_source = system`
-- 如果另一半的分类是 `manual`，不改它，只配对，并在 F8 提示
+- 如果另一半的分类是 `manual`，不改它，只配对，并在 F8 提示。`transfer_status` 也不改（保持 `none`），因为 auto 不计收支，改了等于把手动分类从统计里抹掉
 
 找到 0 笔（对方账户还没导入）或多笔 → 不配对，不影响它被标成转账。
 
@@ -280,6 +283,7 @@ dedupe_key = sha256( account_id | date | amount_cents | normalizedDescription | 
 
 - 在本家庭其他账户里找：金额相反、日期相差 ≤ 2 天、也是未分类
 - 恰好 1 个候选 → 两边都标 `transfer_status = suggested`，配对
+  - "恰好 1 个"要求**两边互相**都只有对方这一个候选。A 只有 B，但 B 有 A 和 C 两个候选 → 不建议
 - 在 F8 里提示确认。**确认前按普通交易统计**；确认后变 `confirmed` 并改分类为"内部转账"；拒绝后回到 `none`
 
 ---
