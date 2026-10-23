@@ -28,7 +28,7 @@
 | **Insurance & financial**   | Home       | Car insurance · Home insurance · Personal & life insurance                                                                                                                |
 | **Groceries**               | Home       | Supermarket · Butcher · Fruit · Vegetable · Pet                                                                                                                           |
 | **Personal & medical**      |            | Hair & beauty · Cosmetics & toiletries · Medicines & pharmacy · Hobbies · Clothing & shoes · Jewellery & accessories · Education · Computers & gadgets                    |
-| **Entertainment & eat-out** |            | Coffee & tea · Lunches · Restaurants · Take-away & snacks · Drinks · Books · Movies & music · Holidays · Celebrations & gifts                                             |
+| **Entertainment & eat-out** |            | Coffee & tea · Bubble tea · Lunches · Restaurants · Take-away & snacks · Drinks · Books · Movies & music · Holidays · Celebrations & gifts                                |
 | **Transport & auto**        |            | Public transport · Petrol / EV charging · Rego & licence · Road tolls & parking · Repairs & maintenance · Fines                                                           |
 
 - 默认归属人设在一级上，二级继承。空的表示不设，按卡号或账户决定（见 R5）
@@ -123,9 +123,10 @@
 
 | 关键词          | 二级                 |
 | --------------- | -------------------- |
-| GONG CHA        | Coffee & tea         |
-| TOP TEA         | Coffee & tea         |
-| MOLLY TEA       | Coffee & tea         |
+| GONG CHA        | Bubble tea           |
+| TOP TEA         | Bubble tea           |
+| MOLLY TEA       | Bubble tea           |
+| SW WHITE        | Bubble tea           |
 | COFFEE          | Coffee & tea         |
 | CAFE ❓         | Coffee & tea         |
 | MESSINA         | Take-away & snacks   |
@@ -149,6 +150,8 @@
 | TICKETEK        | Movies & music       |
 | FLORIS          | Celebrations & gifts |
 
+> Bubble tea 是奶茶店，Coffee & tea 是咖啡馆。
+> `SW WHITE`：描述是 `272 SW WHITE ...` 这类，前面的数字是门店号，关键词只取后半段。
 > Lunches 没有预置规则：同一家面馆是不是午饭，从流水看不出来。
 
 ### Transport & auto
@@ -206,7 +209,7 @@
 
 从描述看不出是什么，留给 Uncategorised，第一次手动分类时存成规则：
 
-`EASI AU`、`VIT MELBOURNE`、`AUWE INTERNATIONAL`、`272 SW WHITE`、`LING ZHENG`、`H PRENTICE`、`JU S LUO`、`PRIMO@VIC`、`THE TRUSTEE FOR HAOSO`、`ZIYAN AUSTRALIA`、`BIZOE AU`、`GOLDEN FRIENDSHIP`、`WASSHOI`、`KUMO`、`QUEEN VIC GOURMET`、`QUEEN VICTORIA MARK`
+`EASI AU`、`VIT MELBOURNE`、`AUWE INTERNATIONAL`、`LING ZHENG`、`H PRENTICE`、`JU S LUO`、`PRIMO@VIC`、`THE TRUSTEE FOR HAOSO`、`ZIYAN AUSTRALIA`、`BIZOE AU`、`GOLDEN FRIENDSHIP`、`WASSHOI`、`KUMO`、`QUEEN VIC GOURMET`、`QUEEN VICTORIA MARK`
 
 ---
 
