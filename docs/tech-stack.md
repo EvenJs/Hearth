@@ -183,6 +183,10 @@ BETTER_AUTH_URL        # 本地 http://localhost:5000，线上用 Vercel 域名
 ### 10.2 迁移前打快照
 
 - prod 跑 `db:migrate` 之前，先在 Neon 控制台从 prod 建一个 branch，命名 `pre-migrate-YYYYMMDD`
+  - 建 branch 时选 **Data and schema**、当前时间点（Schema only 不带数据，不能当备份）
+  - 建完后 Neon 显示的往往是新 branch 的连接串。迁移要用 **prod** 的连接串，回到 prod branch 重新复制
+- 本地对 prod 跑命令时，不改 `.env.local`：新开一个终端，`read -s DATABASE_URL` 粘贴连接串，再 `export DATABASE_URL`（shell 里的值优先于 `.env.local`，密码也不进 shell 历史）。做完关掉终端
+- 跑之前用 `echo ${DATABASE_URL#*@} | cut -d/ -f1` 打印主机名，确认和 Vercel 上 `DATABASE_URL` 的主机名一致
 - 迁移出问题时可以从这个 branch 恢复
 - 确认没问题后删掉（免费版 branch 数量有限）
 

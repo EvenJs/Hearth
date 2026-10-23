@@ -49,6 +49,8 @@ export function LoginForm() {
       setFormError(toErrorMessage(error.status));
       return;
     }
+    // 先清空表单，避免密码留在保留下来的页面状态里
+    form.reset();
     router.replace('/');
     router.refresh();
   }

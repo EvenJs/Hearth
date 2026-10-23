@@ -1,13 +1,11 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { authClient } from '@/lib/auth-client';
 
 export function SignOutButton() {
-  const router = useRouter();
   const [pending, setPending] = useState(false);
 
   async function handleSignOut() {
@@ -18,8 +16,8 @@ export function SignOutButton() {
       toast.error('退出失败，请稍后再试');
       return;
     }
-    router.replace('/login');
-    router.refresh();
+    // 整页跳转而不是 router.replace：清掉客户端保留的页面状态和缓存（cacheComponents 会保留表单内容）
+    window.location.replace('/login');
   }
 
   return (

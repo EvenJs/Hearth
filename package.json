@@ -17,6 +17,9 @@
     "db:ping": "node --env-file=.env.local scripts/db-ping.ts",
     "user:create": "node --env-file=.env.local scripts/create-user.ts"
   },
+  "engines": {
+    "node": "^22.18.0"
+  },
   "dependencies": {
     "@hookform/resolvers": "6.0.0",
     "@neondatabase/serverless": "1.2.0",
