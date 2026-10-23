@@ -291,3 +291,83 @@ describe('suggestTransfers（R6.3）', () => {
     expect(suggestTransfers(txs, UNCATEGORIZED)).toEqual([]);
   });
 });
+
+describe('suggestTransfers 只从本次新插入的交易出发（R6.3）', () => {
+  // joint → overlap → me 导入完，R6.2 已经把 #17 和 me 03/09 配上
+  function afterMe(): TransferTx[] {
+    return [...load('anz/joint-2026-09.csv', joint), ...load('anz/me-2026-09.csv', male)].map(
+      (t) => {
+        if (t.id === 'ANZ Joint#17') return { ...t, transferPairId: 'ANZ Male#3' };
+        if (t.id === 'ANZ Male#3') return { ...t, transferPairId: 'ANZ Joint#17' };
+        return t;
+      },
+    );
+  }
+  const idsOf = (txs: TransferTx[], accountId: string) =>
+    new Set(txs.filter((t) => t.accountId === accountId).map((t) => t.id));
+
+  it('R6.3: importing me (new) suggests joint #7 (old) ↔ PAYID PAYMENT (new)', () => {
+    const txs = afterMe();
+    expect(suggestTransfers(txs, UNCATEGORIZED, idsOf(txs, male.id))).toEqual([
+      { aId: 'ANZ Joint#7', bId: 'ANZ Male#1' },
+    ]);
+  });
+
+  it('R6.3: works the same when the new side comes first in the input', () => {
+    const txs = afterMe().reverse();
+    expect(suggestTransfers(txs, UNCATEGORIZED, new Set(['ANZ Joint#7']))).toEqual([
+      { aId: 'ANZ Male#1', bId: 'ANZ Joint#7' },
+    ]);
+  });
+
+  it('R6.3: rejected pair (both old) is not suggested again when cba is imported', () => {
+    // 拒绝后两边回到 none、未分类、没配对，和导入时一样
+    const before = afterMe();
+    const cba = load('cba/female-2026-09.csv', female).map((t) => {
+      if (t.id === 'CBA Female#10')
+        return {
+          ...t,
+          transferStatus: 'auto' as const,
+          categoryId: INTERNAL,
+          categorySource: 'system' as const,
+          transferPairId: 'ANZ Joint#11',
+        };
+      return t;
+    });
+    const txs = [
+      ...before.map((t) =>
+        t.id === 'ANZ Joint#11' ? { ...t, transferPairId: 'CBA Female#10' } : t,
+      ),
+      ...cba,
+    ];
+    expect(byId(txs, 'ANZ Joint#7')).toMatchObject({
+      transferStatus: 'none',
+      transferPairId: null,
+    });
+    expect(suggestTransfers(txs, UNCATEGORIZED, idsOf(txs, female.id))).toEqual([]);
+  });
+
+  it('R6.3: no new transaction at all → nothing suggested', () => {
+    expect(suggestTransfers(afterMe(), UNCATEGORIZED, new Set())).toEqual([]);
+  });
+
+  it('R6.3: "only each other" is checked across the whole household, including old transactions', () => {
+    // 旧交易 C 也是 -80.00、日期接近 → #7 有 PAYID PAYMENT 和 C 两个候选，不建议
+    const txs = afterMe();
+    const c: TransferTx = {
+      ...byId(txs, 'ANZ Male#1'),
+      id: 'CBA Female#old',
+      accountId: female.id,
+      date: '2026-09-22',
+    };
+    expect(suggestTransfers([...txs, c], UNCATEGORIZED, new Set(['ANZ Male#1']))).toEqual([]);
+  });
+
+  it('R6.3: old candidates still count as candidates for a new transaction', () => {
+    // 新的 PAYID PAYMENT 只有旧的 #7 一个候选（#7 也只有它）→ 建议
+    const txs = afterMe();
+    expect(suggestTransfers(txs, UNCATEGORIZED, new Set(['ANZ Male#1']))).toEqual([
+      { aId: 'ANZ Joint#7', bId: 'ANZ Male#1' },
+    ]);
+  });
+});

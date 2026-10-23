@@ -504,6 +504,7 @@ opening_balance + Σ(该账户所有 confirmed 交易，date ∈ [date_from, dat
 - 按 `import_batch` 撤销：删除该批次插入的交易（拆分级联删除）
 - **每个账户只能撤销最近一次导入**。更早的批次如果和后面的批次日期重叠，重叠的行在后面那次被当成重复跳过了，撤销早的会让这段数据变空
 - 被该批次确认的 pending → 恢复成 pending，清空 dedupe_key、import_batch_id、confirmed_at（日期、描述恢复不了，保留银行的；被 R8.3 例外改成转账的，分类也恢复不了）
+  - 被 R8.3 例外改成转账的，`transfer_status` 保持 `auto`，只清空 `transfer_pair_id`。手动录入时一般不会记内部转账，这种情况很少见；保持 auto 的话，之后的 R6.2 或重新导入都能把它重新配上
 
 **撤销前弹窗提醒**：批次里有手动改过的交易（`category_source` 或 `member_source` 是 `manual`、有多个拆分、有备注），或者有被确认的 pending 时，列出各有几笔，用户确认后才撤销。都没有就直接撤销。
 

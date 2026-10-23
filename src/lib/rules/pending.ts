@@ -1,9 +1,11 @@
 // pending 交易：R8.1 手动录入时的初始状态，R8.2 导入时找候选
-// 确认时更新字段（R8.3）在 M3 的导入事务里做
+// R8.3 的普通字段在导入事务里直接更新；R8.3 例外（银行那行是内部转账）在这里算
 // 纯函数，不 import 数据库和 Next.js
 import { canImportCsv } from '@/lib/import/banks';
+import { bySystemKey } from './classify';
+import { recomputeMember, type MemberContext } from './member';
 import { daysBetween } from './periods';
-import type { Account } from './types';
+import type { Account, CategorySource, MemberSource, ProcessedRow } from './types';
 
 export type TransactionStatus = 'pending' | 'confirmed';
 
@@ -52,4 +54,59 @@ export function findPendingMatches(
     }
     return { kind: 'ambiguous', pendingIds: candidates.map((p) => p.id) };
   });
+}
+
+// ---------- R8.3 例外 ----------
+
+export type PendingTransferResult =
+  // 银行那行不是内部转账：按 R8.3 普通情况，拆分保留用户录入的
+  | { kind: 'not_transfer' }
+  // R6.1 优先：transaction 和主拆分要改的字段，备注不动
+  | {
+      kind: 'transfer';
+      transferStatus: 'auto';
+      transferAccountId: string; // R6.2 配对用，不入库
+      primarySplit: {
+        categoryId: string;
+        categorySource: CategorySource;
+        isPreTax: boolean;
+        memberId: string;
+        memberSource: MemberSource;
+      };
+    }
+  // pending 有多个拆分：什么都不改，保留用户的拆分，F8 提示
+  | { kind: 'multiple_splits'; transferAccountId: string };
+
+// R8.3 例外：pending 被确认时，银行那行 R6.1 认出是内部转账
+// bankRow 是 processFile 处理过的那行（R6.1 已经跑过）；primaryMember 是 pending 主拆分现在的归属人
+// 主拆分改成内部转账（system），is_pre_tax 跟着分类走（R7），归属人按 R5.1（manual 不动）
+export function confirmPendingTransfer(
+  bankRow: Pick<ProcessedRow, 'accountId' | 'cardLast4' | 'transferStatus' | 'transferAccountId'>,
+  pending: { splitCount: number; primaryMember: { memberId: string; memberSource: MemberSource } },
+  ctx: MemberContext,
+): PendingTransferResult {
+  if (bankRow.transferStatus !== 'auto' || !bankRow.transferAccountId) {
+    return { kind: 'not_transfer' };
+  }
+  if (pending.splitCount > 1) {
+    return { kind: 'multiple_splits', transferAccountId: bankRow.transferAccountId };
+  }
+
+  const internal = bySystemKey(ctx.categories, 'internal_transfer');
+  const member = recomputeMember(
+    { ...pending.primaryMember, accountId: bankRow.accountId, cardLast4: bankRow.cardLast4 },
+    internal.id,
+    ctx,
+  );
+  return {
+    kind: 'transfer',
+    transferStatus: 'auto',
+    transferAccountId: bankRow.transferAccountId,
+    primarySplit: {
+      categoryId: internal.id,
+      categorySource: 'system',
+      isPreTax: internal.isPreTaxDefault,
+      ...member,
+    },
+  };
 }
