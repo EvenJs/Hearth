@@ -6,7 +6,16 @@ import { parseCbaCsv } from '../import/cba';
 import { classify } from './classify';
 import { extractAndMask } from './extract';
 import { cleanMerchant } from './merchant';
-import { detectTransfer, findPair, suggestTransfers, type TransferTx } from './transfer';
+import { processFile } from '../import/process';
+import {
+  detectTransfer,
+  findPair,
+  planTransfers,
+  storedTransferAccountId,
+  suggestTransfers,
+  type HouseholdTransferTx,
+  type TransferTx,
+} from './transfer';
 import type { Account } from './types';
 
 // 期望值来自 business-rules.md R6.1、R6.2、R6.3 和 fixtures/README.md（joint、me、cba female 三个文件）
@@ -115,6 +124,7 @@ function load(path: FixturePath, account: Account): TransferTx[] {
       transferPairId: null,
       categoryId: c.categoryId,
       categorySource: c.categorySource,
+      splitCount: 1,
     };
   });
 }
@@ -211,6 +221,14 @@ describe('findPair（R6.2）', () => {
     expect(
       findPair(j11(), [c10(), { ...c10(), id: 'CBA Female#10b', date: '2026-09-14' }], INTERNAL),
     ).toBeNull();
+  });
+
+  it('R6.2: counterpart with several splits (R15) → pair only, nothing changed, F8 hint', () => {
+    expect(findPair(j11(), [{ ...c10(), splitCount: 2 }], INTERNAL)).toEqual({
+      counterpartId: 'CBA Female#10',
+      counterpart: { transferStatus: 'none', categoryId: UNCATEGORIZED, categorySource: 'system' },
+      manualCategoryKept: true,
+    });
   });
 
   it('R6.2: tx that is not auto or already paired → no pair', () => {
@@ -369,5 +387,151 @@ describe('suggestTransfers 只从本次新插入的交易出发（R6.3）', () =
     expect(suggestTransfers(txs, UNCATEGORIZED, new Set(['ANZ Male#1']))).toEqual([
       { aId: 'ANZ Joint#7', bId: 'ANZ Male#1' },
     ]);
+  });
+});
+
+describe('storedTransferAccountId（R6.2 用，从脱敏后的描述重跑 R6.1）', () => {
+  it('R6.2: ****0003 on joint → CBA Female, ****0002 → ANZ Male', () => {
+    expect(
+      storedTransferAccountId(
+        'ANZ M-BANKING FUNDS TFER TRANSFER 100000  TO  ****0003',
+        joint,
+        h.accounts,
+      ),
+    ).toBe(female.id);
+    expect(
+      storedTransferAccountId(
+        'ANZ M-BANKING FUNDS TFER TRANSFER 100000  FROM  ****0002',
+        joint,
+        h.accounts,
+      ),
+    ).toBe(male.id);
+  });
+
+  it('R6.2: CBA xx7777 → Saver; PayID and external accounts → null', () => {
+    expect(
+      storedTransferAccountId('Transfer from xx7777 CommBank app Home', female, h.accounts),
+    ).toBe(saver.id);
+    expect(
+      storedTransferAccountId(
+        'Fast Transfer From TEST HOLDER to PayID Phone joint',
+        female,
+        h.accounts,
+      ),
+    ).toBeNull();
+    expect(
+      storedTransferAccountId(
+        'ANZ M-BANKING FUNDS TFER TRANSFER 100000  FROM  ****9999',
+        joint,
+        h.accounts,
+      ),
+    ).toBeNull();
+  });
+});
+
+describe('planTransfers（R6.2 整个家庭配对，然后 R6.3 建议）', () => {
+  // 照 processFile 的结果当成已入库的交易，id 用 "账户名#行号"
+  function file(path: FixturePath, account: Account): HouseholdTransferTx[] {
+    const result = processFile(readFixture(path), account, h);
+    if (!result.ok) throw new Error(result.message);
+    return result.rows.map((r, i) => ({
+      id: `${account.name}#${i + 1}`,
+      accountId: r.accountId,
+      date: r.date,
+      amountCents: r.amountCents,
+      transferStatus: r.transferStatus,
+      transferAccountId: r.transferAccountId,
+      transferPairId: null,
+      categoryId: r.categoryId,
+      categorySource: r.categorySource,
+      splitCount: 1,
+      cardLast4: r.cardLast4,
+      memberId: r.memberId,
+      memberSource: r.memberSource,
+    }));
+  }
+  const ids = (txs: HouseholdTransferTx[]) => new Set(txs.map((t) => t.id));
+
+  it('R6.2/R6.3: joint then me → #17 pairs with me 03/09, #7 and PAYID PAYMENT suggested', () => {
+    const joint9 = file('anz/joint-2026-09.csv', joint);
+    const me = file('anz/me-2026-09.csv', male);
+    expect(planTransfers([...joint9, ...me], ids(me), h)).toEqual({
+      pairs: [
+        {
+          aId: 'ANZ Joint#17',
+          bId: 'ANZ Male#3',
+          counterpartUpdate: null,
+          manualCategoryKept: false,
+        },
+      ],
+      suggestions: [{ aId: 'ANZ Joint#7', bId: 'ANZ Male#1' }],
+    });
+  });
+
+  it('R6.2: joint then cba → old joint #11 pairs with CBA #10, which becomes auto + Internal transfer', () => {
+    const joint9 = file('anz/joint-2026-09.csv', joint);
+    const cba = file('cba/female-2026-09.csv', female);
+    expect(planTransfers([...joint9, ...cba], ids(cba), h)).toEqual({
+      pairs: [
+        {
+          aId: 'ANZ Joint#11',
+          bId: 'CBA Female#10',
+          counterpartUpdate: {
+            transferStatus: 'auto',
+            categoryId: INTERNAL,
+            categorySource: 'system',
+            isPreTax: false,
+            memberId: h.member('Female').id,
+            memberSource: 'account',
+          },
+          manualCategoryKept: false,
+        },
+      ],
+      suggestions: [],
+    });
+  });
+
+  it('R6.3: suggestions only start from new transactions (rejected old pair is not suggested again)', () => {
+    const joint9 = file('anz/joint-2026-09.csv', joint);
+    const me = file('anz/me-2026-09.csv', male);
+    const cba = file('cba/female-2026-09.csv', female);
+    expect(planTransfers([...joint9, ...me, ...cba], ids(cba), h).suggestions).toEqual([]);
+  });
+
+  it('R5.1: a manual member on the counterpart is kept when it becomes a transfer', () => {
+    const joint9 = file('anz/joint-2026-09.csv', joint);
+    const cba = file('cba/female-2026-09.csv', female).map((t) =>
+      t.id === 'CBA Female#10'
+        ? { ...t, memberId: h.member('Home').id, memberSource: 'manual' as const }
+        : t,
+    );
+    const [pair] = planTransfers([...joint9, ...cba], ids(cba), h).pairs;
+    expect(pair.counterpartUpdate).toMatchObject({
+      memberId: h.member('Home').id,
+      memberSource: 'manual',
+    });
+  });
+
+  it('R6.2: counterpart with several splits is paired but not changed', () => {
+    const joint9 = file('anz/joint-2026-09.csv', joint);
+    const cba = file('cba/female-2026-09.csv', female).map((t) =>
+      t.id === 'CBA Female#10' ? { ...t, splitCount: 2 } : t,
+    );
+    expect(planTransfers([...joint9, ...cba], ids(cba), h).pairs).toEqual([
+      {
+        aId: 'ANZ Joint#11',
+        bId: 'CBA Female#10',
+        counterpartUpdate: null,
+        manualCategoryKept: true,
+      },
+    ]);
+  });
+
+  it('R6.2: a pair found earlier is not paired again from the other side; already paired are skipped', () => {
+    const joint9 = file('anz/joint-2026-09.csv', joint).map((t) =>
+      t.id === 'ANZ Joint#17' ? { ...t, transferPairId: 'somewhere' } : t,
+    );
+    const me = file('anz/me-2026-09.csv', male);
+    expect(planTransfers([...joint9, ...me], ids(me), h).pairs).toEqual([]);
   });
 });

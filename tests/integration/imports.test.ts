@@ -110,6 +110,7 @@ describeDb('M3-3 importCsv', () => {
       balance: [],
       possibleDuplicates: [],
       pendingTransferSplits: [],
+      reconciliation: { status: 'none', differenceCents: null },
     });
 
     const got = await listTransactions(t, 'ANZ Joint');
@@ -461,7 +462,8 @@ describeDb('M3-3 importCsv', () => {
     expect(await batchRow(both.batchId)).toMatchObject({
       openingBalanceCents: 100000,
       closingBalanceCents: 123456,
-      reconciled: null,
+      // M3-4 起跑 R9：这两个数是随便填的，对不上
+      reconciled: false,
     });
   });
 
@@ -481,7 +483,7 @@ describeDb('M3-3 importCsv', () => {
     expect(await batchRow(result.batchId)).toMatchObject({
       openingBalanceCents: 1000000,
       closingBalanceCents: 1156159,
-      reconciled: null,
+      reconciled: true,
     });
     expect(result.warnings.balance).toEqual([]);
 
