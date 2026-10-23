@@ -14,6 +14,7 @@
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "db:seed": "node --env-file=.env.local scripts/seed.ts",
     "db:ping": "node --env-file=.env.local scripts/db-ping.ts",
     "user:create": "node --env-file=.env.local scripts/create-user.ts"
   },
