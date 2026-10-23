@@ -4,18 +4,20 @@
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { accountInputSchema, type AccountInput } from '@/lib/accounts/account-input';
+import { cardInputSchema, type CardInput } from '@/lib/accounts/card-input';
 import { AccountError, createAccount, setAccountArchived, updateAccount } from '@/server/accounts';
+import { CardError, createCard, deleteCard } from '@/server/cards';
 import { getHouseholdContext } from '@/server/context';
 
-export type ActionResult =
+export type ActionResult<Field extends string = keyof AccountInput> =
   | { ok: true }
   | {
       ok: false;
       message: string;
-      fieldErrors?: Partial<Record<keyof AccountInput, string>>;
+      fieldErrors?: Partial<Record<Field, string>>;
     };
 
-const accountIdSchema = z.uuid();
+const idSchema = z.uuid(); // 账户和卡的 id 都是 uuid
 const PAGE = '/settings/accounts';
 
 // accountId 为 null 时新建，否则编辑
@@ -39,7 +41,7 @@ export async function saveAccountAction(
     if (accountId === null) {
       await createAccount(ctx, parsed.data);
     } else {
-      await updateAccount(ctx, accountIdSchema.parse(accountId), parsed.data);
+      await updateAccount(ctx, idSchema.parse(accountId), parsed.data);
     }
   } catch (err) {
     return toFailure(err);
@@ -55,7 +57,7 @@ export async function setAccountArchivedAction(
 ): Promise<ActionResult> {
   const ctx = await getHouseholdContext();
   try {
-    await setAccountArchived(ctx, accountIdSchema.parse(accountId), z.boolean().parse(archived));
+    await setAccountArchived(ctx, idSchema.parse(accountId), z.boolean().parse(archived));
   } catch (err) {
     return toFailure(err);
   }
@@ -63,11 +65,50 @@ export async function setAccountArchivedAction(
   return { ok: true };
 }
 
-function toFailure(err: unknown): ActionResult {
-  if (err instanceof AccountError) {
-    return err.field
-      ? { ok: false, message: err.message, fieldErrors: { [err.field]: err.message } }
-      : { ok: false, message: err.message };
+// ---------- 卡号映射（M1-6） ----------
+
+export async function createCardAction(
+  accountId: string,
+  input: CardInput,
+): Promise<ActionResult<keyof CardInput>> {
+  const ctx = await getHouseholdContext();
+
+  const parsed = cardInputSchema.safeParse(input);
+  if (!parsed.success) {
+    const fieldErrors: Partial<Record<keyof CardInput, string>> = {};
+    for (const issue of parsed.error.issues) {
+      const field = issue.path[0] as keyof CardInput;
+      fieldErrors[field] ??= issue.message;
+    }
+    return { ok: false, message: '请检查表单', fieldErrors };
+  }
+
+  try {
+    await createCard(ctx, idSchema.parse(accountId), parsed.data);
+  } catch (err) {
+    return toFailure(err);
+  }
+  revalidatePath(PAGE);
+  return { ok: true };
+}
+
+export async function deleteCardAction(cardId: string): Promise<ActionResult<never>> {
+  const ctx = await getHouseholdContext();
+  try {
+    await deleteCard(ctx, idSchema.parse(cardId));
+  } catch (err) {
+    return toFailure(err);
+  }
+  revalidatePath(PAGE);
+  return { ok: true };
+}
+
+function toFailure<Field extends string>(err: unknown): ActionResult<Field> {
+  if (err instanceof AccountError || err instanceof CardError) {
+    const fieldErrors = err.field
+      ? ({ [err.field]: err.message } as Partial<Record<Field, string>>)
+      : undefined;
+    return { ok: false, message: err.message, fieldErrors };
   }
   console.error('[accounts] 保存失败', err);
   return { ok: false, message: '保存失败，请稍后再试' };
