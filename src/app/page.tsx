@@ -1,5 +1,7 @@
+import Link from 'next/link';
 import { Suspense } from 'react';
 import { HearthLogo } from '@/components/hearth-logo';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { getCurrentUser } from '@/server/auth';
 import { listCategoryTree } from '@/server/categories';
@@ -34,6 +36,10 @@ async function CurrentUserBar() {
   const user = await getCurrentUser();
   return (
     <div className="flex items-center gap-3">
+      {/* 临时入口，M5 做侧边栏导航后去掉 */}
+      <Button variant="ghost" size="sm" asChild>
+        <Link href="/settings/accounts">账户设置</Link>
+      </Button>
       <span className="text-sm text-muted-foreground">{user.name}</span>
       <SignOutButton />
     </div>
