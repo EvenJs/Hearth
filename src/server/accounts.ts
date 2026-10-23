@@ -5,6 +5,7 @@ import { db } from '@/db';
 import { financialAccount, member } from '@/db/schema';
 import type { AccountType, AccountValues, Bank } from '@/lib/accounts/account-input';
 import type { HouseholdContext } from './context';
+import { isActiveMember } from './members';
 
 export type Account = {
   id: string;
@@ -104,19 +105,10 @@ export async function setAccountArchived(
   if (updated.length === 0) throw new AccountError('账户不存在');
 }
 
-// 归属人必须属于当前 household 且没归档，防止表单被改成别家的 member id
 async function assertMemberInHousehold(ctx: HouseholdContext, memberId: string) {
-  const [m] = await db
-    .select({ id: member.id })
-    .from(member)
-    .where(
-      and(
-        eq(member.id, memberId),
-        eq(member.householdId, ctx.householdId),
-        eq(member.isArchived, false),
-      ),
-    );
-  if (!m) throw new AccountError('请选择默认归属人', 'defaultMemberId');
+  if (!(await isActiveMember(ctx, memberId))) {
+    throw new AccountError('请选择默认归属人', 'defaultMemberId');
+  }
 }
 
 // 唯一约束 (household_id, name) 冲突 → 名称重复。drizzle 把驱动错误包在 cause 里

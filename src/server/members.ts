@@ -18,3 +18,18 @@ export async function listMembers(ctx: HouseholdContext): Promise<Member[]> {
     .where(and(eq(member.householdId, ctx.householdId), eq(member.isArchived, false)))
     .orderBy(asc(member.sortOrder), asc(member.name));
 }
+
+// 归属人属于当前 household 且没归档。写入前用它检查，防止表单被改成别家的 member id
+export async function isActiveMember(ctx: HouseholdContext, memberId: string): Promise<boolean> {
+  const [m] = await db
+    .select({ id: member.id })
+    .from(member)
+    .where(
+      and(
+        eq(member.id, memberId),
+        eq(member.householdId, ctx.householdId),
+        eq(member.isArchived, false),
+      ),
+    );
+  return m !== undefined;
+}

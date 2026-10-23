@@ -2,11 +2,12 @@ import { ChevronLeft } from 'lucide-react';
 import Link from 'next/link';
 import { Suspense } from 'react';
 import { listAccounts } from '@/server/accounts';
+import { listCards } from '@/server/cards';
 import { getHouseholdContext } from '@/server/context';
 import { listMembers } from '@/server/members';
 import { AccountsView } from './accounts-view';
 
-// F1 账户设置（设计图 09）。卡号映射在 M1-6 加到这个页面
+// F1 账户设置（设计图 09）：账户列表 + 编辑侧栏里的卡号映射（M1-6）
 export default function AccountsPage(props: PageProps<'/settings/accounts'>) {
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-6xl flex-col gap-6 p-4 sm:p-8">
@@ -39,9 +40,12 @@ async function AccountsSection({
 }) {
   const showArchived = (await searchParams).archived === '1';
   const ctx = await getHouseholdContext();
-  const [accounts, members] = await Promise.all([
+  const [accounts, cards, members] = await Promise.all([
     listAccounts(ctx, { includeArchived: showArchived }),
+    listCards(ctx),
     listMembers(ctx),
   ]);
-  return <AccountsView accounts={accounts} members={members} showArchived={showArchived} />;
+  return (
+    <AccountsView accounts={accounts} cards={cards} members={members} showArchived={showArchived} />
+  );
 }

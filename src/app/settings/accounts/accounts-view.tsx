@@ -24,12 +24,15 @@ import {
 import { ACCOUNT_TYPE_LABELS, BANK_LABELS } from '@/lib/accounts/account-input';
 import { canImportCsv } from '@/lib/import/banks';
 import type { Account } from '@/server/accounts';
+import type { Card } from '@/server/cards';
 import type { Member } from '@/server/members';
 import { AccountForm } from './account-form';
 import { setAccountArchivedAction } from './actions';
+import { CardsSection } from './cards-section';
 
 type Props = {
   accounts: Account[];
+  cards: Card[];
   members: Member[];
   showArchived: boolean;
 };
@@ -37,7 +40,7 @@ type Props = {
 // editing：null = 关闭；'new' = 新建；Account = 编辑
 type Editing = null | 'new' | Account;
 
-export function AccountsView({ accounts, members, showArchived }: Props) {
+export function AccountsView({ accounts, cards, members, showArchived }: Props) {
   const [editing, setEditing] = useState<Editing>(null);
   const [pending, startTransition] = useTransition();
 
@@ -163,6 +166,14 @@ export function AccountsView({ accounts, members, showArchived }: Props) {
               account={editing === 'new' ? null : editing}
               members={members}
               onDone={() => setEditing(null)}
+            />
+          )}
+          {editing !== null && editing !== 'new' && (
+            <CardsSection
+              key={`cards-${editing.id}`}
+              accountId={editing.id}
+              cards={cards.filter((c) => c.accountId === editing.id)}
+              members={members}
             />
           )}
         </SheetContent>
