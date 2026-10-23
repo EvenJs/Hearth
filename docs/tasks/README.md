@@ -11,7 +11,7 @@
 | ------------------ | ---------------- | ----------------------------------- |
 | `docs/tasks/mN.md` | 每个任务的勾     | 每做完一个任务，和代码一起 commit   |
 | `docs/roadmap.md`  | 里程碑验收清单   | 里程碑做完时                        |
-| git log            | 每个任务改了什么 | 自动，commit message 以任务编号开头 |
+| git log            | 每个任务改了什么 | 自动，commit message 带任务编号     |
 
 不用 GitHub Projects、Jira 之类的工具。
 
@@ -29,9 +29,14 @@
 
 ## 每个任务的循环
 
+### 分支
+
+- `dev`：日常开发的主干，每个任务的 PR 合到这里
+- `main`：线上版本，push 后 Vercel 自动部署。里程碑做完才从 `dev` 合进来
+
 ### 1. 开始
 
-- 从 main 拉分支，名字带任务编号：`git checkout -b m2-5-merchant`
+- 从 dev 拉分支，名字带任务编号：`git checkout dev && git pull && git checkout -b m2-5-merchant`
 - Claude Code 开新会话（`/clear`），从干净的上下文开始
 
 ### 2. 交代任务
@@ -63,9 +68,9 @@
 
 ### 5. 收尾
 
-- 在 `tasks/mN.md` 里打勾，和代码一起 commit：`M2-5: clean merchant names (R3)`
-- push，开 PR。Vercel 会给 PR 一个预览地址，快速录入相关的任务用手机打开看
-- 合并到 main，自动部署到线上
+- 在 `tasks/mN.md` 里打勾，和代码一起 commit：`feat: clean merchant names (M2-5)`
+- push，开 PR 到 `dev`。Vercel 会给 PR 一个预览地址，快速录入相关的任务用手机打开看
+- 合并到 `dev`
 
 ---
 
@@ -84,7 +89,8 @@
 
 ## 每个里程碑结束
 
-1. 跑一遍 `roadmap.md` 里这个里程碑的验收清单
-2. 电脑上点一遍线上版本，手机上打开确认不坏
-3. 回顾：做的过程中改过哪些规则？有没有影响后面的里程碑？
-4. 拆下一个里程碑的任务（回 Project 聊，或让 Claude Code 照 `m2.md` 的格式拆，我再审）
+1. 跑一遍 `roadmap.md` 里这个里程碑的验收清单，打勾
+2. 开 `dev` → `main` 的 PR，合并后自动部署到线上
+3. 电脑上点一遍线上版本，手机上打开确认不坏
+4. 回顾：做的过程中改过哪些规则？有没有影响后面的里程碑？
+5. 拆下一个里程碑的任务（回 Project 聊，或让 Claude Code 照 `m2.md` 的格式拆，我再审）
