@@ -18,6 +18,7 @@ export type UndoBatchTx = {
   id: string;
   transferPairId: string | null;
   wasPending: boolean; // true = 被本批次确认的 pending
+  note?: string | null; // transaction.note（交易本身的备注，和拆分的备注分开存）
   splits: readonly {
     categorySource: CategorySource;
     memberSource: MemberSource;
@@ -84,9 +85,10 @@ export type UndoInput = {
   cards: readonly Card[];
 };
 
-// R12.1 弹窗：category_source 或 member_source 是 manual、有多个拆分、有备注
+// R12.1 弹窗：category_source 或 member_source 是 manual、有多个拆分、有备注（交易或拆分上）
 function manuallyEdited(tx: UndoBatchTx): boolean {
   return (
+    Boolean(tx.note) ||
     tx.splits.length > 1 ||
     tx.splits.some(
       (s) => s.categorySource === 'manual' || s.memberSource === 'manual' || Boolean(s.note),

@@ -216,6 +216,15 @@ describe('planUndo（R12.1）', () => {
     });
   });
 
+  it('R12.1: a note on the transaction itself (not on a split) also counts as a manual edit', () => {
+    const meTxs = load('anz/me-2026-09.csv', male);
+    meTxs[0].note = '报销';
+    meTxs[1].note = '';
+    expect(
+      planUndo({ batchTxs: meTxs, counterparts: [], ...config }).prompt.manualEditedCount,
+    ).toBe(1);
+  });
+
   it('R12.1: empty note does not count as a manual edit', () => {
     const meTxs = load('anz/me-2026-09.csv', male);
     meTxs[0].splits = [{ ...meTxs[0].splits[0], note: '' }];

@@ -1,8 +1,8 @@
-// CSV 导入（business-rules.md R12），第 1 到 10 步
+// CSV 导入（business-rules.md R12），第 1 到 10 步；撤销导入（R12.1）
 // 业务判断全部用 src/lib/ 的纯函数，这里只负责读写数据库和串流程
 // 不保存上传的原文件；日志和报错里不打印原始描述
 import { randomUUID } from 'node:crypto';
-import { and, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
+import { and, eq, gt, gte, inArray, isNull, lte, ne, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import {
   card,
@@ -25,7 +25,20 @@ import {
   type HouseholdTransferTx,
   type TransferPlan,
 } from '@/lib/rules/transfer';
-import type { CategorySource, MemberSource, ParsedRow, ProcessedRow } from '@/lib/rules/types';
+import type {
+  CategorySource,
+  MemberSource,
+  ParsedRow,
+  ProcessedRow,
+  TransferStatus,
+} from '@/lib/rules/types';
+import {
+  planUndo,
+  type CounterpartPlan,
+  type UndoBatchTx,
+  type UndoCounterpart,
+  type UndoPlan,
+} from '@/lib/rules/undo';
 import type { HouseholdContext } from './context';
 
 export type ImportInput = {
@@ -596,5 +609,261 @@ export async function importCsv(ctx: HouseholdContext, input: ImportInput): Prom
       transactions,
       transfers,
     } satisfies ImportSuccess;
+  });
+}
+
+// ==================== R12.1 撤销导入 ====================
+
+export type UndoFailure = {
+  ok: false;
+  // not_found：批次不存在或不属于这个家庭；not_latest：不是该账户最近一次导入
+  reason: 'not_found' | 'not_latest';
+  message: string;
+};
+
+// 撤销弹窗要显示的内容（M3-9）。prompt.needsConfirm = false 时直接撤销
+export type UndoPreview =
+  | {
+      ok: true;
+      batchId: string;
+      accountId: string;
+      fileName: string;
+      deleteCount: number; // 本批次插入、撤销时删除的
+      prompt: UndoPlan['prompt']; // 手动改过几笔、确认的 pending 几笔
+    }
+  | UndoFailure;
+
+export type UndoResult =
+  | {
+      ok: true;
+      batchId: string;
+      deletedCount: number;
+      restoredPendingCount: number;
+      counterparts: CounterpartPlan[]; // 配对的另一半怎么处理的
+    }
+  | UndoFailure;
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+type UndoState = {
+  batch: { id: string; accountId: string; fileName: string };
+  batchTxs: UndoBatchTx[];
+  plan: UndoPlan;
+};
+
+// 读出批次、判断能不能撤销、算 planUndo。lock = true 时锁住批次行，防止同时撤销两次
+async function loadUndoState(
+  tx: Tx,
+  ctx: HouseholdContext,
+  batchId: string,
+  lock: boolean,
+): Promise<UndoState | UndoFailure> {
+  const hh = ctx.householdId;
+  const batchQuery = tx
+    .select({
+      id: importBatch.id,
+      accountId: importBatch.accountId,
+      fileName: importBatch.fileName,
+      createdAt: importBatch.createdAt,
+    })
+    .from(importBatch)
+    .where(and(eq(importBatch.id, batchId), eq(importBatch.householdId, hh)));
+  const [batch] = lock ? await batchQuery.for('update') : await batchQuery;
+  if (!batch) return { ok: false, reason: 'not_found', message: '这次导入不存在，可能已经撤销了' };
+
+  // R12.1：每个账户只能撤销最近一次导入
+  const newer = await tx.$count(
+    importBatch,
+    and(
+      eq(importBatch.householdId, hh),
+      eq(importBatch.accountId, batch.accountId),
+      ne(importBatch.id, batch.id),
+      gt(importBatch.createdAt, batch.createdAt),
+    ),
+  );
+  if (newer > 0) {
+    return {
+      ok: false,
+      reason: 'not_latest',
+      message: '这个账户之后还有导入，只能撤销最近一次',
+    };
+  }
+
+  // 本批次的交易：source = csv 的是插入的（要删除），其余是被确认的 pending（要恢复）
+  const txs = await tx
+    .select({
+      id: transaction.id,
+      source: transaction.source,
+      transferPairId: transaction.transferPairId,
+      note: transaction.note,
+    })
+    .from(transaction)
+    .where(and(eq(transaction.householdId, hh), eq(transaction.importBatchId, batch.id)))
+    .orderBy(transaction.date, transaction.id);
+  const splits = await tx
+    .select({
+      transactionId: transactionSplit.transactionId,
+      categorySource: transactionSplit.categorySource,
+      memberSource: transactionSplit.memberSource,
+      note: transactionSplit.note,
+    })
+    .from(transactionSplit)
+    .innerJoin(transaction, eq(transaction.id, transactionSplit.transactionId))
+    .where(
+      and(
+        eq(transactionSplit.householdId, hh),
+        eq(transaction.householdId, hh),
+        eq(transaction.importBatchId, batch.id),
+      ),
+    );
+  const splitsByTx = new Map<string, UndoBatchTx['splits'][number][]>();
+  for (const sp of splits) {
+    const list = splitsByTx.get(sp.transactionId) ?? [];
+    list.push({
+      categorySource: sp.categorySource as CategorySource,
+      memberSource: sp.memberSource as MemberSource,
+      note: sp.note,
+    });
+    splitsByTx.set(sp.transactionId, list);
+  }
+  const batchTxs: UndoBatchTx[] = txs.map((t) => ({
+    id: t.id,
+    transferPairId: t.transferPairId,
+    wasPending: t.source !== 'csv',
+    note: t.note,
+    splits: splitsByTx.get(t.id) ?? [],
+  }));
+
+  // 配对的另一半（不在本批次里）
+  const inBatch = new Set(batchTxs.map((t) => t.id));
+  const counterpartIds = [
+    ...new Set(
+      batchTxs
+        .map((t) => t.transferPairId)
+        .filter((id): id is string => id !== null && !inBatch.has(id)),
+    ),
+  ];
+  const counterpartRows =
+    counterpartIds.length === 0
+      ? []
+      : await tx
+          .select({
+            id: transaction.id,
+            accountId: transaction.accountId,
+            rawDescription: transaction.rawDescription,
+            cardLast4: transaction.cardLast4,
+            transferStatus: transaction.transferStatus,
+            transferPairId: transaction.transferPairId,
+            categoryId: transactionSplit.categoryId,
+            categorySource: transactionSplit.categorySource,
+            memberId: transactionSplit.memberId,
+            memberSource: transactionSplit.memberSource,
+          })
+          .from(transaction)
+          .innerJoin(transactionSplit, primarySplitJoin)
+          .where(and(eq(transaction.householdId, hh), inArray(transaction.id, counterpartIds)));
+  const counterparts: UndoCounterpart[] = counterpartRows.map((c) => ({
+    id: c.id,
+    accountId: c.accountId,
+    rawDescription: c.rawDescription,
+    cardLast4: c.cardLast4,
+    transferStatus: c.transferStatus as TransferStatus,
+    transferPairId: c.transferPairId,
+    primarySplit: {
+      categoryId: c.categoryId,
+      categorySource: c.categorySource as CategorySource,
+      memberId: c.memberId,
+      memberSource: c.memberSource as MemberSource,
+    },
+  }));
+
+  const { accounts, categories, cards } = await loadHouseholdConfig(ctx);
+  const plan = planUndo({ batchTxs, counterparts, accounts, categories, cards });
+  return {
+    batch: { id: batch.id, accountId: batch.accountId, fileName: batch.fileName },
+    batchTxs,
+    plan,
+  };
+}
+
+// R12.1：能不能撤销、弹窗要显示的笔数。只读
+export async function getUndoPreview(ctx: HouseholdContext, batchId: string): Promise<UndoPreview> {
+  return db.transaction(async (tx) => {
+    const state = await loadUndoState(tx, ctx, batchId, false);
+    if ('ok' in state) return state;
+    return {
+      ok: true,
+      batchId: state.batch.id,
+      accountId: state.batch.accountId,
+      fileName: state.batch.fileName,
+      deleteCount: state.batchTxs.filter((t) => !t.wasPending).length,
+      prompt: state.plan.prompt,
+    };
+  });
+}
+
+// R12.1：一个事务里，先按 planUndo 处理配对的另一半，再恢复 pending，最后删除交易和 import_batch
+// 弹窗确认在页面上做（M3-9），这里不再检查 needsConfirm
+export async function undoImport(ctx: HouseholdContext, batchId: string): Promise<UndoResult> {
+  return db.transaction(async (tx) => {
+    const hh = ctx.householdId;
+    const state = await loadUndoState(tx, ctx, batchId, true);
+    if ('ok' in state) return state;
+    const { batch, batchTxs, plan } = state;
+    const byId = (id: string) => and(eq(transaction.id, id), eq(transaction.householdId, hh));
+
+    // 1. 配对的另一半：先清空它指向本批次的 transfer_pair_id，外键就不用改
+    for (const c of plan.counterparts) {
+      if (c.action === 'unpair') {
+        await tx.update(transaction).set({ transferPairId: null }).where(byId(c.id));
+        continue;
+      }
+      await tx
+        .update(transaction)
+        .set({ transferPairId: null, transferStatus: c.transferStatus })
+        .where(byId(c.id));
+      await tx
+        .update(transactionSplit)
+        .set(c.primarySplit)
+        .where(
+          and(
+            eq(transactionSplit.transactionId, c.id),
+            eq(transactionSplit.householdId, hh),
+            eq(transactionSplit.isPrimary, true),
+          ),
+        );
+    }
+
+    // 2. 被确认的 pending 恢复成 pending。日期、描述保留银行的；R8.3 例外的 transfer_status 保持 auto
+    const pendingIds = batchTxs.filter((t) => t.wasPending).map((t) => t.id);
+    for (const ids of chunks(pendingIds)) {
+      await tx
+        .update(transaction)
+        .set({
+          status: 'pending',
+          dedupeKey: null,
+          importBatchId: null,
+          confirmedAt: null,
+          transferPairId: null,
+        })
+        .where(and(eq(transaction.householdId, hh), inArray(transaction.id, ids)));
+    }
+
+    // 3. 删除本批次插入的交易（拆分级联删除），再删 import_batch
+    const deleted = await tx
+      .delete(transaction)
+      .where(and(eq(transaction.householdId, hh), eq(transaction.importBatchId, batch.id)))
+      .returning({ id: transaction.id });
+    await tx
+      .delete(importBatch)
+      .where(and(eq(importBatch.id, batch.id), eq(importBatch.householdId, hh)));
+
+    return {
+      ok: true,
+      batchId: batch.id,
+      deletedCount: deleted.length,
+      restoredPendingCount: pendingIds.length,
+      counterparts: plan.counterparts,
+    };
   });
 }
