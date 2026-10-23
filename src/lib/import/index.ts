@@ -4,6 +4,7 @@
 import type { Bank, ParsedRow } from '@/lib/rules/types';
 import { parseAnzCsv } from './anz';
 import { canImportCsv } from './banks';
+import { parseCbaCsv } from './cba';
 import { CsvRowError } from './csv';
 
 export type ParseCsvResult =
@@ -11,7 +12,7 @@ export type ParseCsvResult =
 
 const PARSERS: Partial<Record<Bank, (text: string) => ParsedRow[]>> = {
   anz: parseAnzCsv,
-  // cba: M2-3b
+  cba: parseCbaCsv,
 };
 
 export function parseBankCsv(bank: Bank, text: string): ParseCsvResult {

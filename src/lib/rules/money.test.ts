@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatAud, parseAmountToCents } from './money';
+import { formatAud, parseAmountToCents, parseBalanceToCents } from './money';
 
 // 期望值来自 business-rules.md R1.0-4和 docs/tasks/m2.md M2-2
 
@@ -60,6 +60,25 @@ describe('parseAmountToCents（R1.0-4 金额按字符串转成分）', () => {
     expect(() => parseAmountToCents('21474836.48')).toThrow();
     expect(() => parseAmountToCents('-21474836.49')).toThrow();
   });
+});
+
+describe('parseBalanceToCents（R1B 余额）', () => {
+  it.each([
+    ['+11561.59', 1156159],
+    ['+12345.67', 1234567],
+    ['-20.00', -2000],
+    ['+0.00', 0],
+    ['0', 0],
+  ])('R1B: balance %s → %i (zero allowed)', (input, cents) => {
+    expect(parseBalanceToCents(input)).toBe(cents);
+  });
+
+  it.each(['', '1,234.50', 'abc', '21474836.48'])(
+    'R1B: malformed balance %j is rejected',
+    (input) => {
+      expect(() => parseBalanceToCents(input)).toThrow();
+    },
+  );
 });
 
 describe('formatAud（CLAUDE.md UI：en-AU / AUD）', () => {
