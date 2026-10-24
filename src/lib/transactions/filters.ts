@@ -1,5 +1,6 @@
 // F8 流水查询的筛选条件：URL 参数 ↔ 筛选条件（M5 看板带筛选跳过来也用这里）
 // 约定（M4-2）：金额范围按交易金额的绝对值；账户、归属人、分类单选；没有时间段 = 全部时间
+// 导入批次（M4-7）：导入结果页的"未分类"跳过来用，筛选栏里不显示
 // URL 是用户能手改的，不合法的参数直接丢掉，不报错
 // 纯函数，不 import 数据库和 Next.js
 import { z } from 'zod';
@@ -30,6 +31,7 @@ export type TransactionFilters = {
   minCents?: number; // 交易金额绝对值 ≥，含
   maxCents?: number; // 交易金额绝对值 ≤，含
   quick?: QuickFilter; // 未分类（拆分）、建议转账（transfer_status = suggested）
+  batchId?: string; // transaction.import_batch_id
 };
 
 // R16.5：这些条件看拆分。有任何一个时，列表里只要有一个拆分命中就列出，合计只加命中的拆分
@@ -102,6 +104,7 @@ export function filtersFromSearchParams(params: SearchParamsInput): TransactionF
     minCents: read(amount, get('min')),
     maxCents: read(amount, get('max')),
     quick: read(quick, get('quick')),
+    batchId: read(uuid, get('batch')),
   };
   // 去掉 undefined，方便比较和转回 URL
   return Object.fromEntries(
@@ -142,5 +145,6 @@ export function filtersToSearchParams(f: TransactionFilters): URLSearchParams {
   if (f.minCents !== undefined) p.set('min', centsToDollars(f.minCents));
   if (f.maxCents !== undefined) p.set('max', centsToDollars(f.maxCents));
   if (f.quick) p.set('quick', f.quick);
+  if (f.batchId) p.set('batch', f.batchId);
   return p;
 }

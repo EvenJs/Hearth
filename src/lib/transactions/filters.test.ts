@@ -13,6 +13,7 @@ import {
 const ACCOUNT = '11111111-1111-4111-8111-111111111111';
 const MEMBER = '22222222-2222-4222-8222-222222222222';
 const CATEGORY = '33333333-3333-4333-8333-333333333333';
+const BATCH = '44444444-4444-4444-8444-444444444444';
 
 describe('filtersFromSearchParams', () => {
   it('no params → no filters (all time, everything)', () => {
@@ -33,6 +34,7 @@ describe('filtersFromSearchParams', () => {
         min: '50',
         max: '100.5',
         quick: 'uncategorized',
+        batch: BATCH,
       }),
     ).toEqual<TransactionFilters>({
       period: 'this_year',
@@ -46,6 +48,7 @@ describe('filtersFromSearchParams', () => {
       minCents: 5000,
       maxCents: 10050,
       quick: 'uncategorized',
+      batchId: BATCH,
     });
   });
 
@@ -90,6 +93,7 @@ describe('filtersFromSearchParams', () => {
     ['unknown status', { status: 'deleted' }],
     ['pretax not 0/1', { pretax: 'yes' }],
     ['unknown quick', { quick: 'duplicates' }],
+    ['batch not a uuid', { batch: 'last' }],
     ['blank merchant', { q: '   ' }],
   ])('invalid value is dropped, others kept: %s', (_, params) => {
     expect(filtersFromSearchParams({ ...params, status: params.status ?? 'pending' })).toEqual(
@@ -116,6 +120,11 @@ describe('filtersFromSearchParams', () => {
 describe('filtersToSearchParams', () => {
   it('no filters → empty string', () => {
     expect(filtersToSearchParams({}).toString()).toBe('');
+  });
+
+  it('batch → batch param（导入结果页跳过来）', () => {
+    const p = filtersToSearchParams({ quick: 'uncategorized', batchId: BATCH });
+    expect(Object.fromEntries(p)).toEqual({ quick: 'uncategorized', batch: BATCH });
   });
 
   it('writes every filter, amounts back in dollars', () => {
@@ -152,6 +161,7 @@ describe('filtersToSearchParams', () => {
         minCents: 1,
         maxCents: 123456,
         quick: 'suggested',
+        batchId: BATCH,
       },
     ];
     for (const f of all) {
@@ -179,6 +189,7 @@ describe('hasSplitFilter（R16.5 合计口径）', () => {
     [{ period: 'this_year', accountId: ACCOUNT, status: 'confirmed', merchant: 'COLES' }, false],
     [{ minCents: 100, maxCents: 200 }, false], // 金额范围按交易，不按拆分
     [{ quick: 'suggested' }, false], // 建议转账是交易上的 transfer_status
+    [{ batchId: BATCH }, false], // 导入批次是交易上的 import_batch_id
     [{ categoryId: CATEGORY }, true],
     [{ memberId: MEMBER }, true],
     [{ type: 'expense' }, true],

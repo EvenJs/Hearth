@@ -143,6 +143,7 @@ function transactionConditions(ctx: HouseholdContext, f: TransactionFilters, tod
   if (f.minCents !== undefined) c.push(sql`abs(${transaction.amountCents}) >= ${f.minCents}`);
   if (f.maxCents !== undefined) c.push(sql`abs(${transaction.amountCents}) <= ${f.maxCents}`);
   if (f.quick === 'suggested') c.push(eq(transaction.transferStatus, 'suggested'));
+  if (f.batchId) c.push(eq(transaction.importBatchId, f.batchId));
   return c;
 }
 
@@ -392,6 +393,25 @@ export async function listTransactions(
     page,
     pageSize,
   };
+}
+
+// ---------- 快捷条件的笔数 ----------
+
+export type QuickFilterCounts = { uncategorized: number; suggested: number };
+
+// F8 快捷条件 chip 上的数字（M4-7）：全部数据，不跟着当前筛选变，方便一眼看到还有多少要处理
+// 和列表用同样的条件：未分类 = 有一个拆分是未分类（R16.5），建议转账 = transfer_status = suggested
+export async function countQuickFilters(ctx: HouseholdContext): Promise<QuickFilterCounts> {
+  const countWhere = (f: TransactionFilters) =>
+    db
+      .select({ count: sql<number>`count(*)`.mapWith(Number) })
+      .from(transaction)
+      .where(listWhere(ctx, f, '')); // 没有时间段，today 用不到
+  const [[uncategorized], [suggested]] = await Promise.all([
+    countWhere({ quick: 'uncategorized' }),
+    countWhere({ quick: 'suggested' }),
+  ]);
+  return { uncategorized: uncategorized.count, suggested: suggested.count };
 }
 
 // ---------- 详情 ----------
