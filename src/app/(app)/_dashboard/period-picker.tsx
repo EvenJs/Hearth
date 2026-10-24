@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { dashboardHref, PERIOD_LABELS } from '@/lib/dashboard/format';
+import type { PivotView } from '@/lib/dashboard/pivot-view';
 import { periodRange, PRESET_PERIODS, type Period, type PresetPeriod } from '@/lib/rules/periods';
 import { cn } from '@/lib/utils';
 
@@ -19,7 +20,8 @@ import { cn } from '@/lib/utils';
 // 自定义要两个日期都填了点"应用"才跳；填到一半离开再回来保留（tech-stack 2，筛选条件要留）
 // 合不合法由服务端的 filtersFromSearchParams 判断，不合法的丢掉 → 回到默认的本月
 
-type Props = { period: Period; memberId?: string; today: string };
+// view：汇总表当前的切换，换时间段时带上不丢（M5-5）
+type Props = { period: Period; memberId?: string; view?: PivotView; today: string };
 
 export function PeriodPicker(props: Props) {
   // URL 变了（换了时间段、归属人）时重新挂载，日期框跟着当前时间段
@@ -27,7 +29,7 @@ export function PeriodPicker(props: Props) {
   return <PeriodForm key={`${option}:${start}:${end}:${props.memberId ?? ''}`} {...props} />;
 }
 
-function PeriodForm({ period, memberId, today }: Props) {
+function PeriodForm({ period, memberId, view, today }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [custom, setCustom] = useState(period.option === 'custom');
@@ -35,7 +37,7 @@ function PeriodForm({ period, memberId, today }: Props) {
   const [to, setTo] = useState(period.end);
 
   function go(next: Period) {
-    startTransition(() => router.push(dashboardHref({ period: next, memberId })));
+    startTransition(() => router.push(dashboardHref({ period: next, memberId }, view)));
   }
 
   function onChange(v: string) {

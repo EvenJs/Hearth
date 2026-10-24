@@ -4,6 +4,7 @@
 import type { DateRange, Period, PresetPeriod } from '@/lib/rules/periods';
 import { filtersToSearchParams } from '@/lib/transactions/filters';
 import type { DashboardScope } from './links';
+import { pivotViewToSearchParams, type PivotView } from './pivot-view';
 
 // R10.1 时间段选项的中文名；F8 筛选栏也用
 export const PERIOD_LABELS: Record<PresetPeriod, string> = {
@@ -58,7 +59,8 @@ export function formatRange(range: DateRange, today: string): string {
 }
 
 // 看板 URL：参数写法和 F8 一样（period 或 from/to、member），默认的本月不写进 URL
-export function dashboardHref(scope: DashboardScope): string {
+// 汇总表的切换（M5-5）跟在后面，默认值不写；换时间段、归属人时把当前的切换带上，不丢
+export function dashboardHref(scope: DashboardScope, view?: PivotView): string {
   const period: Period = scope.period;
   const p = filtersToSearchParams({
     period:
@@ -69,6 +71,7 @@ export function dashboardHref(scope: DashboardScope): string {
           : period.option,
     memberId: scope.memberId,
   });
+  if (view) pivotViewToSearchParams(view, p);
   const qs = p.toString();
   return qs ? `/?${qs}` : '/';
 }

@@ -1,21 +1,23 @@
 import { connection } from 'next/server';
 import { Suspense } from 'react';
 import { formatRange, DEFAULT_PERIOD } from '@/lib/dashboard/format';
+import { pivotViewFromSearchParams } from '@/lib/dashboard/pivot-view';
 import type { DashboardScope } from '@/lib/dashboard/links';
 import { todayInMelbourne } from '@/lib/rules/periods';
 import { filtersFromSearchParams } from '@/lib/transactions/filters';
 import { getHouseholdContext } from '@/server/context';
-import { getDashboard } from '@/server/dashboard';
+import { getDashboard, getPivot } from '@/server/dashboard';
 import { listMembers } from '@/server/members';
 import { ExpenseCategories } from './_dashboard/expense-categories';
 import { KpiCards, PendingNote } from './_dashboard/kpi-cards';
 import { MemberSwitch } from './_dashboard/member-switch';
 import { PeriodPicker } from './_dashboard/period-picker';
+import { PivotSection } from './_dashboard/pivot-section';
 import { TopMerchants } from './_dashboard/top-merchants';
 
 // F6 看板（设计图 02，M5-3）：时间段和归属人在 URL 参数里，写法和 F8 一样（period 或 from/to、member）
 // 没有参数 = 本月、全部归属人。不合法的参数丢掉（filtersFromSearchParams）
-// 分类占比和 Top 商家（M5-4）；汇总表（M5-5）、趋势（M5-6）后面加；预算、税务卡片在 M7
+// 分类占比和 Top 商家（M5-4）；汇总表（M5-5，切换写在 URL 的 grain、group、metric）；趋势（M5-6）后面加；预算、税务卡片在 M7
 export default function HomePage(props: PageProps<'/'>) {
   return (
     // 读 session 和 searchParams 的部分放在 Suspense 里（cacheComponents）
@@ -37,7 +39,9 @@ async function DashboardSection({
 }: {
   searchParams: PageProps<'/'>['searchParams'];
 }) {
-  const filters = filtersFromSearchParams(await searchParams);
+  const params = await searchParams;
+  const filters = filtersFromSearchParams(params);
+  const view = pivotViewFromSearchParams(params);
   const ctx = await getHouseholdContext();
   // "今天"每次请求都要重新算，不能被预渲染
   await connection();
@@ -46,11 +50,11 @@ async function DashboardSection({
   const members = (await listMembers(ctx)).map(({ id, name }) => ({ id, name }));
   // 不是本家庭的归属人 id 当作没选
   const memberId = members.some((m) => m.id === filters.memberId) ? filters.memberId : undefined;
-  const dashboard = await getDashboard(
-    ctx,
-    { period: filters.period ?? DEFAULT_PERIOD, memberId },
-    today,
-  );
+  const input = { period: filters.period ?? DEFAULT_PERIOD, memberId };
+  const [dashboard, pivotData] = await Promise.all([
+    getDashboard(ctx, input, today),
+    getPivot(ctx, { ...input, ...view }, today),
+  ]);
   const scope: DashboardScope = { period: dashboard.period, memberId };
 
   return (
@@ -64,8 +68,13 @@ async function DashboardSection({
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <PeriodPicker period={dashboard.period} memberId={memberId} today={today} />
-          <MemberSwitch period={dashboard.period} memberId={memberId} members={members} />
+          <PeriodPicker period={dashboard.period} memberId={memberId} view={view} today={today} />
+          <MemberSwitch
+            period={dashboard.period}
+            memberId={memberId}
+            view={view}
+            members={members}
+          />
         </div>
       </header>
 
@@ -83,6 +92,8 @@ async function DashboardSection({
           <TopMerchants dashboard={dashboard} scope={scope} />
         </div>
       </div>
+
+      <PivotSection data={pivotData} scope={scope} view={view} members={members} today={today} />
     </>
   );
 }

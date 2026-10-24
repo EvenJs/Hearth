@@ -1,8 +1,9 @@
-// 看板上的点击 → F8 流水筛选条件（prd.md F6：所有数字能点进 F8 看明细）
+// 看板上的点击 → F8 流水筛选条件（prd.md F6：数字能点进 F8 看明细）
+// 汇总表（R10.2）点了只展开收起，不跳 F8，没有对应的函数（2026-10-25）
 // 拿到的 TransactionFilters 交给 filtersToSearchParams / transactionsHref 拼 URL
 // 纯函数，不 import 数据库和 Next.js
 import type { DateRange, Period, PresetPeriod } from '@/lib/rules/periods';
-import type { GroupBy, Metric, PivotColumn } from '@/lib/rules/stats';
+import type { Metric } from '@/lib/rules/stats';
 import type { TransactionFilters } from '@/lib/transactions/filters';
 
 // 看板当前的时间段和归属人筛选（R10.1、R10.6）
@@ -47,24 +48,6 @@ export function categoryLink(scope: DashboardScope, categoryId: string): Transac
 // R10.3 Top 商家：商家关键词（F8 是"包含"匹配），只看支出类型，和 Top 商家的口径一致
 export function merchantLink(scope: DashboardScope, merchant: string): TransactionFilters {
   return { ...base(scope), merchant, type: 'expense' };
-}
-
-export type PivotCell = {
-  column: PivotColumn | null; // null = 行合计（整个时间段）
-  groupBy: GroupBy;
-  rowKey: string | null; // 一级或二级分类 id / 归属人 id；null = 列合计
-  metric: Metric;
-};
-
-// R10.2 汇总表格子：带该列的时间段（"部分"列只含时间段内的日子）和该行的分组条件
-export function pivotCellLink(scope: DashboardScope, cell: PivotCell): TransactionFilters {
-  const period = cell.column ? { start: cell.column.start, end: cell.column.end } : undefined;
-  const f: TransactionFilters = { ...base(scope, period), type: cell.metric };
-  if (cell.rowKey !== null) {
-    if (cell.groupBy === 'category') f.categoryId = cell.rowKey;
-    else f.memberId = cell.rowKey;
-  }
-  return f;
 }
 
 // R10.5 趋势图某个月：用这个月的范围（不跟时间段选择走）；点柱子带上收入或支出，不带 = 全部

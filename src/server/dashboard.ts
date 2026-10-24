@@ -119,13 +119,11 @@ export type Dashboard = {
   categories: Record<string, DashboardCategory>;
 };
 
+// 从全部分类（含已归档）里挑出要显示的那几个，老拆分指向归档分类也有名字
 function pickCategories(
   categories: readonly Category[],
-  totals: Summary['expenseByCategory'],
+  ids: ReadonlySet<string>,
 ): Record<string, DashboardCategory> {
-  const ids = new Set(
-    totals.flatMap((t) => [t.categoryId, ...t.children.map((c) => c.categoryId)]),
-  );
   const out: Record<string, DashboardCategory> = {};
   for (const c of categories) {
     if (ids.has(c.id)) {
@@ -168,7 +166,15 @@ export async function getDashboard(
     topMerchants: topMerchants(splits, categories, period, TOP_MERCHANTS),
     pendingCount: pendingCount(splits, period),
     trend: monthlyTrend(splits, categories, months),
-    categories: pickCategories(categories, current.expenseByCategory),
+    categories: pickCategories(
+      categories,
+      new Set(
+        current.expenseByCategory.flatMap((t) => [
+          t.categoryId,
+          ...t.children.map((c) => c.categoryId),
+        ]),
+      ),
+    ),
   };
 }
 
@@ -185,12 +191,21 @@ export async function getPivot(
   ctx: HouseholdContext,
   input: PivotInput,
   today: string,
-): Promise<{ period: Period; pivot: Pivot }> {
+): Promise<{ period: Period; pivot: Pivot; categories: Record<string, DashboardCategory> }> {
   const period = periodRange(input.period, today);
   const [categories, all] = await Promise.all([loadCategories(ctx), loadSplits(ctx, period)]);
   const splits = filterByMember(all, input.memberId);
+  const table = pivot(splits, categories, period, input.granularity, input.groupBy, input.metric);
   return {
     period,
-    pivot: pivot(splits, categories, period, input.granularity, input.groupBy, input.metric),
+    pivot: table,
+    // 按分类分组时行名要用（M5-5）；按归属人分组时是空的
+    categories:
+      input.groupBy === 'category'
+        ? pickCategories(
+            categories,
+            new Set(table.rows.flatMap((r) => [r.key, ...r.children.map((c) => c.key)])),
+          )
+        : {},
   };
 }
