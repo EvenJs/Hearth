@@ -1,0 +1,57 @@
+import { Plus } from 'lucide-react';
+import { Suspense } from 'react';
+import { Brand } from '@/components/app-shell/brand';
+import { MobileNav } from '@/components/app-shell/mobile-nav';
+import { SidebarNav } from '@/components/app-shell/sidebar-nav';
+import { SignOutButton } from '@/components/app-shell/sign-out-button';
+import { Button } from '@/components/ui/button';
+import { getCurrentUser } from '@/server/auth';
+
+// 登录后的页面共用：左侧边栏 + 顶栏（docs/design/README.md 第 3 节、02-dashboard.png）
+// 电脑（lg 以上）侧边栏常驻；窄屏收进 Sheet（MobileNav）
+export default function AppLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex min-h-dvh">
+      <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col gap-6 border-r bg-background px-3 py-5 lg:flex">
+        <div className="px-2">
+          <Brand />
+        </div>
+        <SidebarNav />
+      </aside>
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="sticky top-0 z-40 flex h-14 items-center justify-between gap-2 border-b bg-background/95 px-4 backdrop-blur sm:px-8">
+          <div className="flex items-center gap-1 lg:hidden">
+            <MobileNav />
+            <span className="font-semibold">Hearth</span>
+          </div>
+          <div className="ml-auto flex items-center gap-2 sm:gap-3">
+            {/* F3 快速录入在 M6 做，先放着不可点 */}
+            <Button size="sm" disabled title="M6 才有">
+              <Plus className="size-4" />
+              <span className="hidden sm:inline">记一笔</span>
+            </Button>
+            {/* 读 session 的部分必须放在 Suspense 里（cacheComponents） */}
+            <Suspense fallback={<div className="h-8 w-16" />}>
+              <CurrentUser />
+            </Suspense>
+          </div>
+        </header>
+
+        <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 p-4 sm:p-8">{children}</main>
+      </div>
+    </div>
+  );
+}
+
+async function CurrentUser() {
+  const user = await getCurrentUser();
+  return (
+    <>
+      <span className="hidden max-w-32 truncate text-sm text-muted-foreground sm:inline">
+        {user.name}
+      </span>
+      <SignOutButton />
+    </>
+  );
+}
