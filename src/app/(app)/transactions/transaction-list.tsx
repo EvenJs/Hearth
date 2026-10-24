@@ -1,6 +1,7 @@
 'use client';
 
 import { ChevronDown, CornerDownRight } from 'lucide-react';
+import Link from 'next/link';
 import { useLayoutEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -18,6 +19,7 @@ import { cn } from '@/lib/utils';
 import type { TransactionListItem } from '@/server/transactions';
 import { BulkBar } from './bulk-bar';
 import { formatTxDate } from './format';
+import { transactionDetailHref } from './href';
 import {
   CategorySelect,
   MemberSelect,
@@ -34,9 +36,14 @@ import { isUncategorized, TxBadges } from './tx-badges';
 // "存成规则"对话框放在列表层：筛选"未分类"时，改完的行会从列表消失
 // 批量修改（M4-9）：只能勾当前页；换页、换筛选后不在当前页的勾选自动失效
 
-type Props = { items: TransactionListItem[]; today: string; options: EditOptions };
+type Props = {
+  items: TransactionListItem[];
+  today: string;
+  options: EditOptions;
+  listHref: string; // 当前列表的地址，点进详情后能带着筛选和页码回来
+};
 
-export function TransactionList({ items, today, options }: Props) {
+export function TransactionList({ items, today, options, listHref }: Props) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
   const pageIds = items.map((tx) => tx.id);
@@ -83,6 +90,7 @@ export function TransactionList({ items, today, options }: Props) {
     onOfferRule: offerRule,
     selected: checked.has(tx.id),
     onSelect: (on: boolean) => setOne(tx.id, on),
+    detailHref: transactionDetailHref(tx.id, listHref),
   });
 
   return (
@@ -164,6 +172,7 @@ type RowProps = {
   onOfferRule: (draft: RuleDraft) => void;
   selected: boolean;
   onSelect: (on: boolean) => void;
+  detailHref: string;
 };
 
 function RowCheckbox({
@@ -179,6 +188,15 @@ function RowCheckbox({
       onCheckedChange={(v) => onSelect(v === true)}
       className={className}
     />
+  );
+}
+
+// 商家名点进交易详情（M4-10）
+function MerchantLink({ href, merchant }: { href: string; merchant: string }) {
+  return (
+    <Link href={href} className="font-medium break-words hover:underline underline-offset-2">
+      {merchant}
+    </Link>
   );
 }
 
@@ -222,6 +240,7 @@ function TableRows({
   onOfferRule,
   selected,
   onSelect,
+  detailHref,
 }: RowProps) {
   const isSplit = tx.splits.length > 1;
   const primary = tx.splits[0];
@@ -266,7 +285,7 @@ function TableRows({
         </TableCell>
         <TableCell className="pr-4 align-top whitespace-normal">
           <div className="flex max-w-96 flex-wrap items-center gap-1.5">
-            <span className="font-medium break-words">{tx.merchant}</span>
+            <MerchantLink href={detailHref} merchant={tx.merchant} />
             <TxBadges tx={tx} />
             {tx.transferStatus === 'suggested' && <SuggestionButtons transactionId={tx.id} />}
           </div>
@@ -324,6 +343,7 @@ function TxCard({
   onOfferRule,
   selected,
   onSelect,
+  detailHref,
 }: RowProps) {
   const isSplit = tx.splits.length > 1;
   const primary = tx.splits[0];
@@ -344,7 +364,7 @@ function TxCard({
             onSelect={onSelect}
             className="mr-0.5"
           />
-          <span className="font-medium break-words">{tx.merchant}</span>
+          <MerchantLink href={detailHref} merchant={tx.merchant} />
           <TxBadges tx={tx} />
         </div>
         <Amount cents={tx.amountCents} className="shrink-0 font-medium" />

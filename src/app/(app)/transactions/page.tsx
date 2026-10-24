@@ -94,7 +94,12 @@ async function TransactionsSection({
       </div>
 
       {list.items.length > 0 ? (
-        <TransactionList items={list.items} today={today} options={editOptions} />
+        <TransactionList
+          items={list.items}
+          today={today}
+          options={editOptions}
+          listHref={transactionsHref(filters, page)}
+        />
       ) : (
         <div className="rounded-lg border px-4 py-10 text-center text-sm text-muted-foreground">
           {list.count > 0 ? (
