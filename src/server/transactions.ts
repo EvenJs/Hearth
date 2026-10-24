@@ -1,5 +1,6 @@
 // F8 流水查询（M4-2）：列表、笔数和合计、详情
 // F8 修改（M4-3）：按拆分改分类、归属人，批量修改（R16.1、R16.2、R16.3、R16.4、R5.1）
+// F8 建议转账（M4-5）：确认、拒绝，两边一起改（R6.3）
 // 筛选条件的含义见 src/lib/transactions/filters.ts；这里只负责拼查询，每个查询都带 household_id
 // 交易本身的条件（时间、账户、状态、商家、金额范围、建议转账）放在 transaction 上
 // 拆分上的条件（分类、归属人、类型、是否税前、未分类）用 EXISTS：只要有一个拆分命中就列出（R16.5）
@@ -40,6 +41,7 @@ import {
   type EditTarget,
   type TransactionType,
 } from '@/lib/rules/split-edit';
+import { resolveSuggestion, type SuggestionTx } from '@/lib/rules/transfer';
 import type {
   Account,
   Card,
@@ -719,4 +721,89 @@ export async function bulkUpdate(
     }
     return { ok: true, updatedCount, skippedCount };
   });
+}
+
+// ---------- 建议转账确认和拒绝（M4-5） ----------
+
+export type SuggestionResult = { ok: true } | { ok: false; message: string };
+
+// R6.3 从任意一边发起，两边一起改，一个事务
+// 确认：confirmed、内部转账、category_source = manual、配对保留、归属人按 R5.1（结果不变）
+// 拒绝：none、配对清空、分类和归属人不变
+// 不是 suggested、两笔没有互相配对、确认时有多个拆分 → ok: false，什么都不改
+async function resolveSuggestionInDb(
+  ctx: HouseholdContext,
+  transactionId: string,
+  action: 'confirm' | 'reject',
+): Promise<SuggestionResult> {
+  if (!z.uuid().safeParse(transactionId).success) return INVALID;
+
+  return db.transaction(async (tx) => {
+    const lockTxs = (ids: string[]) =>
+      tx
+        .select({
+          id: transaction.id,
+          accountId: transaction.accountId,
+          cardLast4: transaction.cardLast4,
+          transferStatus: transaction.transferStatus,
+          transferPairId: transaction.transferPairId,
+        })
+        .from(transaction)
+        .where(and(eq(transaction.householdId, ctx.householdId), inArray(transaction.id, ids)))
+        .orderBy(asc(transaction.id))
+        .for('update');
+
+    // 先读这一笔拿到另一半的 id，再按 id 顺序一起锁两笔，锁住后再检查一次状态
+    const [first] = await lockTxs([transactionId]);
+    if (!first) return { ok: false, message: '找不到这笔交易' };
+    if (first.transferStatus !== 'suggested' || !first.transferPairId) {
+      return { ok: false, message: '不是建议转账' };
+    }
+    const pairId = first.transferPairId;
+    const rows = await lockTxs([transactionId, pairId]);
+    const self = rows.find((r) => r.id === transactionId)!;
+    const other = rows.find((r) => r.id === pairId);
+    if (!other) return { ok: false, message: '配对的另一笔找不到了' };
+
+    const splits = await lockSplits(
+      tx,
+      ctx,
+      inArray(transactionSplit.transactionId, [self.id, other.id]),
+    );
+    const withSplits = (r: (typeof rows)[number]): SuggestionTx => ({
+      ...r,
+      splits: splits.filter((s) => s.transactionId === r.id),
+    });
+
+    const editCtx = await loadEditContext(tx, ctx);
+    const r = resolveSuggestion(withSplits(self), withSplits(other), action, editCtx);
+    if (!r.ok) return r;
+
+    for (const side of [r.a, r.b]) {
+      await tx
+        .update(transaction)
+        .set({ transferStatus: side.transferStatus, transferPairId: side.transferPairId })
+        .where(
+          and(eq(transaction.id, side.transactionId), eq(transaction.householdId, ctx.householdId)),
+        );
+      for (const s of side.splits) await writeSplit(tx, ctx, s);
+    }
+    return { ok: true };
+  });
+}
+
+// R6.3 确认建议转账
+export async function confirmSuggestion(
+  ctx: HouseholdContext,
+  transactionId: string,
+): Promise<SuggestionResult> {
+  return resolveSuggestionInDb(ctx, transactionId, 'confirm');
+}
+
+// R6.3 拒绝建议转账。两笔以后都是旧交易，之后的导入不会再建议
+export async function rejectSuggestion(
+  ctx: HouseholdContext,
+  transactionId: string,
+): Promise<SuggestionResult> {
+  return resolveSuggestionInDb(ctx, transactionId, 'reject');
 }
