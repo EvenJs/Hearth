@@ -14,10 +14,13 @@ import {
   type ReapplyResult,
 } from '@/server/rules';
 import {
+  bulkUpdate,
   confirmSuggestion,
+  MAX_BULK_SIZE,
   rejectSuggestion,
   updateSplitCategory,
   updateSplitMember,
+  type BulkUpdateResult,
   type SplitUpdateResult,
   type SuggestionResult,
 } from '@/server/transactions';
@@ -70,6 +73,36 @@ export async function updateSplitMemberAction(input: {
     return r;
   } catch (err) {
     return failed('改归属人', err);
+  }
+}
+
+// ---------- 批量修改（M4-9，R16.1、R16.2） ----------
+
+// 一次只改一样：分类或归属人。跳过的规则和事务在 bulkUpdate 里
+const bulkSchema = z.union([
+  z.object({
+    transactionIds: z.array(z.uuid()).min(1).max(MAX_BULK_SIZE),
+    categoryId: z.uuid(),
+  }),
+  z.object({
+    transactionIds: z.array(z.uuid()).min(1).max(MAX_BULK_SIZE),
+    memberId: z.uuid(),
+  }),
+]);
+
+export async function bulkUpdateAction(
+  input: { transactionIds: string[] } & ({ categoryId: string } | { memberId: string }),
+): Promise<BulkUpdateResult> {
+  const parsed = bulkSchema.safeParse(input);
+  if (!parsed.success) return INVALID;
+  const { transactionIds, ...change } = parsed.data;
+  const ctx = await getHouseholdContext();
+  try {
+    const r = await bulkUpdate(ctx, transactionIds, change);
+    if (r.ok) refresh();
+    return r;
+  } catch (err) {
+    return failed('批量修改', err);
   }
 }
 
