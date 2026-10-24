@@ -71,6 +71,7 @@
 - 导入页（`import-form.tsx`）：导入成功后再回来是空表单；填到一半离开、导入失败，都保留
 - 流水页（`transaction-list.tsx`）：离开时清掉批量修改的勾选和"存成规则"对话框，拆分的展开收起保留
 - 交易详情页（`transactions/[id]/split-section.tsx`）：离开时关掉拆分、删除确认和"存成规则"对话框
+- 看板时间段（`_dashboard/period-picker.tsx`）：自定义日期填到一半离开再回来保留；URL 变了（换时间段或归属人）时换 `key` 重新挂载，日期框跟着当前时间段
 
 ---
 

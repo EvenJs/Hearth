@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type { PresetPeriod } from '@/lib/rules/periods';
+import { PERIOD_LABELS } from '@/lib/dashboard/format';
 import type { TransactionType } from '@/lib/rules/split-edit';
 import {
   filtersToSearchParams,
@@ -35,16 +35,6 @@ export type FilterOptions = {
 };
 
 const ALL = 'all'; // Radix Select 的值不能是空字符串
-
-const PERIOD_LABELS: Record<PresetPeriod, string> = {
-  this_week: '本周',
-  last_week: '上周',
-  this_month: '本月',
-  last_month: '上月',
-  this_quarter: '本季度',
-  this_year: '今年',
-  this_fy: '本财年',
-};
 
 const TYPE_LABELS: Record<TransactionType, string> = {
   expense: '支出',

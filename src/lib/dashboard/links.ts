@@ -21,14 +21,17 @@ function base(
   return scope.memberId ? { period, memberId: scope.memberId } : { period };
 }
 
-export type KpiKind = 'income' | 'expense' | 'uncategorized' | 'pending';
+export type KpiKind = 'income' | 'pre_tax' | 'expense' | 'uncategorized' | 'pending';
 
-// KPI 卡片：收入、支出按 R16.5 类型；未分类用快捷条件；pending 按交易状态
+// KPI 卡片：收入、支出按 R16.5 类型；"其中税前"再加 is_pre_tax（R10）；未分类用快捷条件；pending 按交易状态
+// 储蓄率是比率不是合计，没有对应的 F8 条件，不跳（M5-3，2026-10-24）
 export function kpiLink(scope: DashboardScope, kind: KpiKind): TransactionFilters {
   switch (kind) {
     case 'income':
     case 'expense':
       return { ...base(scope), type: kind };
+    case 'pre_tax':
+      return { ...base(scope), type: 'income', isPreTax: true };
     case 'uncategorized':
       return { ...base(scope), quick: 'uncategorized' };
     case 'pending':
