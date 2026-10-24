@@ -1,7 +1,7 @@
 # Hearth 需求文档
 
 > 项目名：Hearth（家庭记账 App）
-> 状态：需求确定，技术栈确定，准备开发（2026-10-22 更新：分类列表、归属人含义、汇总表、税后估算）
+> 状态：开发中，M0 到 M2 已完成（2026-10-22 更新：分类列表、归属人含义、汇总表、税后估算；2026-10-23 更新：转账建议、撤销导入）
 > 用户：家庭使用（我和老婆，以后可能有孩子）。MVP 阶段只有我录入和查看
 > 目标：快速能用
 > 背景：配合《理财学习计划.md》，替代阶段 1 用 Google Sheets 手动记账的做法
@@ -25,7 +25,7 @@
 | Male / Female | 现金（各一个）                         |          | 手动录入                   |
 
 - Bankwest 先不考虑
-- 收入：我是工资；老婆有工资，也有一部分 B2B 收入（税前，按发票收款）
+- 收入：我是工资；老婆有工资，也有一部分 B2B 收入（税前，按发票收款，没有注册 GST）
 
 **目标**
 
@@ -58,7 +58,7 @@
   - 卡号后四位：`VISA DEBIT PURCHASE CARD xxxx ...`，joint account 两张卡可以用来分归属人
   - 转账对方的完整账号，可以用来识别内部转账（入库前脱敏）
   - 前缀和噪音：`VISA DEBIT PURCHASE CARD xxxx`、`EFTPOS`、`ANZ INTERNET BANKING BPAY`、BPAY 账单码、支付通道前缀 `ZLR*` `SQ *` `SMP*`、反斜杠、连续空格
-- Progress Saver 的格式还没确认，预计和 Access Advantage 一样
+- Progress Saver 和 Access Advantage 格式一样（2026-10-23 确认）
 
 ### CBA CSV（已用真实导出确认）
 
@@ -68,7 +68,7 @@
 - 描述里的信息：
   - 卡号已经被银行打码：`Card xx1234`
   - 实际消费日期：`Value Date: dd/mm/yyyy`
-  - 转到自己其他 CBA 账户：`Transfer from xx5678`（只有 4 位尾号）
+  - 从其他 CBA 账户转进来：`Transfer from xx5678`（只有 4 位尾号）。老婆流水里的这类是 B2B 收入和朋友 AA 转回来的钱，不是自己的账户
   - PayID 转账只有人名，没有账号：`Transfer To <人名> PayID Phone ...`、`Fast Transfer From <人名> ...`
   - BPAY、贷款、直接扣款里有很长的参考号，要脱敏
   - 转账备注里的中文导出后变成下划线
@@ -112,11 +112,12 @@
 - 上传 CSV，导入时选择账户，按账户所属银行解析
 - **脱敏**：描述里的完整账号替换成只留后 4 位再入库，不存卡号和账号
 - **清洗**：去掉前缀、支付通道前缀、反斜杠、多余空格，得到商家名。原始描述（脱敏后）和清洗后商家都保存
-- **去重**：key = 账户 + 日期 + 金额 + 描述 + 同文件内序号。同一天同一家店两笔一样的消费靠序号区分，不会被当成重复
+- **去重**：key = 账户 + 日期 + 金额 + 描述 + 同文件内序号（CBA 再加余额）。同一天同一家店两笔一样的消费靠序号区分，不会被当成重复
 - **匹配待确认交易**：每笔银行交易先找有没有匹配的 pending 交易（见 F3），匹配上就确认那笔，不新增
 - **对账校验**：检查"期初 + 本期交易合计 = 期末"，对不上说明漏导或重复导入。ANZ 可选手动填期初期末；CBA 从余额列自动得出
 - **余额检查**（CBA）：相邻两行余额对不上时显示警告，不阻止导入
 - **转账配对**：每次导入后对整个家庭重新配对内部转账，先导哪个账户都能对上
+- **撤销导入**：每个账户只能撤销最近一次导入；批次里有手动改过的交易时先弹窗提醒；配对的另一半会解除配对（R12.1）
 
 ### F3：手动录入
 
@@ -153,7 +154,7 @@
 - 匹配不到的归到"未分类"，在 F8 流水查询里手动选，选完可以一键存成新规则
 - **内部转账**：
   - 描述里的账号尾号匹配上自己的账户 → 自动标记
-  - 匹配不到时兜底：自己两个账户之间同金额、一正一负、日期相差 2 天内，标成"建议"，在 F8 确认后才算转账
+  - 匹配不到时兜底：自己两个账户之间同金额、一正一负、日期相差 2 天内，标成"建议"，在 F8 确认后才算转账；拒绝过的不会再建议。朋友 AA 的转账可能凑巧对上，所以只建议不自动生效（R6.3）
   - 内部转账不计收入或支出
 - **ATM 取现**（如 `NON-ANZ ATM`）：直接算一笔"现金支出"，现金花在哪不再细记
 - **退款和报销**：冲减原分类，不算收入
@@ -197,6 +198,7 @@
 ### F9：税前收入和税后估算
 
 - 背景：老婆有一部分 B2B 收入，按发票全额收款，不代扣税；银行利息也是税前的。工资进银行时已经扣过 PAYG，不用处理
+- 老婆没有注册 GST，B2B 收款里不含 GST，到账金额全额算税前收入
 - 收入拆分有"税前"标记，Contract income (B2B) 和 Interest 默认税前，单笔可以改
 - 付给 ATO 的预缴税和 BAS 记在 Income / Tax (ATO) 下，负数；退税记正数。交税不算支出
 - 设置页：每人每个财年填一次工资税前总额和已代扣的税（来自工资单或 myGov income statement）
@@ -233,7 +235,7 @@
 - 抵税支出标记：年底导出给报税用（对应学习计划阶段 3）
 - 统计增强：任意两个时间段对比、超过 12 个月的长期趋势
 - 导出筛选结果（CSV / Excel / PDF）
-- 税务增强：业务开支抵扣、Medicare levy 低收入减免、GST 处理（如果老婆注册了 GST）
+- 税务增强：业务开支抵扣、Medicare levy 低收入减免、GST 处理（以后老婆注册 GST 时）
 - ANZ Plus PDF 对账单解析
 
 ### AI 功能（都在 MVP 之后）
@@ -296,7 +298,7 @@
 | Insurance & financial   | Home       | Car insurance、Home insurance、Personal & life insurance                                                                                                        |
 | Groceries               | Home       | Supermarket、Butcher、Fruit、Vegetable、Pet                                                                                                                     |
 | Personal & medical      |            | Hair & beauty、Cosmetics & toiletries、Medicines & pharmacy、Hobbies、Clothing & shoes、Jewellery & accessories、Education、Computers & gadgets                 |
-| Entertainment & eat-out |            | Coffee & tea、Lunches、Restaurants、Take-away & snacks、Drinks、Books、Movies & music、Holidays、Celebrations & gifts                                           |
+| Entertainment & eat-out |            | Coffee & tea、Bubble tea、Lunches、Restaurants、Take-away & snacks、Drinks、Books、Movies & music、Holidays、Celebrations & gifts                                           |
 | Transport & auto        |            | Public transport、Petrol / EV charging、Rego & licence、Road tolls & parking、Repairs & maintenance、Fines                                                      |
 | Income                  |            | Salary、Contract income (B2B)（税前）、Interest（税前）、Tax (ATO)、Other                                                                                       |
 
@@ -353,13 +355,13 @@
 
 ## 10. 待确认的问题（开发时再定）
 
-1. joint account 上老婆那张卡的卡号（我的已确认）
-2. CBA 流水里有从另一个 CBA 账户（`Transfer from xx...`）转进来的钱，那是老婆的另一个账户吗？如果是，要加进账户清单
-3. CBA 流水里的房贷还款（Loan Repayment）和物业费（DEFT PAYMENTS）对应的那套房：自住还是投资？投资的话分类和税务处理都不一样
-4. 老婆是否注册了 GST（影响 B2B 收入要不要扣掉 1/11）
-5. ATO 付款和退税在 ANZ 流水里的描述格式
-6. 样本数据：ANZ Progress Saver 的 CSV
-7. 还要先在 Google Sheets 跑一个月吗？已经有半年真实流水，也可以直接拿来验证原型
+1. ~~joint account 上老婆那张卡的卡号~~：已确认，在 app 里配置（M1-8）
+2. ~~CBA 流水里的 `Transfer from xx...` 是老婆的另一个账户吗？~~：不是，是 B2B 收入和朋友 AA，不加账户
+3. ~~房贷和物业费对应的那套房是自住还是投资？~~：现在自住，记在 Home & utilities / Mortgage、Body corporate fees。以后改成投资，再改分类和税务处理
+4. ~~老婆是否注册了 GST~~：没有注册，B2B 收款不含 GST，只算个人所得税。以后注册了再加 GST 处理
+5. ATO 付款和退税在 ANZ 流水里的描述格式（还不确定，等真实流水里出现再补规则；预置规则 `TAX OFFICE` 是猜的）
+6. ~~ANZ Progress Saver 的 CSV 格式~~：和 Access Advantage 一样
+7. ~~还要先在 Google Sheets 跑一个月吗？~~：不需要，M2-14 已用真实流水试跑
 
 ---
 

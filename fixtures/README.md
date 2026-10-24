@@ -31,6 +31,8 @@
 | CBA Female Saver | cba      | savings  | Female     | `7777`        |
 | ANZ Plus Male    | anz_plus | savings  | Male       | `0004`        |
 
+`CBA Female Saver` 是假的账户，只用来测 CBA 4 位尾号的转账识别（R6.1）。真实家庭里没有这个账户。
+
 | 卡（都在 ANZ Joint 上） | 归属人 |
 | ----------------------- | ------ |
 | `1111`                  | Male   |
@@ -64,7 +66,7 @@
 | 1   | 2026-09-30 | 500      | REVERSAL OF ACCOUNT SERVICING FEE MINIMUM $2000 IN DEPOSITS RECEIVED |      | Bank fees                               | Home (account)      | none            | R7 系统规则                          |
 | 2   | 2026-09-30 | -500     | ACCOUNT SERVICING FEE                                                |      | Bank fees                               | Home (account)      | none            | R7                                   |
 | 3   | 2026-09-29 | -9840    | BPAY SEENE                                                           |      | Home & utilities / Electricity          | Home (category)     | none            | R3 去 `{123456}`                     |
-| 4   | 2026-09-28 | -450     | GONG CHA & HO/SPENCER ST MELBOURNE                                   | 1111 | Entertainment & eat-out / Coffee & tea  | Male (card)         | none            | R4 occurrence=1                      |
+| 4   | 2026-09-28 | -450     | GONG CHA & HO/SPENCER ST MELBOURNE                                   | 1111 | Entertainment & eat-out / Bubble tea    | Male (card)         | none            | R4 occurrence=1                      |
 | 5   | 2026-09-28 | -450     | 同上                                                                 | 1111 | 同上                                    | Male (card)         | none            | R4 occurrence=2，**不能被当成重复**  |
 | 6   | 2026-09-25 | -15000   | ATM CBA HAWTHORN                                                     |      | Cash withdrawal                         | Home (account)      | none            | R3 `NON-ANZ ATM`→`ATM`，R7           |
 | 7   | 2026-09-22 | 8000     | PAYID DEPOSIT REF DINNER SPLIT                                       |      | Uncategorised                           | Home (account)      | none            | 导入 me 文件后变 suggested           |
@@ -162,6 +164,16 @@
 
 suggested 确认前，#7 和 PAYID PAYMENT 仍按 Uncategorised 统计。
 
+### R6.3 确认和拒绝（在 me 导入完成后，两个用例分开测）
+
+| 操作 | Joint #7 | PAYID PAYMENT |
+| --- | --- | --- |
+| 确认 | `confirmed`，Internal transfer，`category_source = manual`，Home（account），配对保留 | 同左，Male（account） |
+| 拒绝 | `none`，Uncategorised，`transfer_pair_id` 清空 | 同左 |
+
+- 确认后两笔都不计收支，也不再算未分类
+- 拒绝后再导入 `cba/female-2026-09.csv`：两笔仍是 `none`，不会再被建议（R6.3 只从本次新插入的交易出发）
+
 ---
 
 ## 期望结果：导入 `cba/female-2026-09.csv`（到 CBA Female）
@@ -255,3 +267,29 @@ Male 没有 tax_profile 也没有税前收入 → 全部为 0，卡片提示去�
 | P7   | 在 ANZ Plus Male 手动录入 2026-09-30 +8.50，分类 Income / Interest | 直接 confirmed（anz_plus 没有解析器），is_pre_tax = true，Male |
 | P8   | 在 CBA Female 手动录入 -15.00                                      | pending（cba 有解析器）                                        |
 | P9   | 尝试给 ANZ Plus Male 导入 CSV                                      | 拒绝：这个账户不能导入                                         |
+
+### pending 被转账行确认（R8.3 例外，单独测，空数据库）
+
+| 用例 | 操作 | 期望 |
+| --- | --- | --- |
+| P10 | 在 ANZ Joint 手动录入 2026-09-14 -500.00，分类 Entertainment & eat-out / Restaurants，归属人 Female，备注"给老婆"；然后导入 `joint-2026-09.csv` | 匹配 #11（相差 1 天）→ confirmed，日期变 09-15；R6.1 认出转给 CBA Female → `transfer_status = auto`，分类改成 Internal transfer，`category_source = system`；归属人保持 Female（manual），备注保留 |
+
+计数：`inserted_count = 18`、`matched_pending_count = 1`。之后导入 `cba/female-2026-09.csv`，P10 和 CBA #10 照常配对。
+
+---
+
+## 撤销导入用例（R12.1）
+
+| 用例 | 前置 | 操作 | 期望 |
+| --- | --- | --- | --- |
+| U1 | 导入 joint → overlap | 撤销 joint 主文件那次 | 拒绝：ANZ Joint 最近一次导入是 overlap |
+|    |  | 撤销 overlap | 删除 3 笔（10/08 WOOLWORTHS、10/03 FROM \*\*\*\*0002、GONG CHA 第 3 笔）；joint 的 19 笔不变 |
+| U2 | 导入 joint → overlap → me | 撤销 me | 不弹窗（没有手动改过的）。删除 me 的 4 笔。Joint #7：`suggested` → `none`，Uncategorised，`category_source = system`，Home（account），配对清空。Joint #17：重跑 R6.1，`****0002` 对上 ANZ Male → 保持 auto 和 Internal transfer，只清空配对 |
+|    |  | 再导入 me | 和第一次一样：#7 和 PAYID PAYMENT 重新被建议，#17 重新配对 |
+| U3 | 按 joint → overlap → me → cba 导入，做完 CBA 的两步手动操作 | 撤销 cba | 弹窗：手动改过 2 笔（#3、#15）。确认后删除 CBA 的 20 笔。Joint #11：`****0003` 对上 CBA Female → 保持 auto，只清空配对 |
+| U4 | 空数据库，只导入 joint → cba | 撤销 joint | CBA #10：重跑 R6.1 认不出（PayID，没有账号）→ `none`，Uncategorised，`category_source = system`，Female（account），配对清空 |
+|    |  | 再导入 joint | #11 和 CBA #10 重新配对，CBA #10 变回 auto + Internal transfer |
+| U5 | 导入 joint → overlap → me，确认 #7 和 PAYID PAYMENT 的建议 | 撤销 me | 弹窗：手动改过 1 笔（PAYID PAYMENT，确认后是 manual）。Joint #7：`confirmed` → `none`，Uncategorised，`category_source = system`，配对清空 |
+| U6 | 做完 P1 到 P6 那组导入 | 撤销 joint | 弹窗：确认的 pending 2 笔。P1、P2 恢复成 pending，日期保留银行的（09-22、09-20），`dedupe_key`、`import_batch_id`、`confirmed_at` 清空；17 笔新增的删除 |
+
+每个用例做完，检查没有任何交易的 `transfer_pair_id` 指向已经删除的交易。

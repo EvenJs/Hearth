@@ -208,7 +208,7 @@ rule_match_type      contains | starts_with
 | status           | transaction_status | not null                         |                                        |
 | source           | transaction_source | not null                         |                                        |
 | transfer_status  | transfer_status    | not null, default `none`         |                                        |
-| transfer_pair_id | uuid               | FK → transaction, null           | 对应的另一半转账                       |
+| transfer_pair_id | uuid               | FK → transaction, null           | 对应的另一半转账。外键不级联，撤销导入时先清空两边（R12.1） |
 | dedupe_key       | text               | null                             | 只有来自 CSV 的交易有                  |
 | import_batch_id  | uuid               | FK → import_batch, null          |                                        |
 | note             | text               | null                             | 用户备注                               |
@@ -298,7 +298,7 @@ transaction_tag   transaction_id, tag_id
 receipt           id, household_id, transaction_id, image_url, parsed_json, created_at
 ```
 
-待确认：Female 是否注册了 GST。如果注册了，`transaction_split` 加 `gst_cents integer null`，B2B 收入里的 GST 部分不算收入。
+Female 没有注册 GST（2026-10-23 确认）。以后注册了，可以在 `transaction_split` 加 `gst_cents integer null`，B2B 收入里的 GST 部分不算收入。
 
 ---
 

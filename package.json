@@ -10,14 +10,16 @@
     "lint": "eslint",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "vitest run",
+    "test": "vitest run --project unit",
+    "test:db": "vitest run --project integration",
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:seed": "node --env-file=.env.local scripts/seed.ts",
     "db:backup": "bash scripts/backup.sh",
     "db:ping": "node --env-file=.env.local scripts/db-ping.ts",
-    "user:create": "node --env-file=.env.local scripts/create-user.ts"
+    "user:create": "node --env-file=.env.local scripts/create-user.ts",
+    "dev:manual-edits": "node --env-file=.env.local scripts/dev-manual-edits.ts"
   },
   "engines": {
     "node": "^22.18.0"
@@ -31,6 +33,7 @@
     "drizzle-orm": "0.45.4",
     "lucide-react": "1.61.0",
     "next": "16.4.2",
+    "papaparse": "5.7.0",
     "radix-ui": "1.8.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
@@ -43,6 +46,7 @@
   "devDependencies": {
     "@tailwindcss/turbopack": "4.3.3",
     "@types/node": "20.19.43",
+    "@types/papaparse": "5.5.2",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@types/ws": "8.18.2",

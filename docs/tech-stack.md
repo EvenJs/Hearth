@@ -111,6 +111,7 @@ hearth/
 │   └── tasks/             # 每个里程碑的任务清单
 ├── fixtures/              # 脱敏测试数据
 ├── drizzle/               # 生成的迁移文件
+├── scripts/               # seed、create-user、backup、db-ping
 ├── src/
 │   ├── app/               # Next.js 页面和路由
 │   ├── components/        # UI 组件（shadcn/ui 在 components/ui）
@@ -121,9 +122,14 @@ hearth/
 │   │   ├── auth.ts        # Better Auth 配置
 │   │   ├── import/        # CSV 解析器，每个银行一个文件
 │   │   ├── rules/         # 清洗、去重、转账、分类、匹配、统计（纯函数）
-│   │   └── tax/           # 税率表和税后估算（纯函数）
-│   └── server/            # 数据访问层 + Server Actions
+│   │   ├── tax/           # 税率表和税后估算（纯函数）
+│   │   ├── accounts/      # 账户、卡的输入校验（Zod）
+│   │   └── seed/          # 种子数据定义（seed 脚本和测试共用）
+│   ├── server/            # 数据访问层 + Server Actions
+│   └── proxy.ts           # 未登录跳转（Next.js 16 的路由拦截）
 └── tests/
+    ├── helpers/           # 测试用的家庭配置、读 fixtures
+    └── local/             # 真实数据试跑，不提交（写在 .git/info/exclude）
 ```
 
 ---
