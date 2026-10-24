@@ -3,16 +3,16 @@
 // 纯函数，不 import 数据库和 Next.js
 
 export const PRESET_PERIODS = [
-  "this_week",
-  "last_week",
-  "this_month",
-  "last_month",
-  "this_quarter",
-  "this_year",
-  "this_fy",
+  'this_week',
+  'last_week',
+  'this_month',
+  'last_month',
+  'this_quarter',
+  'this_year',
+  'this_fy',
 ] as const;
 export type PresetPeriod = (typeof PRESET_PERIODS)[number];
-export type PeriodOption = PresetPeriod | "custom";
+export type PeriodOption = PresetPeriod | 'custom';
 
 // 含首尾
 export type DateRange = { start: string; end: string };
@@ -40,13 +40,12 @@ function parse(date: string): Ymd {
   const y = Number(match[1]);
   const m = Number(match[2]);
   const d = Number(match[3]);
-  if (m < 1 || m > 12 || d < 1 || d > daysInMonth(y, m))
-    throw new Error(`日期不存在: "${date}"`);
+  if (m < 1 || m > 12 || d < 1 || d > daysInMonth(y, m)) throw new Error(`日期不存在: "${date}"`);
   return { y, m, d };
 }
 
 function format({ y, m, d }: Ymd): string {
-  return `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  return `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 }
 
 // 1970-01-01 起的天数（Howard Hinnant days_from_civil），只用整数
@@ -64,11 +63,7 @@ function fromDays(days: number): Ymd {
   const era = Math.floor(z / 146097);
   const doe = z - era * 146097;
   const yoe = Math.floor(
-    (doe -
-      Math.floor(doe / 1460) +
-      Math.floor(doe / 36524) -
-      Math.floor(doe / 146096)) /
-      365,
+    (doe - Math.floor(doe / 1460) + Math.floor(doe / 36524) - Math.floor(doe / 146096)) / 365,
   );
   const doy = doe - (365 * yoe + Math.floor(yoe / 4) - Math.floor(yoe / 100));
   const mp = Math.floor((5 * doy + 2) / 153);
@@ -116,61 +111,52 @@ function addMonths(date: string, n: number): string {
 // R10.1："今天"按 Australia/Melbourne
 export function todayInMelbourne(now: Date = new Date()): string {
   // en-CA 输出 YYYY-MM-DD
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Australia/Melbourne",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Australia/Melbourne',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
   }).format(now);
 }
 
 // ---------- R10.1 ----------
 
 // R10.1 各选项的范围。自定义传 { start, end }，含首尾
-export function periodRange(
-  option: PresetPeriod | DateRange,
-  today: string,
-): Period {
+export function periodRange(option: PresetPeriod | DateRange, today: string): Period {
   parse(today);
 
-  if (typeof option === "object") {
+  if (typeof option === 'object') {
     parse(option.start);
     parse(option.end);
     if (option.start > option.end) {
-      throw new Error(
-        `开始日期不能晚于结束日期: ${option.start} > ${option.end}`,
-      );
+      throw new Error(`开始日期不能晚于结束日期: ${option.start} > ${option.end}`);
     }
-    return { option: "custom", start: option.start, end: option.end };
+    return { option: 'custom', start: option.start, end: option.end };
   }
 
   const { y, m } = parse(today);
-  const period = (start: string, end: string): Period => ({
-    option,
-    start,
-    end,
-  });
+  const period = (start: string, end: string): Period => ({ option, start, end });
 
   switch (option) {
-    case "this_week":
+    case 'this_week':
       return period(mondayOf(today), today);
-    case "last_week": {
+    case 'last_week': {
       const lastMonday = addDays(mondayOf(today), -7);
       return period(lastMonday, addDays(lastMonday, 6));
     }
-    case "this_month":
+    case 'this_month':
       return period(startOfMonth(today), today);
-    case "last_month": {
+    case 'last_month': {
       const start = addMonths(startOfMonth(today), -1);
       return period(start, endOfMonth(start));
     }
-    case "this_quarter": {
+    case 'this_quarter': {
       const qm = Math.floor((m - 1) / 3) * 3 + 1;
       return period(format({ y, m: qm, d: 1 }), today);
     }
-    case "this_year":
+    case 'this_year':
       return period(format({ y, m: 1, d: 1 }), today);
-    case "this_fy":
+    case 'this_fy':
       // 今天在 1 到 6 月时，从去年 7 月 1 日开始
       return period(format({ y: m >= 7 ? y : y - 1, m: 7, d: 1 }), today);
   }
@@ -191,7 +177,7 @@ const MONTHS_BACK: Partial<Record<PeriodOption, number>> = {
 export function previousPeriod(period: Period): DateRange {
   const { option, start, end } = period;
 
-  if (option === "this_week" || option === "last_week") {
+  if (option === 'this_week' || option === 'last_week') {
     return { start: addDays(start, -7), end: addDays(end, -7) };
   }
 
@@ -199,9 +185,7 @@ export function previousPeriod(period: Period): DateRange {
   if (months) {
     const prevStart = addMonths(start, -months);
     const prevEnd =
-      end === endOfMonth(end)
-        ? endOfMonth(addMonths(end, -months))
-        : addMonths(end, -months);
+      end === endOfMonth(end) ? endOfMonth(addMonths(end, -months)) : addMonths(end, -months);
     return { start: prevStart, end: prevEnd };
   }
 
