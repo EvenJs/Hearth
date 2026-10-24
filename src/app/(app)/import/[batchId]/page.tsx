@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   ChevronLeft,
+  ChevronRight,
   CircleSlash,
   Clock,
   Copy,
@@ -13,7 +14,14 @@ import { notFound } from 'next/navigation';
 import { Suspense } from 'react';
 import { z } from 'zod';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import { BANK_LABELS } from '@/lib/accounts/account-input';
 import { formatAud } from '@/lib/rules/money';
 import { cn } from '@/lib/utils';
@@ -112,6 +120,13 @@ function ImportResult({ r }: { r: ImportResultView }) {
           value={r.uncategorizedCount}
           hint={r.uncategorizedCount > 0 ? '需要手动分类' : '都分好了'}
           warn={r.uncategorizedCount > 0}
+          // M4-7：跳到流水，只看这次导入的未分类
+          href={
+            r.uncategorizedCount > 0
+              ? `/transactions?quick=uncategorized&batch=${r.batchId}`
+              : undefined
+          }
+          linkLabel="去分类"
         />
       </div>
 
@@ -179,6 +194,16 @@ function ImportResult({ r }: { r: ImportResultView }) {
             <CardDescription>
               超过 3 天还没对上银行流水。可能金额录错、账户选错，或者其实是现金。
             </CardDescription>
+            {/* M4-7：流水里列出这个账户所有待确认的（包括还没超过 3 天的） */}
+            <CardAction>
+              <Link
+                href={`/transactions?status=pending&account=${r.account.id}`}
+                className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+              >
+                在流水里查看
+                <ChevronRight className="size-4" />
+              </Link>
+            </CardAction>
           </CardHeader>
           <CardContent>
             <ul className="divide-y text-sm">
@@ -214,11 +239,15 @@ function Stat({
   value,
   hint,
   warn = false,
+  href,
+  linkLabel,
 }: {
   label: string;
   value: number;
   hint: string;
   warn?: boolean;
+  href?: string;
+  linkLabel?: string;
 }) {
   return (
     <Card className="gap-1 py-4">
@@ -227,7 +256,18 @@ function Stat({
         <span className={cn('text-3xl font-semibold tabular-nums', warn && 'text-amber-600')}>
           {value}
         </span>
-        <span className="text-xs text-muted-foreground">{hint}</span>
+        <span className="flex flex-wrap items-center justify-between gap-x-2 text-xs text-muted-foreground">
+          {hint}
+          {href && (
+            <Link
+              href={href}
+              className="flex items-center font-medium text-amber-700 hover:text-amber-900"
+            >
+              {linkLabel}
+              <ChevronRight className="size-3.5" />
+            </Link>
+          )}
+        </span>
       </CardContent>
     </Card>
   );

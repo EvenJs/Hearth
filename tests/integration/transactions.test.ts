@@ -4,8 +4,8 @@ import { and, eq } from 'drizzle-orm';
 import { beforeEach, expect, it } from 'vitest';
 import { db } from '@/db';
 import * as schema from '@/db/schema';
-import { importCsv } from '@/server/imports';
-import { getTransaction, listTransactions } from '@/server/transactions';
+import { getImportResult, importCsv } from '@/server/imports';
+import { countQuickFilters, getTransaction, listTransactions } from '@/server/transactions';
 import type { TransactionFilters } from '@/lib/transactions/filters';
 import type { HouseholdContext } from '@/server/context';
 import { readFixture, type FixturePath } from '../helpers/fixtures';
@@ -21,13 +21,15 @@ const TODAY = '2026-10-24';
 
 let t: DbTestHousehold;
 
-async function importFixture(account: string, path: FixturePath): Promise<void> {
+// 返回导入批次 id
+async function importFixture(account: string, path: FixturePath): Promise<string> {
   const result = await importCsv(t.ctx, {
     accountId: t.h.account(account).id,
     fileName: path,
     text: readFixture(path),
   });
   if (!result.ok) throw new Error(`导入失败: ${result.message}`);
+  return result.batchId;
 }
 
 const list = (filters: TransactionFilters, page?: number, pageSize?: number) =>
@@ -268,6 +270,46 @@ describeDb('M4-2 listTransactions / getTransaction', () => {
     expect((await list({ status: 'pending' })).count).toBe(0);
     expect((await list({ isPreTax: true })).count).toBe(0);
     expect((await list({ isPreTax: false })).count).toBe(19);
+  });
+
+  // ---------- 详情 ----------
+
+  it('batch filter (M4-7): only that import; uncategorized count matches the import result', async () => {
+    const jointBatch = await importFixture('ANZ Joint', 'anz/joint-2026-09.csv');
+    const meBatch = await importFixture('ANZ Male', 'anz/me-2026-09.csv');
+
+    expect((await list({ batchId: jointBatch })).count).toBe(19);
+    expect((await list({ batchId: meBatch })).count).toBe(4);
+
+    // joint #7、#15、#16、#18；me 的 PAYID PAYMENT（suggested 仍算未分类）
+    const jointResult = await getImportResult(t.ctx, jointBatch);
+    const meResult = await getImportResult(t.ctx, meBatch);
+    const jointUncat = await list({ batchId: jointBatch, quick: 'uncategorized' });
+    const meUncat = await list({ batchId: meBatch, quick: 'uncategorized' });
+    expect(jointUncat.count).toBe(4);
+    expect(jointUncat.count).toBe(jointResult?.uncategorizedCount);
+    expect(meUncat.count).toBe(1);
+    expect(meUncat.count).toBe(meResult?.uncategorizedCount);
+  });
+
+  // ---------- 快捷条件的笔数 ----------
+
+  it('countQuickFilters: joint → 4 uncategorized, 0 suggested', async () => {
+    await importFixture('ANZ Joint', 'anz/joint-2026-09.csv');
+    expect(await countQuickFilters(t.ctx)).toEqual({ uncategorized: 4, suggested: 0 });
+  });
+
+  it('countQuickFilters: joint + me → 5 uncategorized, 2 suggested; other household sees 0', async () => {
+    await importFixture('ANZ Joint', 'anz/joint-2026-09.csv');
+    await importFixture('ANZ Male', 'anz/me-2026-09.csv');
+    expect(await countQuickFilters(t.ctx)).toEqual({ uncategorized: 5, suggested: 2 });
+
+    const [other] = await db
+      .insert(schema.household)
+      .values({ name: 'Other Household' })
+      .returning({ id: schema.household.id });
+    const otherCtx: HouseholdContext = { ...t.ctx, householdId: other.id, memberId: null };
+    expect(await countQuickFilters(otherCtx)).toEqual({ uncategorized: 0, suggested: 0 });
   });
 
   // ---------- 详情 ----------
