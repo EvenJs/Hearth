@@ -1,48 +1,19 @@
-import Link from 'next/link';
 import { Suspense } from 'react';
-import { HearthLogo } from '@/components/hearth-logo';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { getCurrentUser } from '@/server/auth';
 import { listCategoryTree } from '@/server/categories';
 import { getHouseholdContext } from '@/server/context';
 import { listMembers } from '@/server/members';
-import { SignOutButton } from './sign-out-button';
 
-// M0 空壳首页：只确认登录状态。看板在 M5 做（设计图 02）
+// 看板在 M5 做（设计图 02）。现在只有临时的数据访问检查
 export default function HomePage() {
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-6xl flex-col gap-6 p-4 sm:p-8">
-      <header className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
-          <HearthLogo className="size-7 text-primary" />
-          <h1 className="text-xl font-semibold">Hearth</h1>
-        </div>
-        {/* 读 session 的部分必须放在 Suspense 里（cacheComponents） */}
-        <Suspense fallback={<div className="h-8" />}>
-          <CurrentUserBar />
-        </Suspense>
-      </header>
-
+    <>
+      <h1 className="text-2xl font-semibold">看板</h1>
       {/* M1-4 临时验证：数据访问层能查到归属人和分类。M5 做看板时删掉 */}
       <Suspense fallback={<p className="text-sm text-muted-foreground">加载中…</p>}>
         <DataAccessCheck />
       </Suspense>
-    </main>
-  );
-}
-
-async function CurrentUserBar() {
-  const user = await getCurrentUser();
-  return (
-    <div className="flex items-center gap-3">
-      {/* 临时入口，M5 做侧边栏导航后去掉 */}
-      <Button variant="ghost" size="sm" asChild>
-        <Link href="/settings/accounts">账户设置</Link>
-      </Button>
-      <span className="text-sm text-muted-foreground">{user.name}</span>
-      <SignOutButton />
-    </div>
+    </>
   );
 }
 
