@@ -2,16 +2,14 @@
 
 // F8 行内修改（M4-8，设计图 03）：分类、归属人下拉，建议转账的"确认""不是"
 // 改的都是一个拆分（R16.1）；auto / confirmed 转账分类只读（R16.2）；下拉选项按 R16.3
-import { Check, Loader2, X } from 'lucide-react';
+import { Check, ChevronDown, Loader2, X } from 'lucide-react';
 import { useTransition } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
@@ -21,6 +19,7 @@ import {
   type CategoryOption,
   type CategoryOptionGroup,
 } from '@/lib/transactions/inline-edit';
+import type { PickerSections } from '@/lib/transactions/category-picker';
 import { cn } from '@/lib/utils';
 import type { SplitView, TransactionListItem } from '@/server/transactions';
 import {
@@ -28,11 +27,12 @@ import {
   updateSplitCategoryAction,
   updateSplitMemberAction,
 } from './actions';
-import { categoryLabel } from './format';
+import { CategoryPicker } from './category-picker';
 import { CategoryTag } from './tx-badges';
 
 export type EditOptions = {
-  categoryGroups: CategoryOptionGroup[];
+  categoryGroups: CategoryOptionGroup[]; // 查分类的 label、kind（R16.9 要用）
+  categorySections: PickerSections; // 可折叠下拉的选项，和 categoryGroups 同一个范围（R16.3）
   members: { id: string; name: string }[];
 };
 
@@ -69,11 +69,9 @@ export function CategorySelect({
   if (isCategoryLocked(tx.transferStatus)) return <CategoryTag category={split.category} />;
 
   const groups = options.categoryGroups;
-  // 当前分类不在可选项里（比如已归档），加一个不能选的项，让下拉能显示它
-  const current = findOption(groups, split.category.id);
 
-  function onChange(categoryId: string) {
-    if (categoryId === split.category.id) return;
+  function onChange(categoryId: string | null) {
+    if (!categoryId || categoryId === split.category.id) return;
     const next = findOption(groups, categoryId);
     if (!next) return;
     startTransition(async () => {
@@ -89,31 +87,26 @@ export function CategorySelect({
   }
 
   return (
-    <Select value={split.category.id} onValueChange={onChange} disabled={pending}>
-      <SelectTrigger size="sm" aria-label="分类" className={triggerClass}>
-        <SelectValue>
-          <CategoryTag category={split.category} />
-          {pending && <Loader2 className="animate-spin" />}
-        </SelectValue>
-      </SelectTrigger>
-      <SelectContent position="popper" align="start" className="max-h-80">
-        {!current && (
-          <SelectItem value={split.category.id} disabled>
-            {categoryLabel(split.category)}
-          </SelectItem>
+    <CategoryPicker
+      sections={options.categorySections}
+      value={split.category.id}
+      onSelect={onChange}
+      mode="edit"
+      disabled={pending}
+    >
+      <button
+        type="button"
+        aria-label="分类"
+        className={cn(triggerClass, 'inline-flex items-center rounded-md border')}
+      >
+        <CategoryTag category={split.category} />
+        {pending ? (
+          <Loader2 className="size-4 animate-spin" />
+        ) : (
+          <ChevronDown className="size-4 opacity-50" />
         )}
-        {groups.map((g) => (
-          <SelectGroup key={g.label}>
-            <SelectLabel>{g.label}</SelectLabel>
-            {g.options.map((o) => (
-              <SelectItem key={o.id} value={o.id}>
-                {o.label}
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        ))}
-      </SelectContent>
-    </Select>
+      </button>
+    </CategoryPicker>
   );
 }
 

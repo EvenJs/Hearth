@@ -10,14 +10,13 @@ import { Button } from '@/components/ui/button';
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
 import { bulkResultMessage, type BulkField } from '@/lib/transactions/bulk-edit';
 import { bulkUpdateAction } from './actions';
+import { CategoryPicker } from './category-picker';
 import type { EditOptions } from './inline-edit';
 
 type Props = {
@@ -60,24 +59,20 @@ export function BulkBar({ selectedIds, options, onDone, onClear }: Props) {
         </span>
         {pending && <Loader2 className="size-4 animate-spin" aria-label="保存中" />}
 
-        <Select value="" onValueChange={(id) => run('category', id)} disabled={pending}>
-          <SelectTrigger size="sm" aria-label="改分类" className={triggerClass}>
-            <Tag />
-            <SelectValue placeholder="改分类" />
-          </SelectTrigger>
-          <SelectContent position="popper" side="top" align="center" className="max-h-80">
-            {options.categoryGroups.map((g) => (
-              <SelectGroup key={g.label}>
-                <SelectLabel>{g.label}</SelectLabel>
-                {g.options.map((o) => (
-                  <SelectItem key={o.id} value={o.id}>
-                    {o.label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            ))}
-          </SelectContent>
-        </Select>
+        <CategoryPicker
+          sections={options.categorySections}
+          value={null}
+          onSelect={(id) => id && run('category', id)}
+          mode="edit"
+          side="top"
+          align="center"
+          disabled={pending}
+        >
+          <Button type="button" variant="outline" size="sm" className={triggerClass}>
+            <Tag className="size-4" />
+            改分类
+          </Button>
+        </CategoryPicker>
 
         <Select value="" onValueChange={(id) => run('member', id)} disabled={pending}>
           <SelectTrigger size="sm" aria-label="改归属人" className={triggerClass}>

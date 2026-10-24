@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatAud } from '@/lib/rules/money';
 import { todayInMelbourne } from '@/lib/rules/periods';
+import { pickerSections } from '@/lib/transactions/category-picker';
 import { categoryOptionGroups } from '@/lib/transactions/inline-edit';
 import { cn } from '@/lib/utils';
 import { listCategoryTree } from '@/server/categories';
@@ -58,6 +59,7 @@ async function DetailSection({
 
   const options: EditOptions = {
     categoryGroups: categoryOptionGroups(categories),
+    categorySections: pickerSections(categories, { includeTransfer: false }), // R16.3
     members: members.map(({ id, name }) => ({ id, name })),
   };
   const listHref = back ? `/transactions?${back}` : '/transactions';

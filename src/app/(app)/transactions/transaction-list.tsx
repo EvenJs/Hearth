@@ -2,6 +2,7 @@
 
 import { ChevronDown, CornerDownRight } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useLayoutEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -191,7 +192,20 @@ function RowCheckbox({
   );
 }
 
-// 商家名点进交易详情（M4-10）
+// 点一整行进交易详情（2026-10-24）。点到勾选框、下拉、按钮、链接时不跳
+// 下拉内容在 portal 里，React 事件仍会冒泡到行上，所以只认 DOM 上真的在这一行里的点击
+function useRowClick(href: string) {
+  const router = useRouter();
+  return (e: React.MouseEvent<HTMLElement>) => {
+    const target = e.target as HTMLElement;
+    if (!e.currentTarget.contains(target)) return;
+    if (target.closest('a, button, input, label, [role="checkbox"], [role="combobox"]')) return;
+    if (window.getSelection()?.toString()) return; // 在选文字
+    router.push(href);
+  };
+}
+
+// 商家名保留真正的链接：键盘 Tab、中键新标签页都能用（M4-10）
 function MerchantLink({ href, merchant }: { href: string; merchant: string }) {
   return (
     <Link href={href} className="font-medium break-words hover:underline underline-offset-2">
@@ -245,11 +259,17 @@ function TableRows({
   const isSplit = tx.splits.length > 1;
   const primary = tx.splits[0];
   const uncategorized = tx.splits.some(isUncategorized);
+  const onRowClick = useRowClick(detailHref);
   return (
     <>
       <TableRow
         data-state={selected ? 'selected' : undefined}
-        className={cn(uncategorized && 'bg-amber-50/60', isSplit && expanded && 'border-b-0')}
+        onClick={onRowClick}
+        className={cn(
+          'cursor-pointer',
+          uncategorized && 'bg-amber-50/60',
+          isSplit && expanded && 'border-b-0',
+        )}
       >
         <TableCell className="pl-4 align-top">
           <RowCheckbox
@@ -303,8 +323,9 @@ function TableRows({
         tx.splits.map((s, i) => (
           <TableRow
             key={s.id}
+            onClick={onRowClick}
             className={cn(
-              'bg-muted/40 text-muted-foreground hover:bg-muted/60',
+              'cursor-pointer bg-muted/40 text-muted-foreground hover:bg-muted/60',
               i < tx.splits.length - 1 && 'border-b-0',
             )}
           >
@@ -348,10 +369,12 @@ function TxCard({
   const isSplit = tx.splits.length > 1;
   const primary = tx.splits[0];
   const uncategorized = tx.splits.some(isUncategorized);
+  const onRowClick = useRowClick(detailHref);
   return (
     <li
+      onClick={onRowClick}
       className={cn(
-        'flex flex-col gap-1.5 rounded-lg border bg-card p-3 text-sm',
+        'flex cursor-pointer flex-col gap-1.5 rounded-lg border bg-card p-3 text-sm',
         uncategorized && 'border-amber-200 bg-amber-50/60',
         selected && 'border-primary ring-1 ring-primary',
       )}

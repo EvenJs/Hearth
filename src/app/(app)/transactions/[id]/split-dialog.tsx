@@ -7,7 +7,7 @@
 //   主拆分不能改金额；auto / confirmed 转账的分类只读（R16.2）
 // 金额的提示（主拆分剩余、上限）只是界面上的，真正的校验在服务端
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Loader2 } from 'lucide-react';
+import { ChevronDown, Loader2 } from 'lucide-react';
 import { useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
@@ -33,9 +33,7 @@ import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
@@ -49,6 +47,7 @@ import {
 import { cn } from '@/lib/utils';
 import type { SplitView, TransactionDetail } from '@/server/transactions';
 import { addSplitAction, updateSplitAction } from '../actions';
+import { CategoryPicker, pickerLabel } from '../category-picker';
 import { categoryLabel } from '../format';
 import type { EditOptions } from '../inline-edit';
 
@@ -186,7 +185,6 @@ export function SplitDialog({ tx, primary, target, options, onClose, onSaved }: 
   }
 
   const submitting = form.formState.isSubmitting;
-  const currentCategoryListed = target ? findOption(options, target.category.id) : true;
   const memberListed = target ? options.members.some((m) => m.id === target.member.id) : true;
 
   return (
@@ -260,35 +258,29 @@ export function SplitDialog({ tx, primary, target, options, onClose, onSaved }: 
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>分类</FormLabel>
-                  <Select
-                    value={field.value}
-                    onValueChange={field.onChange}
+                  <CategoryPicker
+                    sections={options.categorySections}
+                    value={field.value || null}
+                    onSelect={(id) => id && field.onChange(id)}
+                    mode="edit"
                     disabled={categoryLocked}
                   >
                     <FormControl>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="选分类" />
-                      </SelectTrigger>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full justify-between px-3 font-normal"
+                      >
+                        <span className="truncate">
+                          {pickerLabel(options.categorySections, field.value) ??
+                            (target && field.value === target.category.id
+                              ? categoryLabel(target.category)
+                              : '选分类')}
+                        </span>
+                        <ChevronDown className="size-4 opacity-50" />
+                      </Button>
                     </FormControl>
-                    <SelectContent position="popper" className="max-h-80">
-                      {/* 当前分类不在可选项里（已归档、内部转账），加一个不能选的项让它能显示 */}
-                      {target && !currentCategoryListed && (
-                        <SelectItem value={target.category.id} disabled>
-                          {categoryLabel(target.category)}
-                        </SelectItem>
-                      )}
-                      {options.categoryGroups.map((g) => (
-                        <SelectGroup key={g.label}>
-                          <SelectLabel>{g.label}</SelectLabel>
-                          {g.options.map((o) => (
-                            <SelectItem key={o.id} value={o.id}>
-                              {o.label}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  </CategoryPicker>
                   {categoryLocked && (
                     <FormDescription>内部转账的分类不能改（R16.2）</FormDescription>
                   )}
