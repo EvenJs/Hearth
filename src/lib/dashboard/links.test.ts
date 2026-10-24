@@ -45,6 +45,15 @@ describe('kpiLink', () => {
     });
   });
 
+  it('R10 pre-tax income → income type with isPreTax', () => {
+    expect(kpiLink(male, 'pre_tax')).toEqual<TransactionFilters>({
+      period: SEPT_RANGE,
+      memberId: MALE,
+      type: 'income',
+      isPreTax: true,
+    });
+  });
+
   it('R10.6: the member filter is carried along', () => {
     expect(kpiLink(male, 'expense')).toEqual({
       period: SEPT_RANGE,

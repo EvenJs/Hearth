@@ -1,80 +1,76 @@
+import { connection } from 'next/server';
 import { Suspense } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { listCategoryTree } from '@/server/categories';
+import { formatRange, DEFAULT_PERIOD } from '@/lib/dashboard/format';
+import type { DashboardScope } from '@/lib/dashboard/links';
+import { todayInMelbourne } from '@/lib/rules/periods';
+import { filtersFromSearchParams } from '@/lib/transactions/filters';
 import { getHouseholdContext } from '@/server/context';
+import { getDashboard } from '@/server/dashboard';
 import { listMembers } from '@/server/members';
+import { KpiCards, PendingNote } from './_dashboard/kpi-cards';
+import { MemberSwitch } from './_dashboard/member-switch';
+import { PeriodPicker } from './_dashboard/period-picker';
 
-// 看板在 M5 做（设计图 02）。现在只有临时的数据访问检查
-export default function HomePage() {
+// F6 看板（设计图 02，M5-3）：时间段和归属人在 URL 参数里，写法和 F8 一样（period 或 from/to、member）
+// 没有参数 = 本月、全部归属人。不合法的参数丢掉（filtersFromSearchParams）
+// 分类、Top 商家（M5-4）、汇总表（M5-5）、趋势（M5-6）后面加；预算、税务卡片在 M7
+export default function HomePage(props: PageProps<'/'>) {
   return (
-    <>
-      <h1 className="text-2xl font-semibold">看板</h1>
-      {/* M1-4 临时验证：数据访问层能查到归属人和分类。M5 做看板时删掉 */}
-      <Suspense fallback={<p className="text-sm text-muted-foreground">加载中…</p>}>
-        <DataAccessCheck />
-      </Suspense>
-    </>
+    // 读 session 和 searchParams 的部分放在 Suspense 里（cacheComponents）
+    <Suspense
+      fallback={
+        <>
+          <h1 className="text-2xl font-semibold">看板</h1>
+          <p className="text-sm text-muted-foreground">加载中…</p>
+        </>
+      }
+    >
+      <DashboardSection searchParams={props.searchParams} />
+    </Suspense>
   );
 }
 
-async function DataAccessCheck() {
+async function DashboardSection({
+  searchParams,
+}: {
+  searchParams: PageProps<'/'>['searchParams'];
+}) {
+  const filters = filtersFromSearchParams(await searchParams);
   const ctx = await getHouseholdContext();
-  const [members, tree] = await Promise.all([listMembers(ctx), listCategoryTree(ctx)]);
-  const normal = tree.filter((c) => c.kind !== 'system');
-  const system = tree.filter((c) => c.kind === 'system');
+  // "今天"每次请求都要重新算，不能被预渲染
+  await connection();
+  const today = todayInMelbourne();
+
+  const members = (await listMembers(ctx)).map(({ id, name }) => ({ id, name }));
+  // 不是本家庭的归属人 id 当作没选
+  const memberId = members.some((m) => m.id === filters.memberId) ? filters.memberId : undefined;
+  const dashboard = await getDashboard(
+    ctx,
+    { period: filters.period ?? DEFAULT_PERIOD, memberId },
+    today,
+  );
+  const scope: DashboardScope = { period: dashboard.period, memberId };
 
   return (
-    <div className="grid gap-4 md:grid-cols-3">
-      <Card>
-        <CardHeader>
-          <CardTitle>归属人（{members.length}）</CardTitle>
-          <CardDescription>临时验证用</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ul className="space-y-1 text-sm">
-            {members.map((m) => (
-              <li key={m.id}>
-                {m.name} <span className="text-muted-foreground">· {m.kind}</span>
-              </li>
-            ))}
-          </ul>
-        </CardContent>
-      </Card>
+    <>
+      {/* 时间段和归属人只放一组，在标题旁边（design/README 第 4 节） */}
+      <header className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center lg:gap-x-6">
+        <div className="flex items-baseline gap-3">
+          <h1 className="text-2xl font-semibold">看板</h1>
+          <span className="text-sm text-muted-foreground tabular-nums">
+            {formatRange(dashboard.period, today)}
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <PeriodPicker period={dashboard.period} memberId={memberId} today={today} />
+          <MemberSwitch period={dashboard.period} memberId={memberId} members={members} />
+        </div>
+      </header>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>一级分类（{normal.length}）</CardTitle>
-          <CardDescription>括号里是二级分类数量</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ul className="space-y-1 text-sm">
-            {normal.map((c) => (
-              <li key={c.id}>
-                {c.nameEn}{' '}
-                <span className="text-muted-foreground">
-                  · {c.kind}（{c.children.length}）
-                </span>
-              </li>
-            ))}
-          </ul>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>系统分类（{system.length}）</CardTitle>
-          <CardDescription>内部转账、取现、银行费用、未分类</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ul className="space-y-1 text-sm">
-            {system.map((c) => (
-              <li key={c.id}>
-                {c.nameEn} <span className="text-muted-foreground">· {c.systemKey}</span>
-              </li>
-            ))}
-          </ul>
-        </CardContent>
-      </Card>
-    </div>
+      <div className="flex flex-col gap-3">
+        <KpiCards dashboard={dashboard} scope={scope} today={today} />
+        <PendingNote count={dashboard.pendingCount} scope={scope} />
+      </div>
+    </>
   );
 }
