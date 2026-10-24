@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { connection } from 'next/server';
 import { Suspense } from 'react';
 import { formatAud } from '@/lib/rules/money';
+import { pickerSections } from '@/lib/transactions/category-picker';
 import { categoryOptionGroups } from '@/lib/transactions/inline-edit';
 import { todayInMelbourne } from '@/lib/rules/periods';
 import {
@@ -59,15 +60,12 @@ async function TransactionsSection({
   const options: FilterOptions = {
     accounts: accounts.map(({ id, name, isArchived }) => ({ id, name, isArchived })),
     members: members.map(({ id, name }) => ({ id, name })),
-    categories: categories.map(({ id, nameEn, children }) => ({
-      id,
-      nameEn,
-      children: children.map((c) => ({ id: c.id, nameEn: c.nameEn })),
-    })),
+    categorySections: pickerSections(categories, { includeTransfer: true }), // 筛选时都能选
   };
   // M4-8 行内修改的下拉选项（R16.3）
   const editOptions: EditOptions = {
     categoryGroups: categoryOptionGroups(categories),
+    categorySections: pickerSections(categories, { includeTransfer: false }), // R16.3
     members: options.members,
   };
   const totalPages = Math.max(1, Math.ceil(list.count / list.pageSize));
@@ -94,7 +92,12 @@ async function TransactionsSection({
       </div>
 
       {list.items.length > 0 ? (
-        <TransactionList items={list.items} today={today} options={editOptions} />
+        <TransactionList
+          items={list.items}
+          today={today}
+          options={editOptions}
+          listHref={transactionsHref(filters, page)}
+        />
       ) : (
         <div className="rounded-lg border px-4 py-10 text-center text-sm text-muted-foreground">
           {list.count > 0 ? (

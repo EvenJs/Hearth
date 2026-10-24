@@ -1,6 +1,8 @@
 'use client';
 
 import { ChevronDown, CornerDownRight } from 'lucide-react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useLayoutEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -18,6 +20,7 @@ import { cn } from '@/lib/utils';
 import type { TransactionListItem } from '@/server/transactions';
 import { BulkBar } from './bulk-bar';
 import { formatTxDate } from './format';
+import { transactionDetailHref } from './href';
 import {
   CategorySelect,
   MemberSelect,
@@ -34,9 +37,14 @@ import { isUncategorized, TxBadges } from './tx-badges';
 // "存成规则"对话框放在列表层：筛选"未分类"时，改完的行会从列表消失
 // 批量修改（M4-9）：只能勾当前页；换页、换筛选后不在当前页的勾选自动失效
 
-type Props = { items: TransactionListItem[]; today: string; options: EditOptions };
+type Props = {
+  items: TransactionListItem[];
+  today: string;
+  options: EditOptions;
+  listHref: string; // 当前列表的地址，点进详情后能带着筛选和页码回来
+};
 
-export function TransactionList({ items, today, options }: Props) {
+export function TransactionList({ items, today, options, listHref }: Props) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
   const pageIds = items.map((tx) => tx.id);
@@ -83,6 +91,7 @@ export function TransactionList({ items, today, options }: Props) {
     onOfferRule: offerRule,
     selected: checked.has(tx.id),
     onSelect: (on: boolean) => setOne(tx.id, on),
+    detailHref: transactionDetailHref(tx.id, listHref),
   });
 
   return (
@@ -164,6 +173,7 @@ type RowProps = {
   onOfferRule: (draft: RuleDraft) => void;
   selected: boolean;
   onSelect: (on: boolean) => void;
+  detailHref: string;
 };
 
 function RowCheckbox({
@@ -179,6 +189,28 @@ function RowCheckbox({
       onCheckedChange={(v) => onSelect(v === true)}
       className={className}
     />
+  );
+}
+
+// 点一整行进交易详情（2026-10-24）。点到勾选框、下拉、按钮、链接时不跳
+// 下拉内容在 portal 里，React 事件仍会冒泡到行上，所以只认 DOM 上真的在这一行里的点击
+function useRowClick(href: string) {
+  const router = useRouter();
+  return (e: React.MouseEvent<HTMLElement>) => {
+    const target = e.target as HTMLElement;
+    if (!e.currentTarget.contains(target)) return;
+    if (target.closest('a, button, input, label, [role="checkbox"], [role="combobox"]')) return;
+    if (window.getSelection()?.toString()) return; // 在选文字
+    router.push(href);
+  };
+}
+
+// 商家名保留真正的链接：键盘 Tab、中键新标签页都能用（M4-10）
+function MerchantLink({ href, merchant }: { href: string; merchant: string }) {
+  return (
+    <Link href={href} className="font-medium break-words hover:underline underline-offset-2">
+      {merchant}
+    </Link>
   );
 }
 
@@ -222,15 +254,22 @@ function TableRows({
   onOfferRule,
   selected,
   onSelect,
+  detailHref,
 }: RowProps) {
   const isSplit = tx.splits.length > 1;
   const primary = tx.splits[0];
   const uncategorized = tx.splits.some(isUncategorized);
+  const onRowClick = useRowClick(detailHref);
   return (
     <>
       <TableRow
         data-state={selected ? 'selected' : undefined}
-        className={cn(uncategorized && 'bg-amber-50/60', isSplit && expanded && 'border-b-0')}
+        onClick={onRowClick}
+        className={cn(
+          'cursor-pointer',
+          uncategorized && 'bg-amber-50/60',
+          isSplit && expanded && 'border-b-0',
+        )}
       >
         <TableCell className="pl-4 align-top">
           <RowCheckbox
@@ -266,7 +305,7 @@ function TableRows({
         </TableCell>
         <TableCell className="pr-4 align-top whitespace-normal">
           <div className="flex max-w-96 flex-wrap items-center gap-1.5">
-            <span className="font-medium break-words">{tx.merchant}</span>
+            <MerchantLink href={detailHref} merchant={tx.merchant} />
             <TxBadges tx={tx} />
             {tx.transferStatus === 'suggested' && <SuggestionButtons transactionId={tx.id} />}
           </div>
@@ -284,8 +323,9 @@ function TableRows({
         tx.splits.map((s, i) => (
           <TableRow
             key={s.id}
+            onClick={onRowClick}
             className={cn(
-              'bg-muted/40 text-muted-foreground hover:bg-muted/60',
+              'cursor-pointer bg-muted/40 text-muted-foreground hover:bg-muted/60',
               i < tx.splits.length - 1 && 'border-b-0',
             )}
           >
@@ -324,14 +364,17 @@ function TxCard({
   onOfferRule,
   selected,
   onSelect,
+  detailHref,
 }: RowProps) {
   const isSplit = tx.splits.length > 1;
   const primary = tx.splits[0];
   const uncategorized = tx.splits.some(isUncategorized);
+  const onRowClick = useRowClick(detailHref);
   return (
     <li
+      onClick={onRowClick}
       className={cn(
-        'flex flex-col gap-1.5 rounded-lg border bg-card p-3 text-sm',
+        'flex cursor-pointer flex-col gap-1.5 rounded-lg border bg-card p-3 text-sm',
         uncategorized && 'border-amber-200 bg-amber-50/60',
         selected && 'border-primary ring-1 ring-primary',
       )}
@@ -344,7 +387,7 @@ function TxCard({
             onSelect={onSelect}
             className="mr-0.5"
           />
-          <span className="font-medium break-words">{tx.merchant}</span>
+          <MerchantLink href={detailHref} merchant={tx.merchant} />
           <TxBadges tx={tx} />
         </div>
         <Amount cents={tx.amountCents} className="shrink-0 font-medium" />

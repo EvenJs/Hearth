@@ -13,6 +13,7 @@ import {
   type ReapplyPreview,
   type ReapplyResult,
 } from '@/server/rules';
+import { addSplit, removeSplit, updateSplit, type SplitWriteResult } from '@/server/splits';
 import {
   bulkUpdate,
   confirmSuggestion,
@@ -35,8 +36,9 @@ function failed(tag: string, err: unknown): Failure {
   return { ok: false, message: '保存失败，请稍后再试' };
 }
 
+// 'layout'：列表和详情页（/transactions/[id]）一起刷新
 function refresh() {
-  revalidatePath('/transactions');
+  revalidatePath('/transactions', 'layout');
 }
 
 // ---------- 改分类、改归属人（R16.1、R16.2、R16.4） ----------
@@ -174,5 +176,74 @@ export async function resolveSuggestionAction(input: {
     return r;
   } catch (err) {
     return failed(parsed.data.action === 'confirm' ? '确认转账' : '拒绝转账', err);
+  }
+}
+
+// ---------- 拆分（M4-10，R15.2、R15.3） ----------
+// 金额是用户填的正数（分），按交易符号转换和 < 主拆分的校验在 src/server/splits.ts
+
+const noteInput = z.string().max(200).nullish();
+
+const addSplitSchema = z.object({
+  transactionId: z.uuid(),
+  amountCents: z.number().int().positive(),
+  categoryId: z.uuid(),
+  memberId: z.uuid().nullish(), // 不选就按 R5 算
+  note: noteInput,
+});
+
+export async function addSplitAction(
+  input: z.input<typeof addSplitSchema>,
+): Promise<SplitWriteResult> {
+  const parsed = addSplitSchema.safeParse(input);
+  if (!parsed.success) return INVALID;
+  const { transactionId, ...rest } = parsed.data;
+  const ctx = await getHouseholdContext();
+  try {
+    const r = await addSplit(ctx, transactionId, rest);
+    if (r.ok) refresh();
+    return r;
+  } catch (err) {
+    return failed('拆分', err);
+  }
+}
+
+// 只传要改的字段；note 传 null 或空字符串是清空
+const updateSplitSchema = z.object({
+  splitId: z.uuid(),
+  amountCents: z.number().int().positive().optional(),
+  categoryId: z.uuid().optional(),
+  memberId: z.uuid().optional(),
+  note: noteInput,
+});
+
+export async function updateSplitAction(
+  input: z.input<typeof updateSplitSchema>,
+): Promise<SplitWriteResult> {
+  const parsed = updateSplitSchema.safeParse(input);
+  if (!parsed.success) return INVALID;
+  const { splitId, ...rest } = parsed.data;
+  // note 没传时不能带上 note 这个 key，否则会被当成清空
+  const change = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
+  const ctx = await getHouseholdContext();
+  try {
+    const r = await updateSplit(ctx, splitId, change);
+    if (r.ok) refresh();
+    return r;
+  } catch (err) {
+    return failed('改拆分', err);
+  }
+}
+
+export async function removeSplitAction(input: { splitId: string }): Promise<SplitWriteResult> {
+  const parsed = z.object({ splitId: z.uuid() }).safeParse(input);
+  if (!parsed.success) return INVALID;
+  const ctx = await getHouseholdContext();
+  try {
+    const r = await removeSplit(ctx, parsed.data.splitId);
+    if (r.ok) refresh();
+    return r;
+  } catch (err) {
+    return failed('删除拆分', err);
   }
 }

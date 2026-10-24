@@ -1,6 +1,6 @@
 'use client';
 
-import { RotateCcw, Search, X } from 'lucide-react';
+import { ChevronDown, RotateCcw, Search, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
@@ -9,10 +9,7 @@ import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
-  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
@@ -23,7 +20,9 @@ import {
   type TransactionFilters,
   type TransactionStatus,
 } from '@/lib/transactions/filters';
+import type { PickerSections } from '@/lib/transactions/category-picker';
 import { cn } from '@/lib/utils';
+import { CategoryPicker, pickerLabel } from './category-picker';
 
 // F8 筛选栏（M4-7）：条件全在 URL 参数里。下拉一改就跳转；商家和金额按回车或"应用"才生效
 // 改了任何条件都回到第 1 页（URL 里不带 page）
@@ -32,11 +31,7 @@ import { cn } from '@/lib/utils';
 export type FilterOptions = {
   accounts: { id: string; name: string; isArchived: boolean }[];
   members: { id: string; name: string }[];
-  categories: {
-    id: string;
-    nameEn: string;
-    children: { id: string; nameEn: string }[];
-  }[];
+  categorySections: PickerSections; // 一级包含它所有的二级
 };
 
 const ALL = 'all'; // Radix Select 的值不能是空字符串
@@ -180,32 +175,23 @@ function FilterForm({ filters, options }: Props) {
 
         {/* 一级包含它所有的二级 */}
         <Field label="分类">
-          <Select value={filters.categoryId ?? ALL} onValueChange={selectChange('category')}>
-            <SelectTrigger className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL}>全部分类</SelectItem>
-              {options.categories.map((top) =>
-                top.children.length === 0 ? (
-                  <SelectItem key={top.id} value={top.id}>
-                    {top.nameEn}
-                  </SelectItem>
-                ) : (
-                  <SelectGroup key={top.id}>
-                    <SelectSeparator />
-                    <SelectLabel>{top.nameEn}</SelectLabel>
-                    <SelectItem value={top.id}>全部 {top.nameEn}</SelectItem>
-                    {top.children.map((c) => (
-                      <SelectItem key={c.id} value={c.id} className="pl-6">
-                        {c.nameEn}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                ),
-              )}
-            </SelectContent>
-          </Select>
+          <CategoryPicker
+            sections={options.categorySections}
+            value={filters.categoryId ?? null}
+            onSelect={(id) => go({ category: id })}
+            mode="filter"
+          >
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full justify-between px-3 font-normal"
+            >
+              <span className="truncate">
+                {pickerLabel(options.categorySections, filters.categoryId ?? null) ?? '全部分类'}
+              </span>
+              <ChevronDown className="size-4 opacity-50" />
+            </Button>
+          </CategoryPicker>
         </Field>
 
         <Field label="类型">

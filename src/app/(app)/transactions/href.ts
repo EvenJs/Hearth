@@ -7,3 +7,9 @@ export function transactionsHref(filters: TransactionFilters, page = 1): string 
   const qs = p.toString();
   return qs ? `/transactions?${qs}` : '/transactions';
 }
+
+// 详情页链接，带上列表的查询参数（筛选和页码），详情页"返回流水"时带回去（M4-10）
+export function transactionDetailHref(id: string, listHref: string): string {
+  const qs = listHref.split('?')[1] ?? '';
+  return qs ? `/transactions/${id}?back=${encodeURIComponent(qs)}` : `/transactions/${id}`;
+}
