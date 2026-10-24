@@ -111,6 +111,11 @@ function toneOf(c: CategoryRef): CategoryTone {
     : toneOfTop(c);
 }
 
+// 看板分类占比的进度条（M5-4）：用色点的颜色；系统分类的虚线框画不成条，用实心灰
+export function toneBarClass(tone: CategoryTone): string {
+  return tone === 'system' ? 'bg-muted-foreground/40' : TONES[tone].dot;
+}
+
 // 下拉里一级名前面的色点
 export function ToneDot({ tone, className }: { tone: CategoryTone; className?: string }) {
   return (

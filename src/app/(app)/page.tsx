@@ -7,13 +7,15 @@ import { filtersFromSearchParams } from '@/lib/transactions/filters';
 import { getHouseholdContext } from '@/server/context';
 import { getDashboard } from '@/server/dashboard';
 import { listMembers } from '@/server/members';
+import { ExpenseCategories } from './_dashboard/expense-categories';
 import { KpiCards, PendingNote } from './_dashboard/kpi-cards';
 import { MemberSwitch } from './_dashboard/member-switch';
 import { PeriodPicker } from './_dashboard/period-picker';
+import { TopMerchants } from './_dashboard/top-merchants';
 
 // F6 看板（设计图 02，M5-3）：时间段和归属人在 URL 参数里，写法和 F8 一样（period 或 from/to、member）
 // 没有参数 = 本月、全部归属人。不合法的参数丢掉（filtersFromSearchParams）
-// 分类、Top 商家（M5-4）、汇总表（M5-5）、趋势（M5-6）后面加；预算、税务卡片在 M7
+// 分类占比和 Top 商家（M5-4）；汇总表（M5-5）、趋势（M5-6）后面加；预算、税务卡片在 M7
 export default function HomePage(props: PageProps<'/'>) {
   return (
     // 读 session 和 searchParams 的部分放在 Suspense 里（cacheComponents）
@@ -70,6 +72,16 @@ async function DashboardSection({
       <div className="flex flex-col gap-3">
         <KpiCards dashboard={dashboard} scope={scope} today={today} />
         <PendingNote count={dashboard.pendingCount} scope={scope} />
+      </div>
+
+      {/* 设计图 02：左边宽的是支出分类，右边 Top 商家（税务卡片在 M7，不留占位） */}
+      <div className="grid gap-3 lg:grid-cols-3 lg:gap-4">
+        <div className="min-w-0 lg:col-span-2">
+          <ExpenseCategories dashboard={dashboard} scope={scope} />
+        </div>
+        <div className="min-w-0">
+          <TopMerchants dashboard={dashboard} scope={scope} />
+        </div>
       </div>
     </>
   );
