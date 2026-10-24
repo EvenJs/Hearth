@@ -1,0 +1,145 @@
+'use server';
+
+// F8 行内修改的 Server Action（M4-8）。输入用 Zod 再校验一次，业务判断在 src/server/ 和 src/lib/rules/
+// 日志里不打印数据库错误详情（参数里可能有交易描述）
+import { revalidatePath } from 'next/cache';
+import { z } from 'zod';
+import { getHouseholdContext } from '@/server/context';
+import {
+  createRule,
+  previewReapply,
+  reapplyRules,
+  type CreateRuleResult,
+  type ReapplyPreview,
+  type ReapplyResult,
+} from '@/server/rules';
+import {
+  confirmSuggestion,
+  rejectSuggestion,
+  updateSplitCategory,
+  updateSplitMember,
+  type SplitUpdateResult,
+  type SuggestionResult,
+} from '@/server/transactions';
+
+type Failure = { ok: false; message: string };
+
+const INVALID: Failure = { ok: false, message: '参数不合法' };
+
+function failed(tag: string, err: unknown): Failure {
+  // 事务已经回滚，什么都没改
+  console.error(`[transactions] ${tag}失败`, err instanceof Error ? err.name : typeof err);
+  return { ok: false, message: '保存失败，请稍后再试' };
+}
+
+function refresh() {
+  revalidatePath('/transactions');
+}
+
+// ---------- 改分类、改归属人（R16.1、R16.2、R16.4） ----------
+
+const splitCategorySchema = z.object({ splitId: z.uuid(), categoryId: z.uuid() });
+const splitMemberSchema = z.object({ splitId: z.uuid(), memberId: z.uuid() });
+
+export async function updateSplitCategoryAction(input: {
+  splitId: string;
+  categoryId: string;
+}): Promise<SplitUpdateResult> {
+  const parsed = splitCategorySchema.safeParse(input);
+  if (!parsed.success) return INVALID;
+  const ctx = await getHouseholdContext();
+  try {
+    const r = await updateSplitCategory(ctx, parsed.data.splitId, parsed.data.categoryId);
+    if (r.ok && r.changed) refresh();
+    return r;
+  } catch (err) {
+    return failed('改分类', err);
+  }
+}
+
+export async function updateSplitMemberAction(input: {
+  splitId: string;
+  memberId: string;
+}): Promise<SplitUpdateResult> {
+  const parsed = splitMemberSchema.safeParse(input);
+  if (!parsed.success) return INVALID;
+  const ctx = await getHouseholdContext();
+  try {
+    const r = await updateSplitMember(ctx, parsed.data.splitId, parsed.data.memberId);
+    if (r.ok && r.changed) refresh();
+    return r;
+  } catch (err) {
+    return failed('改归属人', err);
+  }
+}
+
+// ---------- 存成规则（R13、R16.6）和重新应用（R7.2） ----------
+
+// 关键词的整理（去空格、转大写、长度）在 createRule 里做，这里只挡明显不对的
+const createRuleSchema = z.object({
+  keyword: z.string().max(200),
+  categoryId: z.uuid(),
+  overwrite: z.boolean().optional(),
+});
+
+// 匹配方式固定 contains，对话框里不让选（R16.9）
+export async function createRuleAction(input: {
+  keyword: string;
+  categoryId: string;
+  overwrite?: boolean;
+}): Promise<CreateRuleResult> {
+  const parsed = createRuleSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, reason: 'invalid', message: '参数不合法' };
+  const ctx = await getHouseholdContext();
+  try {
+    return await createRule(ctx, { ...parsed.data, matchType: 'contains' });
+  } catch (err) {
+    const f = failed('存规则', err);
+    return { ok: false, reason: 'invalid', message: f.message };
+  }
+}
+
+export async function previewReapplyAction(): Promise<({ ok: true } & ReapplyPreview) | Failure> {
+  const ctx = await getHouseholdContext();
+  try {
+    return { ok: true, ...(await previewReapply(ctx)) };
+  } catch (err) {
+    console.error('[transactions] 预览重新应用失败', err instanceof Error ? err.name : typeof err);
+    return { ok: false, message: '读取失败，请稍后再试' };
+  }
+}
+
+export async function reapplyRulesAction(): Promise<({ ok: true } & ReapplyResult) | Failure> {
+  const ctx = await getHouseholdContext();
+  try {
+    const r = await reapplyRules(ctx);
+    refresh();
+    return { ok: true, ...r };
+  } catch (err) {
+    return failed('重新应用规则', err);
+  }
+}
+
+// ---------- 建议转账确认和拒绝（R6.3） ----------
+
+export async function resolveSuggestionAction(input: {
+  transactionId: string;
+  action: 'confirm' | 'reject';
+}): Promise<SuggestionResult> {
+  const parsed = z
+    .object({ transactionId: z.uuid(), action: z.enum(['confirm', 'reject']) })
+    .safeParse(input);
+  if (!parsed.success) return INVALID;
+  const ctx = await getHouseholdContext();
+  try {
+    const { transactionId, action } = parsed.data;
+    const r =
+      action === 'confirm'
+        ? await confirmSuggestion(ctx, transactionId)
+        : await rejectSuggestion(ctx, transactionId);
+    if (r.ok) refresh();
+    return r;
+  } catch (err) {
+    return failed(parsed.data.action === 'confirm' ? '确认转账' : '拒绝转账', err);
+  }
+}
