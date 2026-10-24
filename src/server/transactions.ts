@@ -475,7 +475,7 @@ export async function getTransaction(
 // ---------- 修改（M4-3） ----------
 // 字段怎么变由 src/lib/rules/split-edit.ts 的纯函数算，这里负责读、校验、在一个事务里写回
 
-type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+export type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 // changed = false：值和原来一样，没写库
 export type SplitUpdateResult = { ok: true; changed: boolean } | { ok: false; message: string };
@@ -503,10 +503,10 @@ const INVALID = { ok: false, message: '参数不合法' } as const;
 const BAD_CATEGORY = { ok: false, message: '不能选这个分类' } as const;
 const BAD_MEMBER = { ok: false, message: '不能选这个归属人' } as const;
 
-// R5.1 重算、R16.3 校验要的家庭配置，只读本家庭的
+// R5.1 重算、R16.3 校验要的家庭配置，只读本家庭的。src/server/rules.ts 也用
 // 分类连归档的一起读（拆分可能还指着归档分类），isArchived 算上一级：
 // 一级归档了，它的二级也不能选，和 listCategoryTree 一致
-async function loadEditContext(tx: DbTx, ctx: HouseholdContext): Promise<EditContext> {
+export async function loadEditContext(tx: DbTx, ctx: HouseholdContext): Promise<EditContext> {
   const hh = ctx.householdId;
   const categoryRows = await tx
     .select({
@@ -593,7 +593,8 @@ function sameSplit(a: EditSplit, b: EditSplit): boolean {
   );
 }
 
-async function writeSplit(tx: DbTx, ctx: HouseholdContext, s: EditSplit): Promise<void> {
+// 写回一个拆分可以改的字段（分类、归属人、税前），带 household_id
+export async function writeSplit(tx: DbTx, ctx: HouseholdContext, s: EditSplit): Promise<void> {
   await tx
     .update(transactionSplit)
     .set({
