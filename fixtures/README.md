@@ -116,6 +116,28 @@
 | 9/28–9/30（部分） | 10740    |
 | 合计              | 45575    |
 
+### 看板（R10.3 到 R10.6，只导入这一个文件，时间段 2026 年 9 月）
+
+**Top 商家**（R10.3，按笔数）
+
+| 排名 | merchant                           | 笔数 | 金额(分) |
+| ---- | ---------------------------------- | ---- | -------- |
+| 1    | GONG CHA & HO/SPENCER ST MELBOURNE | 2    | 900      |
+| 2    | ATM CBA HAWTHORN                   | 1    | 15000    |
+| 3    | BPAY SEENE                         | 1    | 9840     |
+| 4    | POCHANA MELBOURNE MELBOURNE        | 1    | 6120     |
+| 5    | MELB ASIAN MARKET                  | 1    | 6080     |
+
+- 第 6 名起：COLES 0559 MELBOURNE（1 笔，5840）、CROWN ASIAN SPENCER DOCKLANDS（1，3875）、CHARGEFOX PTY LTD NORTH MELBOUR（1，2500）、ACCOUNT SERVICING FEE（1，500）
+- 不出现：只有退款的 #1 REVERSAL…、#10 MEDICARE BENEFIT（0 笔）；未分类的 #7、#15、#16、#18；转账 #11、#17
+- MELB ASIAN MARKET：#14 -6230 算 1 笔，#13 +150 退款只冲减金额
+
+**归属人筛选**（R10.6）：选 Male → 支出 900；Top 商家只有 GONG CHA（2 笔，900）；按周汇总只有 9/28–9/30 部分一列有 900。
+
+**对比上期**（R10.4）：上期没有数据，收入、支出、储蓄率都显示"—"。
+
+**近 12 个月**（R10.5，今天 2026-10-24）：2025-11 到 2026-10 共 12 个月；只有 2026-09 有数据，收入 0、支出 45575、净额 -45575，其他 11 个月都是 0。
+
 ### 拆分（R15，在上面导入完成后操作）
 
 对 #19 依次拆出：15.00 → Home & utilities / Household supplies；8.00 → Personal & medical / Cosmetics & toiletries（都不选归属人）。
