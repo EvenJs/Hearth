@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { connection } from 'next/server';
 import { Suspense } from 'react';
 import { formatAud } from '@/lib/rules/money';
+import { categoryOptionGroups } from '@/lib/transactions/inline-edit';
 import { todayInMelbourne } from '@/lib/rules/periods';
 import {
   filtersFromSearchParams,
@@ -14,6 +15,7 @@ import { getHouseholdContext } from '@/server/context';
 import { listMembers } from '@/server/members';
 import { countQuickFilters, listTransactions } from '@/server/transactions';
 import { FilterBar, type FilterOptions } from './filter-bar';
+import type { EditOptions } from './inline-edit';
 import { transactionsHref } from './href';
 import { Pagination } from './pagination';
 import { QuickFilters } from './quick-filters';
@@ -63,6 +65,11 @@ async function TransactionsSection({
       children: children.map((c) => ({ id: c.id, nameEn: c.nameEn })),
     })),
   };
+  // M4-8 行内修改的下拉选项（R16.3）
+  const editOptions: EditOptions = {
+    categoryGroups: categoryOptionGroups(categories),
+    members: options.members,
+  };
   const totalPages = Math.max(1, Math.ceil(list.count / list.pageSize));
 
   return (
@@ -87,7 +94,7 @@ async function TransactionsSection({
       </div>
 
       {list.items.length > 0 ? (
-        <TransactionList items={list.items} today={today} />
+        <TransactionList items={list.items} today={today} options={editOptions} />
       ) : (
         <div className="rounded-lg border px-4 py-10 text-center text-sm text-muted-foreground">
           {list.count > 0 ? (

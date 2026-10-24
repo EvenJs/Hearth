@@ -13,18 +13,29 @@ import {
 } from '@/components/ui/table';
 import { formatAud } from '@/lib/rules/money';
 import { cn } from '@/lib/utils';
-import type { SplitView, TransactionListItem } from '@/server/transactions';
+import type { TransactionListItem } from '@/server/transactions';
 import { formatTxDate } from './format';
-import { CategoryTag, isUncategorized, TxBadges } from './tx-badges';
+import {
+  CategorySelect,
+  MemberSelect,
+  SuggestionButtons,
+  type EditOptions,
+  type RuleDraft,
+} from './inline-edit';
+import { SaveRuleDialog } from './save-rule-dialog';
+import { isUncategorized, TxBadges } from './tx-badges';
 
 // F8 流水列表（设计图 03）：电脑（lg 以上）是表格，窄屏是卡片列表
 // 拆过的交易（R16.1）：主行显示"已拆分 N"，下面每个拆分一行，默认展开，可以收起
-// 分类和归属人的修改在 M4-8 做，这里只显示
+// 行内修改（M4-8）：只有主拆分的交易在主行改；拆过的主行不能改，每个子行改自己那个拆分
+// "存成规则"对话框放在列表层：筛选"未分类"时，改完的行会从列表消失
 
-type Props = { items: TransactionListItem[]; today: string };
+type Props = { items: TransactionListItem[]; today: string; options: EditOptions };
 
-export function TransactionList({ items, today }: Props) {
+export function TransactionList({ items, today, options }: Props) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const [ruleDraft, setRuleDraft] = useState<{ key: number; draft: RuleDraft } | null>(null);
+  const offerRule = (draft: RuleDraft) => setRuleDraft((prev) => ({ key: (prev?.key ?? 0) + 1, draft }));
   const toggle = (id: string) =>
     setCollapsed((prev) => {
       const next = new Set(prev);
@@ -37,6 +48,8 @@ export function TransactionList({ items, today }: Props) {
     today,
     expanded: !collapsed.has(tx.id),
     onToggle: () => toggle(tx.id),
+    options,
+    onOfferRule: offerRule,
   });
 
   return (
@@ -66,6 +79,14 @@ export function TransactionList({ items, today }: Props) {
           <TxCard key={tx.id} {...rowProps(tx)} />
         ))}
       </ul>
+
+      {ruleDraft && (
+        <SaveRuleDialog
+          key={ruleDraft.key}
+          draft={ruleDraft.draft}
+          onClose={() => setRuleDraft(null)}
+        />
+      )}
     </>
   );
 }
@@ -75,6 +96,8 @@ type RowProps = {
   today: string;
   expanded: boolean;
   onToggle: () => void;
+  options: EditOptions;
+  onOfferRule: (draft: RuleDraft) => void;
 };
 
 function Amount({ cents, className }: { cents: number; className?: string }) {
@@ -90,7 +113,7 @@ function SplitToggle({
   count,
   expanded,
   onToggle,
-}: Omit<RowProps, 'tx' | 'today'> & { count: number }) {
+}: Pick<RowProps, 'expanded' | 'onToggle'> & { count: number }) {
   return (
     <Button
       type="button"
@@ -106,13 +129,9 @@ function SplitToggle({
   );
 }
 
-function CategoryCell({ split }: { split: SplitView }) {
-  return <CategoryTag category={split.category} />;
-}
-
 // ---------- 电脑：表格 ----------
 
-function TableRows({ tx, today, expanded, onToggle }: RowProps) {
+function TableRows({ tx, today, expanded, onToggle, options, onOfferRule }: RowProps) {
   const isSplit = tx.splits.length > 1;
   const primary = tx.splits[0];
   const uncategorized = tx.splits.some(isUncategorized);
@@ -131,7 +150,9 @@ function TableRows({ tx, today, expanded, onToggle }: RowProps) {
           {isSplit ? (
             <SplitToggle count={tx.splits.length} expanded={expanded} onToggle={onToggle} />
           ) : (
-            primary && <CategoryCell split={primary} />
+            primary && (
+              <CategorySelect tx={tx} split={primary} options={options} onOfferRule={onOfferRule} />
+            )
           )}
         </TableCell>
         <TableCell className="align-top">
@@ -140,11 +161,14 @@ function TableRows({ tx, today, expanded, onToggle }: RowProps) {
             <span className="ml-1 text-xs text-muted-foreground">卡 {tx.cardLast4}</span>
           )}
         </TableCell>
-        <TableCell className="align-top">{!isSplit && primary?.member.name}</TableCell>
+        <TableCell className="align-top">
+          {!isSplit && primary && <MemberSelect split={primary} options={options} />}
+        </TableCell>
         <TableCell className="pr-4 align-top whitespace-normal">
           <div className="flex max-w-96 flex-wrap items-center gap-1.5">
             <span className="font-medium break-words">{tx.merchant}</span>
             <TxBadges tx={tx} />
+            {tx.transferStatus === 'suggested' && <SuggestionButtons transactionId={tx.id} />}
           </div>
           {/* 脱敏后的原始描述（R2.3）。只占一行，悬停看完整的 */}
           <div
@@ -170,10 +194,12 @@ function TableRows({ tx, today, expanded, onToggle }: RowProps) {
               <Amount cents={s.amountCents} />
             </TableCell>
             <TableCell className="text-foreground">
-              <CategoryCell split={s} />
+              <CategorySelect tx={tx} split={s} options={options} onOfferRule={onOfferRule} />
             </TableCell>
             <TableCell />
-            <TableCell className="text-foreground">{s.member.name}</TableCell>
+            <TableCell className="text-foreground">
+              <MemberSelect split={s} options={options} />
+            </TableCell>
             <TableCell className="pr-4 whitespace-normal">
               <span className="flex items-center gap-1.5">
                 <CornerDownRight className="size-3.5 shrink-0" />
@@ -188,7 +214,7 @@ function TableRows({ tx, today, expanded, onToggle }: RowProps) {
 
 // ---------- 窄屏：卡片 ----------
 
-function TxCard({ tx, today, expanded, onToggle }: RowProps) {
+function TxCard({ tx, today, expanded, onToggle, options, onOfferRule }: RowProps) {
   const isSplit = tx.splits.length > 1;
   const primary = tx.splits[0];
   const uncategorized = tx.splits.some(isUncategorized);
@@ -210,15 +236,14 @@ function TxCard({ tx, today, expanded, onToggle }: RowProps) {
         <span>{formatTxDate(tx.date, today)}</span>
         <span>·</span>
         <span>{tx.account.name}</span>
-        {!isSplit && primary && (
-          <>
-            <span>·</span>
-            <CategoryCell split={primary} />
-            <span>·</span>
-            <span>{primary.member.name}</span>
-          </>
-        )}
       </div>
+      {tx.transferStatus === 'suggested' && <SuggestionButtons transactionId={tx.id} />}
+      {!isSplit && primary && (
+        <div className="flex flex-wrap items-center gap-1 text-xs">
+          <CategorySelect tx={tx} split={primary} options={options} onOfferRule={onOfferRule} />
+          <MemberSelect split={primary} options={options} />
+        </div>
+      )}
       <div title={tx.rawDescription} className="truncate font-mono text-xs text-muted-foreground">
         {tx.rawDescription}
       </div>
@@ -229,9 +254,9 @@ function TxCard({ tx, today, expanded, onToggle }: RowProps) {
             <ul className="mt-1 flex flex-col gap-1 border-l pl-3">
               {tx.splits.map((s) => (
                 <li key={s.id} className="flex items-start justify-between gap-3">
-                  <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-                    <CategoryCell split={s} />
-                    <span className="text-muted-foreground">{s.member.name}</span>
+                  <span className="flex min-w-0 flex-wrap items-center gap-1">
+                    <CategorySelect tx={tx} split={s} options={options} onOfferRule={onOfferRule} />
+                    <MemberSelect split={s} options={options} />
                   </span>
                   <Amount cents={s.amountCents} className="shrink-0" />
                 </li>
