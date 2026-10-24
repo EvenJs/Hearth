@@ -12,10 +12,20 @@ const activeClass = 'bg-primary font-medium text-primary-foreground';
 const idleClass = 'text-foreground/80 hover:bg-primary/10 hover:text-foreground';
 const disabledClass = 'cursor-not-allowed text-muted-foreground/60';
 
-// onNavigate：手机 Sheet 里点了链接后关掉 Sheet
-export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
-  const pathname = usePathname();
+type NavProps = { onNavigate?: () => void }; // 手机 Sheet 里点了链接后关掉 Sheet
 
+// usePathname 在动态路由（/import/[batchId]）上只有请求时才知道，cacheComponents 要求放进 Suspense。
+// 用的地方：<Suspense fallback={<SidebarNavFallback />}><SidebarNav /></Suspense>
+export function SidebarNav(props: NavProps) {
+  return <NavList pathname={usePathname()} {...props} />;
+}
+
+// 还没拿到路径时：同样的导航，不高亮，链接照样能点
+export function SidebarNavFallback(props: NavProps) {
+  return <NavList pathname={null} {...props} />;
+}
+
+function NavList({ pathname, onNavigate }: NavProps & { pathname: string | null }) {
   function leaf(item: NavLeaf, className: string, children: React.ReactNode) {
     if (item.href === null) {
       return (
@@ -24,7 +34,7 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
         </span>
       );
     }
-    const active = isActive(item.href, pathname);
+    const active = pathname !== null && isActive(item.href, pathname);
     return (
       <Link
         href={item.href}
@@ -72,11 +82,13 @@ function NavGroup({
 }: {
   item: NavItem;
   label: React.ReactNode;
-  pathname: string;
+  pathname: string | null;
   leaf: (item: NavLeaf, className: string, children: React.ReactNode) => React.ReactNode;
 }) {
   const children = item.children ?? [];
-  const [open, setOpen] = useState(() => children.some((c) => isActive(c.href, pathname)));
+  const [open, setOpen] = useState(
+    () => pathname !== null && children.some((c) => isActive(c.href, pathname)),
+  );
   const listId = `nav-group-${item.label}`;
   return (
     <>

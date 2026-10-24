@@ -2,7 +2,7 @@ import { Plus } from 'lucide-react';
 import { Suspense } from 'react';
 import { Brand } from '@/components/app-shell/brand';
 import { MobileNav } from '@/components/app-shell/mobile-nav';
-import { SidebarNav } from '@/components/app-shell/sidebar-nav';
+import { SidebarNav, SidebarNavFallback } from '@/components/app-shell/sidebar-nav';
 import { SignOutButton } from '@/components/app-shell/sign-out-button';
 import { Button } from '@/components/ui/button';
 import { getCurrentUser } from '@/server/auth';
@@ -16,7 +16,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="px-2">
           <Brand />
         </div>
-        <SidebarNav />
+        {/* usePathname 在动态路由上要放进 Suspense（cacheComponents） */}
+        <Suspense fallback={<SidebarNavFallback />}>
+          <SidebarNav />
+        </Suspense>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
