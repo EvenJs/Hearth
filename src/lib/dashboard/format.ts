@@ -72,3 +72,38 @@ export function dashboardHref(scope: DashboardScope): string {
   const qs = p.toString();
   return qs ? `/?${qs}` : '/';
 }
+
+// ---------- R10 分类支出占比（M5-4） ----------
+
+// 分母 = 正数行的合计。负数行（退款大于支出，如 Personal & medical -45.80）照实显示，但不拿来冲减分母
+// 传一级的合计；二级的占比也用同一个分母，和一级放在一起比
+export function expenseShareBase(rows: readonly { cents: number }[]): number {
+  return rows.reduce((sum, r) => (r.cents > 0 ? sum + r.cents : sum), 0);
+}
+
+// 0 到 1；负数行、没有正数支出时没有占比（null），界面上不画条
+export function expenseShare(cents: number, base: number): number | null {
+  if (cents < 0 || base <= 0) return null;
+  return cents / base;
+}
+
+// 一位小数，"34.5%"；没有占比时"—"
+export function formatShare(share: number | null): string {
+  return share === null ? DASH : `${(share * 100).toFixed(1)}%`;
+}
+
+export type ExpenseSubLine = { categoryId: string; cents: number; unsplit: boolean };
+
+// 展开一级后的各行：二级，加上直接记在一级上的部分（unsplit，显示成"X（不细分）"），按金额从大到小
+// 没有二级（系统分类，或者钱全记在一级上）时返回空，不显示箭头；一级部分是 0 时不加这一行
+export function expenseSubLines(top: {
+  categoryId: string;
+  cents: number;
+  children: readonly { categoryId: string; cents: number }[];
+}): ExpenseSubLine[] {
+  if (top.children.length === 0) return [];
+  const lines: ExpenseSubLine[] = top.children.map((c) => ({ ...c, unsplit: false }));
+  const rest = top.cents - top.children.reduce((sum, c) => sum + c.cents, 0);
+  if (rest !== 0) lines.push({ categoryId: top.categoryId, cents: rest, unsplit: true });
+  return lines.sort((a, b) => b.cents - a.cents);
+}

@@ -103,6 +103,9 @@ export type DashboardInput = {
   memberId?: string; // R10.6；不传 = 全部
 };
 
+// 看板显示分类要的字段（M5-4）：名字、颜色（按一级的名字和类型取）
+export type DashboardCategory = Pick<Category, 'id' | 'parentId' | 'nameEn' | 'kind' | 'systemKey'>;
+
 export type Dashboard = {
   period: Period;
   previous: DateRange; // R10.1 上一个同长度时间段
@@ -112,7 +115,31 @@ export type Dashboard = {
   topMerchants: MerchantTotal[]; // R10.3，前 5 个
   pendingCount: number; // R10.6 "含 N 笔待确认交易"
   trend: MonthTrend[]; // R10.5，固定近 12 个月，不跟时间段走
+  // 本期支出分类里出现的一级、二级，按 id 查。从全部分类里取（含已归档），老拆分指向归档分类也有名字
+  categories: Record<string, DashboardCategory>;
 };
+
+function pickCategories(
+  categories: readonly Category[],
+  totals: Summary['expenseByCategory'],
+): Record<string, DashboardCategory> {
+  const ids = new Set(
+    totals.flatMap((t) => [t.categoryId, ...t.children.map((c) => c.categoryId)]),
+  );
+  const out: Record<string, DashboardCategory> = {};
+  for (const c of categories) {
+    if (ids.has(c.id)) {
+      out[c.id] = {
+        id: c.id,
+        parentId: c.parentId,
+        nameEn: c.nameEn,
+        kind: c.kind,
+        systemKey: c.systemKey,
+      };
+    }
+  }
+  return out;
+}
 
 export async function getDashboard(
   ctx: HouseholdContext,
@@ -141,6 +168,7 @@ export async function getDashboard(
     topMerchants: topMerchants(splits, categories, period, TOP_MERCHANTS),
     pendingCount: pendingCount(splits, period),
     trend: monthlyTrend(splits, categories, months),
+    categories: pickCategories(categories, current.expenseByCategory),
   };
 }
 
