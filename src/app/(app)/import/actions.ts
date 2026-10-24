@@ -2,10 +2,18 @@
 
 // F2 CSV 导入的 Server Action（M3-7）。输入用 Zod 再校验一次，前端校验可以被绕过
 // 不保存上传的原文件；日志里不打印文件内容和数据库错误详情（参数里可能有交易描述）
+import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import { z } from 'zod';
 import { checkCsvFile, importFormSchema } from '@/lib/import/import-input';
 import { getHouseholdContext } from '@/server/context';
-import { importCsv, type ImportResult } from '@/server/imports';
+import {
+  getUndoPreview,
+  importCsv,
+  undoImport,
+  type ImportResult,
+  type UndoPreview,
+} from '@/server/imports';
 
 export type ImportField = 'accountId' | 'openingBalance' | 'closingBalance' | 'file';
 
@@ -75,4 +83,43 @@ export async function importCsvAction(formData: FormData): Promise<ImportActionF
   }
 
   redirect(`/import/${result.batchId}`);
+}
+
+// ==================== R12.1 撤销导入（M3-9） ====================
+
+export type UndoActionResult =
+  { ok: true; deletedCount: number; restoredPendingCount: number } | { ok: false; message: string };
+
+const NOT_FOUND = { ok: false, message: '这次导入不存在，可能已经撤销了' } as const;
+
+// 弹窗要显示的笔数。按钮点击时现查，不用页面渲染时的旧数据
+export async function previewUndoAction(
+  batchId: string,
+): Promise<UndoPreview | { ok: false; message: string }> {
+  const ctx = await getHouseholdContext();
+  const id = z.uuid().safeParse(batchId);
+  if (!id.success) return NOT_FOUND;
+  try {
+    return await getUndoPreview(ctx, id.data);
+  } catch (err) {
+    console.error('[undo] 读取撤销信息失败', err instanceof Error ? err.name : typeof err);
+    return { ok: false, message: '读取失败，请稍后再试' };
+  }
+}
+
+export async function undoImportAction(batchId: string): Promise<UndoActionResult> {
+  const ctx = await getHouseholdContext();
+  const id = z.uuid().safeParse(batchId);
+  if (!id.success) return NOT_FOUND;
+  try {
+    const r = await undoImport(ctx, id.data);
+    if (!r.ok) return { ok: false, message: r.message };
+    revalidatePath('/import/history');
+    revalidatePath(`/import/${id.data}`);
+    return { ok: true, deletedCount: r.deletedCount, restoredPendingCount: r.restoredPendingCount };
+  } catch (err) {
+    // 事务已经回滚，什么都没改
+    console.error('[undo] 撤销失败', err instanceof Error ? err.name : typeof err);
+    return { ok: false, message: '撤销失败，请稍后再试' };
+  }
 }

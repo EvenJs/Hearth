@@ -2,7 +2,7 @@
 // 业务判断全部用 src/lib/ 的纯函数，这里只负责读写数据库和串流程
 // 不保存上传的原文件；日志和报错里不打印原始描述
 import { randomUUID } from 'node:crypto';
-import { and, eq, gt, gte, inArray, isNull, lte, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, gte, inArray, isNull, lte, ne, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import {
   card,
@@ -642,6 +642,8 @@ export type ImportResultView = {
   uncategorizedCount: number;
   pendingToCheck: ResultPending[];
   possibleDuplicates: { transaction: ResultTx; pendings: ResultTx[] }[];
+  // R12.1：是不是该账户最近一次导入（只有最近一次能撤销）
+  canUndo: boolean;
 };
 
 const NO_RECONCILIATION: Reconciliation = { status: 'none', differenceCents: null };
@@ -678,7 +680,7 @@ export async function getImportResult(
 
   const warnings = (batch.warnings ?? {}) as Partial<ImportWarnings>;
 
-  const [[{ uncategorizedCount }], stillPending, duplicateTxs] = await Promise.all([
+  const [[{ uncategorizedCount }], stillPending, duplicateTxs, newerCount] = await Promise.all([
     // 本批次的交易（新增 + 确认的 pending）里，主拆分现在还是未分类的
     db
       .select({ uncategorizedCount: sql<number>`count(*)::int` })
@@ -731,6 +733,16 @@ export async function getImportResult(
         .from(transaction)
         .where(and(eq(transaction.householdId, hh), inArray(transaction.id, ids)));
     })(),
+    // R12.1：该账户之后还有没有导入，和 loadUndoState 的判断一样
+    db.$count(
+      importBatch,
+      and(
+        eq(importBatch.householdId, hh),
+        eq(importBatch.accountId, batch.accountId),
+        ne(importBatch.id, batch.id),
+        gt(importBatch.createdAt, batch.createdAt),
+      ),
+    ),
   ]);
 
   const txById = new Map(duplicateTxs.map((x) => [x.id, x]));
@@ -773,7 +785,72 @@ export async function getImportResult(
       }),
     ),
     possibleDuplicates,
+    canUndo: newerCount === 0,
   };
+}
+
+// ==================== 导入历史（M3-9） ====================
+
+export type ImportHistoryRow = {
+  batchId: string;
+  createdAt: Date;
+  fileName: string;
+  account: { id: string; name: string; bank: Bank; numberSuffix: string | null };
+  dateFrom: string;
+  dateTo: string;
+  insertedCount: number;
+  duplicateCount: number;
+  matchedPendingCount: number;
+  reconciliation: Reconciliation;
+  // R12.1：每个账户只有最近一次导入能撤销
+  canUndo: boolean;
+};
+
+// 家庭的所有导入批次，最新的在前
+export async function listImportHistory(ctx: HouseholdContext): Promise<ImportHistoryRow[]> {
+  const rows = await db
+    .select({
+      id: importBatch.id,
+      createdAt: importBatch.createdAt,
+      fileName: importBatch.fileName,
+      dateFrom: importBatch.dateFrom,
+      dateTo: importBatch.dateTo,
+      insertedCount: importBatch.insertedCount,
+      duplicateCount: importBatch.duplicateCount,
+      matchedPendingCount: importBatch.matchedPendingCount,
+      warnings: importBatch.warnings,
+      accountId: financialAccount.id,
+      accountName: financialAccount.name,
+      bank: financialAccount.bank,
+      numberSuffix: financialAccount.numberSuffix,
+    })
+    .from(importBatch)
+    .innerJoin(financialAccount, eq(financialAccount.id, importBatch.accountId))
+    .where(eq(importBatch.householdId, ctx.householdId))
+    .orderBy(desc(importBatch.createdAt), desc(importBatch.id));
+
+  // 和 loadUndoState 一样：该账户没有更晚的批次就能撤销。
+  // 已经按数据库的 created_at（微秒）倒序，每个账户第一次出现的就是最近一次；不用 JS Date 比（只到毫秒）
+  const seenAccounts = new Set<string>();
+
+  return rows.map((r) => {
+    const canUndo = !seenAccounts.has(r.accountId);
+    seenAccounts.add(r.accountId);
+    const warnings = (r.warnings ?? {}) as Partial<ImportWarnings>;
+    return {
+      batchId: r.id,
+      createdAt: r.createdAt,
+      fileName: r.fileName,
+      account: { id: r.accountId, name: r.accountName, bank: r.bank, numberSuffix: r.numberSuffix },
+      dateFrom: r.dateFrom,
+      dateTo: r.dateTo,
+      insertedCount: r.insertedCount,
+      duplicateCount: r.duplicateCount,
+      matchedPendingCount: r.matchedPendingCount,
+      reconciliation: warnings.reconciliation ?? NO_RECONCILIATION,
+      canUndo,
+    };
+  });
 }
 
 // ==================== R12.1 撤销导入 ====================

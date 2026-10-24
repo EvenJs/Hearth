@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
-import { isActive, NAV_ITEMS, type NavItem, type NavLeaf } from './nav';
+import { activeChildHref, isActive, NAV_ITEMS, type NavItem, type NavLeaf } from './nav';
 
 const itemClass = 'flex h-9 items-center gap-3 rounded-md px-3 text-sm transition-colors';
 const activeClass = 'bg-primary font-medium text-primary-foreground';
@@ -26,7 +26,13 @@ export function SidebarNavFallback(props: NavProps) {
 }
 
 function NavList({ pathname, onNavigate }: NavProps & { pathname: string | null }) {
-  function leaf(item: NavLeaf, className: string, children: React.ReactNode) {
+  // active 不传时按 isActive 判断；分组里由 NavGroup 传入（同组只高亮一项）
+  function leaf(
+    item: NavLeaf,
+    className: string,
+    children: React.ReactNode,
+    activeOverride?: boolean,
+  ) {
     if (item.href === null) {
       return (
         <span aria-disabled="true" title="还没做" className={cn(className, disabledClass)}>
@@ -34,7 +40,7 @@ function NavList({ pathname, onNavigate }: NavProps & { pathname: string | null 
         </span>
       );
     }
-    const active = pathname !== null && isActive(item.href, pathname);
+    const active = activeOverride ?? (pathname !== null && isActive(item.href, pathname));
     return (
       <Link
         href={item.href}
@@ -73,7 +79,7 @@ function NavList({ pathname, onNavigate }: NavProps & { pathname: string | null 
   );
 }
 
-// 有子项的分组（设置）：标题是展开收起按钮。当前页在分组里时默认展开，否则收起
+// 有子项的分组（导入、设置）：标题是展开收起按钮。当前页在分组里时默认展开，否则收起
 function NavGroup({
   item,
   label,
@@ -83,12 +89,16 @@ function NavGroup({
   item: NavItem;
   label: React.ReactNode;
   pathname: string | null;
-  leaf: (item: NavLeaf, className: string, children: React.ReactNode) => React.ReactNode;
+  leaf: (
+    item: NavLeaf,
+    className: string,
+    children: React.ReactNode,
+    activeOverride?: boolean,
+  ) => React.ReactNode;
 }) {
   const children = item.children ?? [];
-  const [open, setOpen] = useState(
-    () => pathname !== null && children.some((c) => isActive(c.href, pathname)),
-  );
+  const activeHref = pathname === null ? null : activeChildHref(children, pathname);
+  const [open, setOpen] = useState(() => activeHref !== null);
   const listId = `nav-group-${item.label}`;
   return (
     <>
@@ -107,7 +117,14 @@ function NavGroup({
       {open && (
         <ul id={listId} className="mt-1 flex flex-col gap-1 pl-7">
           {children.map((child) => (
-            <li key={child.label}>{leaf(child, cn(itemClass, 'h-8'), child.label)}</li>
+            <li key={child.label}>
+              {leaf(
+                child,
+                cn(itemClass, 'h-8'),
+                child.label,
+                pathname === null ? false : child.href !== null && child.href === activeHref,
+              )}
+            </li>
           ))}
         </ul>
       )}

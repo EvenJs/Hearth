@@ -5,7 +5,7 @@ import {
   CircleSlash,
   Clock,
   Copy,
-  Undo2,
+  History,
   XCircle,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -13,25 +13,34 @@ import { notFound } from 'next/navigation';
 import { Suspense } from 'react';
 import { z } from 'zod';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { BANK_LABELS } from '@/lib/accounts/account-input';
 import { formatAud } from '@/lib/rules/money';
 import { cn } from '@/lib/utils';
 import { getHouseholdContext } from '@/server/context';
 import { getImportResult, type ImportResultView, type ResultTx } from '@/server/imports';
+import { UndoImportButton } from '../undo-import-button';
 
-// F2 导入结果（设计图 07）：R12 第 10 步的结果。撤销的弹窗在 M3-9 做
+// F2 导入结果（设计图 07）：R12 第 10 步的结果。撤销用导入历史页同一个按钮和弹窗
 export default function ImportResultPage(props: PageProps<'/import/[batchId]'>) {
   return (
     <>
-      <Link
-        href="/import"
-        className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ChevronLeft className="size-4" />
-        导入
-      </Link>
+      <nav className="flex flex-wrap items-center justify-between gap-2 text-sm">
+        <Link
+          href="/import"
+          className="flex w-fit items-center gap-1 text-muted-foreground hover:text-foreground"
+        >
+          <ChevronLeft className="size-4" />
+          导入
+        </Link>
+        <Link
+          href="/import/history"
+          className="flex w-fit items-center gap-1 text-muted-foreground hover:text-foreground"
+        >
+          <History className="size-4" />
+          导入历史
+        </Link>
+      </nav>
       {/* 读 session 和 params 的部分放在 Suspense 里（cacheComponents） */}
       <Suspense fallback={<p className="text-sm text-muted-foreground">加载中…</p>}>
         <ResultSection params={props.params} />
@@ -80,11 +89,17 @@ function ImportResult({ r }: { r: ImportResultView }) {
             <span>导入于 {createdAtFormat.format(r.createdAt)}</span>
           </div>
         </div>
-        {/* 弹窗和撤销逻辑在 M3-9 接上 */}
-        <Button variant="outline" size="sm" disabled title="M3-9 才有" className="w-fit shrink-0">
-          <Undo2 className="size-4" />
-          撤销这次导入
-        </Button>
+        {/* R12.1：只有该账户最近一次导入能撤销 */}
+        {r.canUndo ? (
+          <UndoImportButton batchId={r.batchId} after="result" label="撤销这次导入" />
+        ) : (
+          <Link
+            href="/import/history"
+            className="w-fit shrink-0 text-sm text-muted-foreground hover:text-foreground"
+          >
+            这个账户之后还有导入，不能撤销
+          </Link>
+        )}
       </header>
 
       {/* 计数 */}
