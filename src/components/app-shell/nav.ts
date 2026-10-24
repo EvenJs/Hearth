@@ -8,7 +8,15 @@ export type NavItem = NavLeaf & { icon: LucideIcon; children?: NavLeaf[] };
 export const NAV_ITEMS: NavItem[] = [
   { label: '看板', href: '/', icon: LayoutDashboard },
   { label: '流水', href: null, icon: ReceiptText }, // M4
-  { label: '导入', href: '/import', icon: FileUp },
+  {
+    label: '导入',
+    href: null,
+    icon: FileUp,
+    children: [
+      { label: '上传 CSV', href: '/import' },
+      { label: '导入历史', href: '/import/history' },
+    ],
+  },
   {
     label: '设置',
     href: null,
@@ -26,4 +34,16 @@ export function isActive(href: string | null, pathname: string): boolean {
   if (href === null) return false;
   if (href === '/') return pathname === '/';
   return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+// 分组里只高亮一项：匹配的 href 里最长的那个。
+// /import/history 只亮"导入历史"；/import/[batchId] 亮"上传 CSV"
+export function activeChildHref(children: NavLeaf[], pathname: string): string | null {
+  let best: string | null = null;
+  for (const c of children) {
+    if (c.href !== null && isActive(c.href, pathname) && c.href.length > (best?.length ?? -1)) {
+      best = c.href;
+    }
+  }
+  return best;
 }
