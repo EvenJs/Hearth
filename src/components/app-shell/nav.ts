@@ -8,7 +8,7 @@ export type NavItem = NavLeaf & { icon: LucideIcon; children?: NavLeaf[] };
 export const NAV_ITEMS: NavItem[] = [
   { label: '看板', href: '/', icon: LayoutDashboard },
   { label: '流水', href: null, icon: ReceiptText }, // M4
-  { label: '导入', href: null, icon: FileUp }, // M3-7
+  { label: '导入', href: '/import', icon: FileUp },
   {
     label: '设置',
     href: null,
