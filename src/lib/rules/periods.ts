@@ -193,3 +193,12 @@ export function previousPeriod(period: Period): DateRange {
   const length = daysBetween(start, end) + 1;
   return { start: addDays(start, -length), end: addDays(start, -1) };
 }
+
+// R10.5 近 12 个月趋势：含本月在内的 12 个自然月，本月只到今天。不跟时间段选择走
+export function lastTwelveMonths(today: string): DateRange[] {
+  const first = addMonths(startOfMonth(today), -11);
+  return Array.from({ length: 12 }, (_, i) => {
+    const start = addMonths(first, i);
+    return { start, end: i === 11 ? today : endOfMonth(start) };
+  });
+}

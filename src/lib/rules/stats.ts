@@ -2,6 +2,7 @@
 // 全部基于 transaction_split，按交易的 date 归入时间段
 // 纯函数，不 import 数据库和 Next.js
 import { addDays, endOfMonth, mondayOf, startOfMonth, type DateRange } from './periods';
+import type { TransactionStatus } from '@/lib/transactions/filters';
 import type { Category } from './types';
 
 // 统计需要的拆分字段（date 是所属交易的日期）
@@ -342,4 +343,164 @@ export function budgetProgress(
       level,
     };
   });
+}
+
+// ---------- M5 看板（R10.3 到 R10.6） ----------
+
+// R10.3 Top 商家要按交易合并拆分，所以多带交易 id 和商家。不改 StatSplit，免得动到已有测试
+export type MerchantSplit = StatSplit & {
+  transactionId: string;
+  merchant: string;
+};
+
+export type MerchantTotal = {
+  merchant: string;
+  count: number; // 花了钱的交易笔数
+  cents: number; // 支出为正数，退款已冲减
+};
+
+// R10.3：按商家分组，按笔数排，取前 n 个
+export function topMerchants(
+  splits: readonly MerchantSplit[],
+  categories: readonly Category[],
+  range: DateRange,
+  n: number,
+): MerchantTotal[] {
+  const idx = indexCategories(categories);
+
+  // R10.3：一笔交易算一次，先把这笔交易里命中的支出拆分加起来（原始带符号金额）
+  const byTransaction = new Map<string, { merchant: string; amountCents: number }>();
+  for (const s of splits) {
+    if (!inRange(s.date, range)) continue;
+    if (bucketOf(idx.get(s.categoryId)) !== 'expense') continue;
+    const t = byTransaction.get(s.transactionId);
+    if (t) t.amountCents += s.amountCents;
+    else
+      byTransaction.set(s.transactionId, {
+        merchant: s.merchant,
+        amountCents: s.amountCents,
+      });
+  }
+
+  const merchants = new Map<string, MerchantTotal>();
+  for (const { merchant, amountCents } of byTransaction.values()) {
+    let m = merchants.get(merchant);
+    if (!m) {
+      m = { merchant, count: 0, cents: 0 };
+      merchants.set(merchant, m);
+    }
+    // 负数（花了钱）→ 笔数 +1；正数（退款）→ 只冲减金额。合计正好是 0 时两样都不变
+    if (amountCents < 0) m.count += 1;
+    m.cents -= amountCents;
+  }
+
+  return [...merchants.values()]
+    .filter((m) => m.count > 0) // R10.3：笔数是 0 的商家不列
+    .sort(
+      (a, b) =>
+        b.count - a.count ||
+        b.cents - a.cents ||
+        (a.merchant < b.merchant ? -1 : a.merchant > b.merchant ? 1 : 0),
+    )
+    .slice(0, n);
+}
+
+// R10.4 对比上期 ---------------------------------------------
+
+export type Comparison = {
+  incomePercent: number | null; // 整数百分比，+14 = +14%；不能比时 null，显示"—"
+  expensePercent: number | null;
+  savingsRatePoints: number | null; // 整数百分点，+3 = +3 pp
+};
+
+type Totals = Pick<Summary, 'incomeCents' | 'expenseCents'>;
+
+// num ÷ den 四舍五入到整数，按绝对值舍入再带上符号（-12.5 → -13）。den > 0
+// 用 BigInt 整数运算，不受浮点误差影响
+function roundRatio(num: bigint, den: bigint): number {
+  const zero = BigInt(0);
+  const two = BigInt(2);
+  const abs = num < zero ? -num : num;
+  const q = (two * abs + den) / (two * den); // BigInt 除法向下取整
+  return Number(num < zero ? -q : q);
+}
+
+// R10.4：(本期 − 上期) ÷ 上期；上期 ≤ 0 时 null
+function percentChange(current: number, previous: number): number | null {
+  if (previous <= 0) return null;
+  return roundRatio(BigInt(current - previous) * BigInt(100), BigInt(previous));
+}
+
+// R10.4：储蓄率百分点差 = 本期 − 上期；任一期储蓄率是"—"（收入 ≤ 0，同 summarize）时 null
+// (Ic−Ec)/Ic − (Ip−Ep)/Ip = ((Ic−Ec)·Ip − (Ip−Ep)·Ic) / (Ic·Ip)
+function savingsRateDiff(c: Totals, p: Totals): number | null {
+  if (c.incomeCents <= 0 || p.incomeCents <= 0) return null;
+  const ic = BigInt(c.incomeCents);
+  const ip = BigInt(p.incomeCents);
+  const num = (ic - BigInt(c.expenseCents)) * ip - (ip - BigInt(p.expenseCents)) * ic;
+  return roundRatio(num * BigInt(100), ic * ip);
+}
+
+// R10.4：未分类不对比
+export function compare(current: Totals, previous: Totals): Comparison {
+  return {
+    incomePercent: percentChange(current.incomeCents, previous.incomeCents),
+    expensePercent: percentChange(current.expenseCents, previous.expenseCents),
+    savingsRatePoints: savingsRateDiff(current, previous),
+  };
+}
+
+// R10.5 近 12 个月趋势 ---------------------------------------
+
+export type MonthTrend = DateRange & {
+  incomeCents: number;
+  expenseCents: number;
+  netCents: number; // 收入 − 支出
+};
+
+// R10.5：每月收入、支出口径同 summarize；没有数据的月份是 0，不跳过
+export function monthlyTrend(
+  splits: readonly StatSplit[],
+  categories: readonly Category[],
+  months: readonly DateRange[],
+): MonthTrend[] {
+  return months.map(({ start, end }) => {
+    const { incomeCents, expenseCents } = summarize(splits, categories, {
+      start,
+      end,
+    });
+    return {
+      start,
+      end,
+      incomeCents,
+      expenseCents,
+      netCents: incomeCents - expenseCents,
+    };
+  });
+}
+
+// R10.6 归属人筛选和 pending ---------------------------------
+
+// R10.6：选了归属人时只留这个归属人的拆分；不选时原样返回
+export function filterByMember<T extends { memberId: string }>(
+  splits: readonly T[],
+  memberId: string | undefined,
+): T[] {
+  return memberId === undefined ? [...splits] : splits.filter((s) => s.memberId === memberId);
+}
+
+export type PendingSplit = {
+  transactionId: string;
+  date: string;
+  status: TransactionStatus;
+};
+
+// R10.6："含 N 笔待确认交易"：时间段内、有拆分命中的 pending 交易笔数
+// 传进来的拆分要先经过 filterByMember
+export function pendingCount(splits: readonly PendingSplit[], range: DateRange): number {
+  const ids = new Set<string>();
+  for (const s of splits) {
+    if (s.status === 'pending' && inRange(s.date, range)) ids.add(s.transactionId);
+  }
+  return ids.size;
 }

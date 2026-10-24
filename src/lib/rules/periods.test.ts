@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   addDays,
+  lastTwelveMonths,
   periodRange,
   previousPeriod,
   todayInMelbourne,
@@ -157,5 +158,22 @@ describe('todayInMelbourne（R10.1 今天按 Australia/Melbourne）', () => {
     expect(todayInMelbourne(new Date('2026-10-22T12:00:00Z'))).toBe('2026-10-22');
     // 冬令时 AEST +10：2026-06-30 14:30 UTC = 07-01 00:30
     expect(todayInMelbourne(new Date('2026-06-30T14:30:00Z'))).toBe('2026-07-01');
+  });
+});
+
+describe('lastTwelveMonths（R10.5）', () => {
+  it('R10.5: today 2026-10-24 → 2025-11-01 … 2026-10-24, last month only to today', () => {
+    const months = lastTwelveMonths('2026-10-24');
+    expect(months).toHaveLength(12);
+    expect(months[0]).toEqual({ start: '2025-11-01', end: '2025-11-30' });
+    expect(months[11]).toEqual({ start: '2026-10-01', end: '2026-10-24' });
+  });
+
+  it('R10.5: consecutive natural months, February in a leap year', () => {
+    const months = lastTwelveMonths('2028-03-01');
+    expect(months[0]).toEqual({ start: '2027-04-01', end: '2027-04-30' });
+    expect(months[10]).toEqual({ start: '2028-02-01', end: '2028-02-29' });
+    expect(months[11]).toEqual({ start: '2028-03-01', end: '2028-03-01' });
+    for (let i = 1; i < 12; i++) expect(months[i].start).toBe(addDays(months[i - 1].end, 1));
   });
 });

@@ -2,8 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { processFile } from '@/lib/import/process';
 import { readFixture } from '../../../tests/helpers/fixtures';
 import { buildTestHousehold } from '../../../tests/helpers/household';
-import { periodRange } from './periods';
-import { budgetProgress, pivot, summarize, type StatSplit, type Summary } from './stats';
+import { lastTwelveMonths, periodRange, previousPeriod } from './periods';
+import {
+  budgetProgress,
+  compare,
+  filterByMember,
+  monthlyTrend,
+  pendingCount,
+  pivot,
+  summarize,
+  topMerchants,
+  type MerchantSplit,
+  type PendingSplit,
+  type StatSplit,
+  type Summary,
+} from './stats';
 import type { ProcessedRow } from './types';
 
 // 期望值来自 fixtures/README.md "2026 年 9 月统计"、"按周汇总"、"拆分后 9 月统计"、CBA "9 月统计"，
@@ -363,5 +376,223 @@ describe('budgetProgress（R11）', () => {
     expect(progress(budget(groceries, 20000), '2026-10-05').spentCents).toBe(0);
     // 9 月中旬：只算到目前为止已有的交易，整月范围
     expect(progress(budget(groceries, 20000), '2026-09-15').spentCents).toBe(15795);
+  });
+});
+
+// ---------- M5-1 看板（R10.3 到 R10.6） ----------
+// 期望值来自 fixtures/README.md "看板"一节和 business-rules.md R10.3 到 R10.6
+
+// fixtures 表里的 # 当作交易 id，每笔交易一个主拆分
+function jointMerchantSplits(): MerchantSplit[] {
+  return processed('anz/joint-2026-09.csv', 'ANZ Joint').map((r, i) => ({
+    ...toSplit(r),
+    transactionId: `#${i + 1}`,
+    merchant: r.merchant,
+  }));
+}
+
+const GONG_CHA = 'GONG CHA & HO/SPENCER ST MELBOURNE';
+
+describe('topMerchants：joint-2026-09.csv 9 月（R10.3）', () => {
+  const all = topMerchants(jointMerchantSplits(), h.categories, SEPT, 100);
+
+  it('R10.3: top 5 by count, then amount', () => {
+    expect(topMerchants(jointMerchantSplits(), h.categories, SEPT, 5)).toEqual([
+      { merchant: GONG_CHA, count: 2, cents: 900 },
+      { merchant: 'ATM CBA HAWTHORN', count: 1, cents: 15000 },
+      { merchant: 'BPAY SEENE', count: 1, cents: 9840 },
+      { merchant: 'POCHANA MELBOURNE MELBOURNE', count: 1, cents: 6120 },
+      { merchant: 'MELB ASIAN MARKET', count: 1, cents: 6080 },
+    ]);
+  });
+
+  it('R10.3: 6th onwards', () => {
+    expect(all.slice(5)).toEqual([
+      { merchant: 'COLES 0559 MELBOURNE', count: 1, cents: 5840 },
+      { merchant: 'CROWN ASIAN SPENCER DOCKLANDS', count: 1, cents: 3875 },
+      { merchant: 'CHARGEFOX PTY LTD NORTH MELBOUR', count: 1, cents: 2500 },
+      { merchant: 'ACCOUNT SERVICING FEE', count: 1, cents: 500 },
+    ]);
+  });
+
+  it('R10.3: refund-only merchants (count 0), uncategorised and transfers are not listed', () => {
+    const names = all.map((m) => m.merchant);
+    expect(names.some((n) => n.startsWith('REVERSAL'))).toBe(false);
+    expect(names.some((n) => n.includes('MEDICARE'))).toBe(false);
+    expect(names).toHaveLength(9);
+  });
+
+  it('R10.3: a refund only offsets the amount (MELB ASIAN MARKET -62.30 + 1.50 → 1, 60.80)', () => {
+    expect(all.find((m) => m.merchant === 'MELB ASIAN MARKET')).toEqual({
+      merchant: 'MELB ASIAN MARKET',
+      count: 1,
+      cents: 6080,
+    });
+  });
+});
+
+describe('topMerchants：一笔交易算一次（R10.3）', () => {
+  const groceries = cat('Groceries / Supermarket');
+  const household = cat('Home & utilities / Household supplies');
+  const base = { date: '2026-09-10', memberId: mem('Home'), isPreTax: false };
+  const split = (
+    transactionId: string,
+    merchant: string,
+    amountCents: number,
+    categoryId = groceries,
+  ) => ({ ...base, transactionId, merchant, amountCents, categoryId }) satisfies MerchantSplit;
+
+  it('R10.3: expense splits of one transaction are added up and count once', () => {
+    const r = topMerchants(
+      [split('t1', 'COLES', -3540), split('t1', 'COLES', -1500, household)],
+      h.categories,
+      SEPT,
+      5,
+    );
+    expect(r).toEqual([{ merchant: 'COLES', count: 1, cents: 5040 }]);
+  });
+
+  it('R10.3: same count and amount → merchant name order', () => {
+    const r = topMerchants(
+      [split('t1', 'WOOLWORTHS', -1000), split('t2', 'ALDI', -1000)],
+      h.categories,
+      SEPT,
+      5,
+    );
+    expect(r.map((m) => m.merchant)).toEqual(['ALDI', 'WOOLWORTHS']);
+  });
+
+  it('R10.3: outside the range is ignored', () => {
+    const r = topMerchants(
+      [{ ...split('t1', 'COLES', -1000), date: '2026-10-01' }],
+      h.categories,
+      SEPT,
+      5,
+    );
+    expect(r).toEqual([]);
+  });
+});
+
+describe('filterByMember：选 Male（R10.6）', () => {
+  const male = filterByMember(jointMerchantSplits(), mem('Male'));
+
+  it('R10.6: expense is 900', () => {
+    expect(summarize(male, h.categories, SEPT).expenseCents).toBe(900);
+  });
+
+  it('R10.6: top merchants only GONG CHA (2, 900)', () => {
+    expect(topMerchants(male, h.categories, SEPT, 5)).toEqual([
+      { merchant: GONG_CHA, count: 2, cents: 900 },
+    ]);
+  });
+
+  it('R10.6: weekly pivot only has 900 in 9/28–9/30 (partial)', () => {
+    const p = pivot(male, h.categories, SEPT, 'week', 'category', 'expense');
+    expect(p.columnTotals).toEqual([0, 0, 0, 0, 900]);
+    expect(p.columns[4]).toEqual({ start: '2026-09-28', end: '2026-09-30', partial: true });
+  });
+
+  it('R10.6: grouped by member, still filtered → one row', () => {
+    const p = pivot(male, h.categories, SEPT, 'week', 'member', 'expense');
+    expect(p.rows.map((r) => r.key)).toEqual([mem('Male')]);
+  });
+
+  it('R10.6: no member selected → all splits', () => {
+    const all = jointMerchantSplits();
+    expect(filterByMember(all, undefined)).toEqual(all);
+  });
+});
+
+describe('pendingCount（R10.6）', () => {
+  const p = (transactionId: string, status: PendingSplit['status'], date = '2026-09-10') =>
+    ({ transactionId, status, date }) satisfies PendingSplit;
+
+  it('R10.6: counts pending transactions in range, a transaction with several splits once', () => {
+    expect(
+      pendingCount(
+        [p('t1', 'pending'), p('t1', 'pending'), p('t2', 'pending'), p('t3', 'confirmed')],
+        SEPT,
+      ),
+    ).toBe(2);
+  });
+
+  it('R10.6: outside the range is not counted', () => {
+    expect(pendingCount([p('t1', 'pending', '2026-10-01')], SEPT)).toBe(0);
+  });
+
+  it('R10.6: only splits matching the member filter count', () => {
+    const splits = [
+      { ...p('t1', 'pending'), memberId: mem('Male') },
+      { ...p('t1', 'pending'), memberId: mem('Home') },
+      { ...p('t2', 'pending'), memberId: mem('Female') },
+    ];
+    expect(pendingCount(filterByMember(splits, mem('Male')), SEPT)).toBe(1);
+  });
+});
+
+describe('compare（R10.4）', () => {
+  const s = (incomeCents: number, expenseCents: number) => ({ incomeCents, expenseCents });
+
+  it('R10.4: expense 400.00 → 455.75 is +14%', () => {
+    expect(compare(s(0, 45575), s(0, 40000)).expensePercent).toBe(14);
+  });
+
+  it('R10.4: savings rate 21.8% → 25.0% is +3 pp', () => {
+    expect(compare(s(100000, 75000), s(100000, 78200)).savingsRatePoints).toBe(3);
+  });
+
+  it('R10.4: -12.5% rounds away from zero to -13%', () => {
+    expect(compare(s(35000, 0), s(40000, 0)).incomePercent).toBe(-13);
+  });
+
+  it('R10.4: previous is 0 → null ("—")', () => {
+    expect(compare(s(100000, 50000), s(0, 0))).toEqual({
+      incomePercent: null,
+      expensePercent: null,
+      savingsRatePoints: null,
+    });
+  });
+
+  it('R10.4: previous income is negative (tax paid) → null', () => {
+    expect(compare(s(100000, 50000), s(-90000, 50000)).incomePercent).toBeNull();
+  });
+
+  it('R10.4: savings rate "—" in either period → null', () => {
+    expect(compare(s(0, 50000), s(100000, 50000)).savingsRatePoints).toBeNull();
+    expect(compare(s(100000, 50000), s(0, 50000)).savingsRatePoints).toBeNull();
+  });
+
+  it('R10.4: joint-2026-09 vs previous period (no data) → all "—"', () => {
+    const cur = summarize(jointSplits(), h.categories, SEPT);
+    const prev = summarize(jointSplits(), h.categories, previousPeriod(SEPT));
+    expect(compare(cur, prev)).toEqual({
+      incomePercent: null,
+      expensePercent: null,
+      savingsRatePoints: null,
+    });
+  });
+});
+
+describe('monthlyTrend：joint-2026-09.csv，今天 2026-10-24（R10.5）', () => {
+  const months = lastTwelveMonths('2026-10-24');
+  const t = monthlyTrend(jointSplits(), h.categories, months);
+
+  it('R10.5: 12 months, empty months are 0 not skipped', () => {
+    expect(t).toHaveLength(12);
+    expect(t.filter((m) => m.start !== '2026-09-01')).toEqual(
+      months
+        .filter((m) => m.start !== '2026-09-01')
+        .map((m) => ({ ...m, incomeCents: 0, expenseCents: 0, netCents: 0 })),
+    );
+  });
+
+  it('R10.5: 2026-09 income 0, expense 45575, net -45575', () => {
+    expect(t[10]).toEqual({
+      start: '2026-09-01',
+      end: '2026-09-30',
+      incomeCents: 0,
+      expenseCents: 45575,
+      netCents: -45575,
+    });
   });
 });
