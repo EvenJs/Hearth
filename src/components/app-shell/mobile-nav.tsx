@@ -1,11 +1,11 @@
 'use client';
 
 import { Menu } from 'lucide-react';
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Brand } from './brand';
-import { SidebarNav } from './sidebar-nav';
+import { SidebarNav, SidebarNavFallback } from './sidebar-nav';
 
 // 手机和窄屏：侧边栏收进 Sheet，顶栏左边一个菜单按钮
 export function MobileNav() {
@@ -23,7 +23,9 @@ export function MobileNav() {
           <Brand />
         </SheetHeader>
         <div className="px-3 pb-4">
-          <SidebarNav onNavigate={() => setOpen(false)} />
+          <Suspense fallback={<SidebarNavFallback onNavigate={() => setOpen(false)} />}>
+            <SidebarNav onNavigate={() => setOpen(false)} />
+          </Suspense>
         </div>
       </SheetContent>
     </Sheet>

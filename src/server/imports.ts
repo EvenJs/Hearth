@@ -1,4 +1,4 @@
-// CSV 导入（business-rules.md R12），第 1 到 10 步；撤销导入（R12.1）
+// CSV 导入（business-rules.md R12），第 1 到 10 步；导入结果页（M3-8）；撤销导入（R12.1）
 // 业务判断全部用 src/lib/ 的纯函数，这里只负责读写数据库和串流程
 // 不保存上传的原文件；日志和报错里不打印原始描述
 import { randomUUID } from 'node:crypto';
@@ -10,9 +10,11 @@ import {
   categoryRule,
   financialAccount,
   importBatch,
+  member,
   transaction,
   transactionSplit,
 } from '@/db/schema';
+import type { Bank } from '@/lib/accounts/account-input';
 import { canImportCsv } from '@/lib/import/banks';
 import { checkBalanceContinuity, deriveBalances, type BalanceWarning } from '@/lib/import/cba';
 import { processFile, type HouseholdConfig } from '@/lib/import/process';
@@ -610,6 +612,168 @@ export async function importCsv(ctx: HouseholdContext, input: ImportInput): Prom
       transfers,
     } satisfies ImportSuccess;
   });
+}
+
+// ==================== M3-8 导入结果页 ====================
+
+// 可能重复（R8.2 ≥ 2 个候选）里的一笔
+export type ResultTx = { id: string; date: string; amountCents: number; merchant: string };
+
+// R8.4 待检查的 pending，带归属人和备注方便用户认出是哪一笔
+export type ResultPending = PendingToCheck & { memberName: string; note: string | null };
+
+export type ImportResultView = {
+  batchId: string;
+  fileName: string;
+  createdAt: Date;
+  account: { id: string; name: string; bank: Bank; numberSuffix: string | null };
+  dateFrom: string;
+  dateTo: string;
+  rowCount: number;
+  insertedCount: number;
+  duplicateCount: number;
+  matchedPendingCount: number;
+  openingBalanceCents: number | null;
+  closingBalanceCents: number | null;
+  // 导入时存下来的（差额只有导入时算得准）
+  reconciliation: Reconciliation;
+  balanceWarnings: BalanceWarning[];
+  // 现在的状态：用户之后分了类、确认了 pending，数字会跟着变
+  uncategorizedCount: number;
+  pendingToCheck: ResultPending[];
+  possibleDuplicates: { transaction: ResultTx; pendings: ResultTx[] }[];
+};
+
+const NO_RECONCILIATION: Reconciliation = { status: 'none', differenceCents: null };
+
+// R12 第 10 步的结果，给 /import/[batchId]。不存在或不属于这个家庭返回 null
+export async function getImportResult(
+  ctx: HouseholdContext,
+  batchId: string,
+): Promise<ImportResultView | null> {
+  const hh = ctx.householdId;
+  const [batch] = await db
+    .select({
+      id: importBatch.id,
+      fileName: importBatch.fileName,
+      createdAt: importBatch.createdAt,
+      dateFrom: importBatch.dateFrom,
+      dateTo: importBatch.dateTo,
+      rowCount: importBatch.rowCount,
+      insertedCount: importBatch.insertedCount,
+      duplicateCount: importBatch.duplicateCount,
+      matchedPendingCount: importBatch.matchedPendingCount,
+      openingBalanceCents: importBatch.openingBalanceCents,
+      closingBalanceCents: importBatch.closingBalanceCents,
+      warnings: importBatch.warnings,
+      accountId: financialAccount.id,
+      accountName: financialAccount.name,
+      bank: financialAccount.bank,
+      numberSuffix: financialAccount.numberSuffix,
+    })
+    .from(importBatch)
+    .innerJoin(financialAccount, eq(financialAccount.id, importBatch.accountId))
+    .where(and(eq(importBatch.id, batchId), eq(importBatch.householdId, hh)));
+  if (!batch) return null;
+
+  const warnings = (batch.warnings ?? {}) as Partial<ImportWarnings>;
+
+  const [[{ uncategorizedCount }], stillPending, duplicateTxs] = await Promise.all([
+    // 本批次的交易（新增 + 确认的 pending）里，主拆分现在还是未分类的
+    db
+      .select({ uncategorizedCount: sql<number>`count(*)::int` })
+      .from(transaction)
+      .innerJoin(transactionSplit, primarySplitJoin)
+      .innerJoin(category, eq(category.id, transactionSplit.categoryId))
+      .where(
+        and(
+          eq(transaction.householdId, hh),
+          eq(transaction.importBatchId, batch.id),
+          eq(category.systemKey, 'uncategorized'),
+        ),
+      ),
+    // R8.4：该账户现在还是 pending 的
+    db
+      .select({
+        id: transaction.id,
+        date: transaction.date,
+        amountCents: transaction.amountCents,
+        merchant: transaction.merchant,
+        status: transaction.status,
+        note: transaction.note,
+        memberName: member.name,
+      })
+      .from(transaction)
+      .innerJoin(transactionSplit, primarySplitJoin)
+      .innerJoin(member, eq(member.id, transactionSplit.memberId))
+      .where(
+        and(
+          eq(transaction.householdId, hh),
+          eq(transaction.accountId, batch.accountId),
+          eq(transaction.status, 'pending'),
+        ),
+      )
+      .orderBy(transaction.date, transaction.id),
+    // 可能重复：导入时记下的 id，之后被删掉的就不显示
+    (async () => {
+      const ids = (warnings.possibleDuplicates ?? []).flatMap((d) => [
+        d.transactionId,
+        ...d.pendingIds,
+      ]);
+      if (ids.length === 0) return [];
+      return db
+        .select({
+          id: transaction.id,
+          date: transaction.date,
+          amountCents: transaction.amountCents,
+          merchant: transaction.merchant,
+        })
+        .from(transaction)
+        .where(and(eq(transaction.householdId, hh), inArray(transaction.id, ids)));
+    })(),
+  ]);
+
+  const txById = new Map(duplicateTxs.map((x) => [x.id, x]));
+  const possibleDuplicates = (warnings.possibleDuplicates ?? []).flatMap((d) => {
+    const tx = txById.get(d.transactionId);
+    if (!tx) return [];
+    const pendings = d.pendingIds.flatMap((id) => txById.get(id) ?? []);
+    return [{ transaction: tx, pendings }];
+  });
+
+  return {
+    batchId: batch.id,
+    fileName: batch.fileName,
+    createdAt: batch.createdAt,
+    account: {
+      id: batch.accountId,
+      name: batch.accountName,
+      bank: batch.bank,
+      numberSuffix: batch.numberSuffix,
+    },
+    dateFrom: batch.dateFrom,
+    dateTo: batch.dateTo,
+    rowCount: batch.rowCount,
+    insertedCount: batch.insertedCount,
+    duplicateCount: batch.duplicateCount,
+    matchedPendingCount: batch.matchedPendingCount,
+    openingBalanceCents: batch.openingBalanceCents,
+    closingBalanceCents: batch.closingBalanceCents,
+    reconciliation: warnings.reconciliation ?? NO_RECONCILIATION,
+    balanceWarnings: warnings.balance ?? [],
+    uncategorizedCount,
+    pendingToCheck: pendingsToCheck(stillPending, batch.dateTo).map(
+      ({ id, date, amountCents, merchant, memberName, note }) => ({
+        id,
+        date,
+        amountCents,
+        merchant,
+        memberName,
+        note,
+      }),
+    ),
+    possibleDuplicates,
+  };
 }
 
 // ==================== R12.1 撤销导入 ====================
