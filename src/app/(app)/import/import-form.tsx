@@ -2,7 +2,7 @@
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { AlertCircle, FileText, Info } from 'lucide-react';
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -39,7 +39,40 @@ function formatSize(bytes: number): string {
   return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
 }
 
-export function ImportForm({ accounts }: { accounts: ImportAccount[] }) {
+type FormProps = { accounts: ImportAccount[] };
+
+// cacheComponents 下离开页面时 Next 用 <Activity> 把页面藏起来，state 和 DOM（包括选的文件）都会留着
+// 导入成功后 redirect 走了，回来时不该看到上一次的账户、文件和余额：页面被隐藏时换 key，整个表单重新挂载
+// 填到一半去别的页面不清空；导入失败留在本页，也不清空，方便改了再传
+// 见 docs/tech-stack.md 2. 关键约定 "页面状态"
+export function ImportForm({ accounts }: FormProps) {
+  const [formKey, setFormKey] = useState(0);
+  const resetOnHide = useRef(false);
+
+  useLayoutEffect(
+    () => () => {
+      if (!resetOnHide.current) return;
+      resetOnHide.current = false;
+      setFormKey((k) => k + 1);
+    },
+    [],
+  );
+
+  return (
+    <ImportFormInner
+      key={formKey}
+      accounts={accounts}
+      onSubmitStart={() => (resetOnHide.current = true)}
+      onSubmitFailed={() => (resetOnHide.current = false)}
+    />
+  );
+}
+
+function ImportFormInner({
+  accounts,
+  onSubmitStart,
+  onSubmitFailed,
+}: FormProps & { onSubmitStart: () => void; onSubmitFailed: () => void }) {
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -93,7 +126,9 @@ export function ImportForm({ accounts }: { accounts: ImportAccount[] }) {
     data.set('file', file);
 
     // 成功时服务端直接跳到 /import/[batchId]，只有失败才会返回
+    onSubmitStart();
     const result = await importCsvAction(data);
+    onSubmitFailed();
     const { file: fileFieldError, ...fieldErrors } = result.fieldErrors ?? {};
     if (fileFieldError) setFileError(fileFieldError);
     for (const [field, message] of Object.entries(fieldErrors)) {

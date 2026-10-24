@@ -1,7 +1,7 @@
 'use client';
 
 import { ChevronDown, CornerDownRight } from 'lucide-react';
-import { useState } from 'react';
+import { useLayoutEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -52,9 +52,21 @@ export function TransactionList({ items, today, options }: Props) {
     });
   const setAll = (on: boolean) => setChecked(on ? new Set(pageIds) : new Set());
   const clearSelection = () => setChecked(new Set());
+
   const [ruleDraft, setRuleDraft] = useState<{ key: number; draft: RuleDraft } | null>(null);
   const offerRule = (draft: RuleDraft) =>
     setRuleDraft((prev) => ({ key: (prev?.key ?? 0) + 1, draft }));
+
+  // cacheComponents 下离开页面时 Next 用 <Activity> 把页面藏起来，state 会留着
+  // 勾选和"存成规则"对话框是一次性的，页面被隐藏时清掉；拆分的展开、收起保留
+  // 见 docs/tech-stack.md 2. 关键约定 "页面状态"
+  useLayoutEffect(
+    () => () => {
+      setChecked(new Set());
+      setRuleDraft(null);
+    },
+    [],
+  );
   const toggle = (id: string) =>
     setCollapsed((prev) => {
       const next = new Set(prev);
