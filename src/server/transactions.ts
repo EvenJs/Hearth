@@ -1,4 +1,5 @@
 // F8 流水查询（M4-2）：列表、笔数和合计、详情
+// F8 修改（M4-3）：按拆分改分类、归属人，批量修改（R16.1、R16.2、R16.3、R16.4、R5.1）
 // 筛选条件的含义见 src/lib/transactions/filters.ts；这里只负责拼查询，每个查询都带 household_id
 // 交易本身的条件（时间、账户、状态、商家、金额范围、建议转账）放在 transaction 上
 // 拆分上的条件（分类、归属人、类型、是否税前、未分类）用 EXISTS：只要有一个拆分命中就列出（R16.5）
@@ -20,6 +21,7 @@ import { alias } from 'drizzle-orm/pg-core';
 import { z } from 'zod';
 import { db } from '@/db';
 import {
+  card,
   category,
   financialAccount,
   importBatch,
@@ -28,8 +30,19 @@ import {
   transactionSplit,
 } from '@/db/schema';
 import { periodRange } from '@/lib/rules/periods';
-import type { TransactionType } from '@/lib/rules/split-edit';
+import {
+  changeCategory,
+  changeMember,
+  isSelectableCategory,
+  type EditCategory,
+  type EditContext,
+  type EditSplit,
+  type EditTarget,
+  type TransactionType,
+} from '@/lib/rules/split-edit';
 import type {
+  Account,
+  Card,
   CategoryKind,
   CategorySource,
   MemberSource,
@@ -42,6 +55,7 @@ import {
   type TransactionStatus,
 } from '@/lib/transactions/filters';
 import type { HouseholdContext } from './context';
+import { isActiveMember } from './members';
 
 export const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 200;
@@ -456,4 +470,252 @@ export async function getTransaction(
           }
         : null,
   };
+}
+
+// ---------- 修改（M4-3） ----------
+// 字段怎么变由 src/lib/rules/split-edit.ts 的纯函数算，这里负责读、校验、在一个事务里写回
+
+type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+// changed = false：值和原来一样，没写库
+export type SplitUpdateResult = { ok: true; changed: boolean } | { ok: false; message: string };
+
+export type BulkUpdateInput = { categoryId?: string; memberId?: string };
+
+// updatedCount 包括值本来就一样、没真正写库的
+export type BulkUpdateResult =
+  { ok: true; updatedCount: number; skippedCount: number } | { ok: false; message: string };
+
+// 批量修改一次最多这么多笔（列表一页的上限）
+export const MAX_BULK_SIZE = MAX_PAGE_SIZE;
+
+const bulkInputSchema = z
+  .object({
+    transactionIds: z.array(z.uuid()).min(1).max(MAX_BULK_SIZE),
+    categoryId: z.uuid().optional(),
+    memberId: z.uuid().optional(),
+  })
+  .refine((v) => v.categoryId !== undefined || v.memberId !== undefined, {
+    message: '分类和归属人至少改一个',
+  });
+
+const INVALID = { ok: false, message: '参数不合法' } as const;
+const BAD_CATEGORY = { ok: false, message: '不能选这个分类' } as const;
+const BAD_MEMBER = { ok: false, message: '不能选这个归属人' } as const;
+
+// R5.1 重算、R16.3 校验要的家庭配置，只读本家庭的
+// 分类连归档的一起读（拆分可能还指着归档分类），isArchived 算上一级：
+// 一级归档了，它的二级也不能选，和 listCategoryTree 一致
+async function loadEditContext(tx: DbTx, ctx: HouseholdContext): Promise<EditContext> {
+  const hh = ctx.householdId;
+  const categoryRows = await tx
+    .select({
+      id: category.id,
+      parentId: category.parentId,
+      nameEn: category.nameEn,
+      kind: category.kind,
+      systemKey: category.systemKey,
+      defaultMemberId: category.defaultMemberId,
+      isPreTaxDefault: category.isPreTaxDefault,
+      isOther: category.isOther,
+      isArchived: category.isArchived,
+    })
+    .from(category)
+    .where(eq(category.householdId, hh));
+  const archived = new Set(categoryRows.filter((c) => c.isArchived).map((c) => c.id));
+  const categories: EditCategory[] = categoryRows.map((c) => ({
+    ...c,
+    isArchived: c.isArchived || (c.parentId !== null && archived.has(c.parentId)),
+  }));
+
+  const cards: Card[] = await tx
+    .select({ id: card.id, accountId: card.accountId, last4: card.last4, memberId: card.memberId })
+    .from(card)
+    .where(eq(card.householdId, hh));
+
+  const accounts: Account[] = await tx
+    .select({
+      id: financialAccount.id,
+      name: financialAccount.name,
+      bank: financialAccount.bank,
+      type: financialAccount.type,
+      defaultMemberId: financialAccount.defaultMemberId,
+      numberSuffix: financialAccount.numberSuffix,
+    })
+    .from(financialAccount)
+    .where(eq(financialAccount.householdId, hh));
+
+  return { categories, cards, accounts };
+}
+
+type LockedSplit = EditTarget & { transactionId: string };
+
+// 读拆分和它所属交易的字段（R5 要账户和卡号，R16.2 要转账状态），锁住拆分行直到事务结束
+async function lockSplits(tx: DbTx, ctx: HouseholdContext, where: SQL): Promise<LockedSplit[]> {
+  const rows = await tx
+    .select({
+      id: transactionSplit.id,
+      transactionId: transactionSplit.transactionId,
+      categoryId: transactionSplit.categoryId,
+      categorySource: transactionSplit.categorySource,
+      memberId: transactionSplit.memberId,
+      memberSource: transactionSplit.memberSource,
+      isPreTax: transactionSplit.isPreTax,
+      accountId: transaction.accountId,
+      cardLast4: transaction.cardLast4,
+      transferStatus: transaction.transferStatus,
+    })
+    .from(transactionSplit)
+    .innerJoin(
+      transaction,
+      and(
+        eq(transaction.id, transactionSplit.transactionId),
+        eq(transaction.householdId, ctx.householdId),
+      ),
+    )
+    .where(and(eq(transactionSplit.householdId, ctx.householdId), where))
+    .orderBy(asc(transactionSplit.id))
+    .for('update', { of: transactionSplit });
+  return rows.map((r) => ({
+    ...r,
+    categorySource: r.categorySource as CategorySource,
+    memberSource: r.memberSource as MemberSource,
+  }));
+}
+
+function sameSplit(a: EditSplit, b: EditSplit): boolean {
+  return (
+    a.categoryId === b.categoryId &&
+    a.categorySource === b.categorySource &&
+    a.memberId === b.memberId &&
+    a.memberSource === b.memberSource &&
+    a.isPreTax === b.isPreTax
+  );
+}
+
+async function writeSplit(tx: DbTx, ctx: HouseholdContext, s: EditSplit): Promise<void> {
+  await tx
+    .update(transactionSplit)
+    .set({
+      categoryId: s.categoryId,
+      categorySource: s.categorySource,
+      memberId: s.memberId,
+      memberSource: s.memberSource,
+      isPreTax: s.isPreTax,
+    })
+    .where(and(eq(transactionSplit.id, s.id), eq(transactionSplit.householdId, ctx.householdId)));
+}
+
+// R16.2：auto、confirmed 转账的分类不能改
+function isLockedTransfer(status: TransferStatus): boolean {
+  return status === 'auto' || status === 'confirmed';
+}
+
+// R16.4 按拆分改分类，主拆分和子拆分都用这个（R16.1）
+// category_source = manual，is_pre_tax 按新分类默认，归属人按 R5.1 重算（manual 不动）
+// 分类没变 → 什么都不写；auto / confirmed 转账（R16.2）、不可选的分类（R16.3）→ ok: false
+export async function updateSplitCategory(
+  ctx: HouseholdContext,
+  splitId: string,
+  categoryId: string,
+): Promise<SplitUpdateResult> {
+  if (!z.uuid().safeParse(splitId).success || !z.uuid().safeParse(categoryId).success) {
+    return INVALID;
+  }
+  return db.transaction(async (tx) => {
+    const [target] = await lockSplits(tx, ctx, eq(transactionSplit.id, splitId));
+    if (!target) return { ok: false, message: '找不到这个拆分' };
+
+    // 别的家庭的分类不在 editCtx 里，changeCategory 会当成不能选
+    const editCtx = await loadEditContext(tx, ctx);
+    const r = changeCategory(target, categoryId, editCtx);
+    if (!r.ok) return r;
+    if (r.changed) await writeSplit(tx, ctx, r.split);
+    return { ok: true, changed: r.changed };
+  });
+}
+
+// R16.4 按拆分改归属人：member_source = manual。转账行也能改（R16.2）
+export async function updateSplitMember(
+  ctx: HouseholdContext,
+  splitId: string,
+  memberId: string,
+): Promise<SplitUpdateResult> {
+  if (!z.uuid().safeParse(splitId).success || !z.uuid().safeParse(memberId).success) {
+    return INVALID;
+  }
+  if (!(await isActiveMember(ctx, memberId))) return BAD_MEMBER;
+
+  return db.transaction(async (tx) => {
+    const [target] = await lockSplits(tx, ctx, eq(transactionSplit.id, splitId));
+    if (!target) return { ok: false, message: '找不到这个拆分' };
+
+    const next = changeMember(target, memberId);
+    const changed = !sameSplit(target, next);
+    if (changed) await writeSplit(tx, ctx, next);
+    return { ok: true, changed };
+  });
+}
+
+// 批量修改，一个事务，中途出错全部回滚
+// 跳过：有多个拆分的（R16.1）；改分类时 auto / confirmed 转账整笔跳过，归属人也不改（R16.2）
+// 分类、归属人不属于本家庭或不能选（R16.3），或者有交易找不到 → ok: false，一笔都不改
+// 同时改分类和归属人：先改分类（R5.1 重算），再把归属人设成手动指定的
+export async function bulkUpdate(
+  ctx: HouseholdContext,
+  transactionIds: readonly string[],
+  input: BulkUpdateInput,
+): Promise<BulkUpdateResult> {
+  const parsed = bulkInputSchema.safeParse({ transactionIds, ...input });
+  if (!parsed.success) return INVALID;
+  const { categoryId, memberId } = parsed.data;
+  const ids = [...new Set(parsed.data.transactionIds)];
+
+  if (memberId !== undefined && !(await isActiveMember(ctx, memberId))) return BAD_MEMBER;
+
+  return db.transaction(async (tx) => {
+    const editCtx = await loadEditContext(tx, ctx);
+    if (categoryId !== undefined) {
+      const c = editCtx.categories.find((x) => x.id === categoryId);
+      if (!c || !isSelectableCategory(c)) return BAD_CATEGORY; // R16.3
+    }
+
+    const splits = await lockSplits(tx, ctx, inArray(transactionSplit.transactionId, ids));
+    const byTx = new Map<string, LockedSplit[]>();
+    for (const s of splits) {
+      const list = byTx.get(s.transactionId) ?? [];
+      list.push(s);
+      byTx.set(s.transactionId, list);
+    }
+    // 不是本家庭的、已经被删掉的（比如撤销了导入）
+    if (byTx.size !== ids.length) return { ok: false, message: '有交易找不到了，刷新后再试' };
+
+    let updatedCount = 0;
+    let skippedCount = 0;
+    for (const id of ids) {
+      const txSplits = byTx.get(id)!;
+      if (txSplits.length > 1) {
+        skippedCount++; // R16.1
+        continue;
+      }
+      const [target] = txSplits;
+      if (categoryId !== undefined && isLockedTransfer(target.transferStatus)) {
+        skippedCount++; // R16.2
+        continue;
+      }
+
+      let next: EditSplit = target;
+      if (categoryId !== undefined) {
+        const r = changeCategory(target, categoryId, editCtx);
+        // 分类上面校验过、转账上面跳过了，走到这里说明规则函数和这里对不上
+        if (!r.ok) throw new Error(`批量改分类失败: ${r.message}`);
+        next = r.split;
+      }
+      if (memberId !== undefined) next = changeMember(next, memberId);
+
+      if (!sameSplit(target, next)) await writeSplit(tx, ctx, next);
+      updatedCount++;
+    }
+    return { ok: true, updatedCount, skippedCount };
+  });
 }
