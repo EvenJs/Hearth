@@ -6,6 +6,14 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { getHouseholdContext } from '@/server/context';
 import {
+  applyMemberPropagation,
+  getRuleOffer,
+  previewMemberPropagation,
+  type PropagationPreview,
+  type PropagationResult,
+} from '@/server/follow-up';
+import type { RuleOffer } from '@/lib/rules/follow-up';
+import {
   createRule,
   previewReapply,
   reapplyRules,
@@ -75,6 +83,66 @@ export async function updateSplitMemberAction(input: {
     return r;
   } catch (err) {
     return failed('改归属人', err);
+  }
+}
+
+// ---------- 改完之后的追问（R16.9、R16.10） ----------
+
+const ruleOfferSchema = z.object({
+  transactionId: z.uuid(),
+  isPrimary: z.boolean(),
+  newKind: z.enum(['expense', 'income', 'system']),
+});
+
+// R16.9 改完分类后：弹"存成规则"、只在 toast 给入口、还是什么都不做。只读，出错当成不弹
+export async function ruleOfferAction(input: {
+  transactionId: string;
+  isPrimary: boolean;
+  newKind: 'expense' | 'income' | 'system';
+}): Promise<RuleOffer> {
+  const parsed = ruleOfferSchema.safeParse(input);
+  if (!parsed.success) return 'none';
+  const ctx = await getHouseholdContext();
+  try {
+    const { transactionId, ...change } = parsed.data;
+    return await getRuleOffer(ctx, transactionId, { ...change, changed: true });
+  } catch (err) {
+    failed('查存规则提示', err);
+    return 'none';
+  }
+}
+
+// R16.10 行内改了主拆分的归属人之后，同商家还有几笔要一起改。只读，出错当成不弹
+export async function previewMemberPropagationAction(input: {
+  splitId: string;
+}): Promise<PropagationPreview | null> {
+  const parsed = z.object({ splitId: z.uuid() }).safeParse(input);
+  if (!parsed.success) return null;
+  const ctx = await getHouseholdContext();
+  try {
+    return await previewMemberPropagation(ctx, parsed.data.splitId);
+  } catch (err) {
+    failed('查同商家', err);
+    return null;
+  }
+}
+
+const propagationSchema = z.object({ transactionId: z.uuid(), memberId: z.uuid() });
+
+// R16.10 确认后一起改，一个事务
+export async function applyMemberPropagationAction(input: {
+  transactionId: string;
+  memberId: string;
+}): Promise<PropagationResult> {
+  const parsed = propagationSchema.safeParse(input);
+  if (!parsed.success) return INVALID;
+  const ctx = await getHouseholdContext();
+  try {
+    const r = await applyMemberPropagation(ctx, parsed.data.transactionId, parsed.data.memberId);
+    if (r.ok && r.updatedCount > 0) refresh();
+    return r;
+  } catch (err) {
+    return failed('一起改归属人', err);
   }
 }
 

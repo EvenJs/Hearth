@@ -1,12 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import {
-  categoryOptionGroups,
-  isCategoryLocked,
-  shouldOfferRule,
-  type CategoryTreeNode,
-} from './inline-edit';
+import { categoryOptionGroups, isCategoryLocked, type CategoryTreeNode } from './inline-edit';
 
-// 期望值来自 business-rules.md R16.2、R16.3、R16.9
+// 期望值来自 business-rules.md R16.2、R16.3
 
 const tree: CategoryTreeNode[] = [
   {
@@ -95,24 +90,5 @@ describe('isCategoryLocked', () => {
   it('R16.2: suggested and none can be changed', () => {
     expect(isCategoryLocked('suggested')).toBe(false);
     expect(isCategoryLocked('none')).toBe(false);
-  });
-});
-
-describe('shouldOfferRule', () => {
-  it('R16.9: primary split changed to an expense or income category → offer', () => {
-    expect(shouldOfferRule({ isPrimary: true, changed: true, newKind: 'expense' })).toBe(true);
-    expect(shouldOfferRule({ isPrimary: true, changed: true, newKind: 'income' })).toBe(true);
-  });
-
-  it('R16.9: category did not change → no offer', () => {
-    expect(shouldOfferRule({ isPrimary: true, changed: false, newKind: 'expense' })).toBe(false);
-  });
-
-  it('R16.9: changed to a system category (uncategorized, cash, bank fee) → no offer', () => {
-    expect(shouldOfferRule({ isPrimary: true, changed: true, newKind: 'system' })).toBe(false);
-  });
-
-  it('R16.9: non-primary split of a split transaction → no offer', () => {
-    expect(shouldOfferRule({ isPrimary: false, changed: true, newKind: 'expense' })).toBe(false);
   });
 });

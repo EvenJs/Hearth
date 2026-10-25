@@ -1,4 +1,5 @@
-// F8 行内修改（M4-8）：分类下拉的选项（R16.3）、转账行只读（R16.2）、什么时候弹"存成规则"（R16.9）
+// F8 行内修改（M4-8）：分类下拉的选项（R16.3）、转账行只读（R16.2）
+// 什么时候弹"存成规则"（R16.9）在 src/lib/rules/follow-up.ts
 // 纯函数，不 import 数据库和 Next.js
 import type { TransferStatus } from '@/lib/rules/types';
 
@@ -46,15 +47,4 @@ export function categoryOptionGroups(tree: readonly CategoryTreeNode[]): Categor
 // R16.2：auto、confirmed 转账的分类只读，归属人还能改
 export function isCategoryLocked(transferStatus: TransferStatus): boolean {
   return transferStatus === 'auto' || transferStatus === 'confirmed';
-}
-
-// R16.9 改完分类后要不要弹"存成规则"（R13）：
-// 分类真的变了；新分类是 expense 或 income（改成未分类、现金支出、银行费用不弹）；
-// 是主拆分（多拆分交易的子行不弹，规则按整笔的商家匹配）
-export function shouldOfferRule(input: {
-  isPrimary: boolean;
-  changed: boolean;
-  newKind: CategoryKind;
-}): boolean {
-  return input.isPrimary && input.changed && input.newKind !== 'system';
 }
