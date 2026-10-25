@@ -1,7 +1,6 @@
 'use client';
 
 import { ChevronDown, CornerDownRight } from 'lucide-react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useLayoutEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -224,13 +223,9 @@ function useRowClick(href: string) {
   };
 }
 
-// 商家名保留真正的链接：键盘 Tab、中键新标签页都能用（M4-10）
-function MerchantLink({ href, merchant }: { href: string; merchant: string }) {
-  return (
-    <Link href={href} className="font-medium break-words hover:underline underline-offset-2">
-      {merchant}
-    </Link>
-  );
+// 商家名是普通文字，点它和点行的其他地方一样进详情（design/README 第 3 节，2026-10-25）
+function Merchant({ merchant }: { merchant: string }) {
+  return <span className="font-medium break-words">{merchant}</span>;
 }
 
 function Amount({ cents, className }: { cents: number; className?: string }) {
@@ -326,7 +321,7 @@ function TableRows({
         </TableCell>
         <TableCell className="pr-4 align-top whitespace-normal">
           <div className="flex max-w-96 flex-wrap items-center gap-1.5">
-            <MerchantLink href={detailHref} merchant={tx.merchant} />
+            <Merchant merchant={tx.merchant} />
             <TxBadges tx={tx} />
             {tx.transferStatus === 'suggested' && <SuggestionButtons transactionId={tx.id} />}
           </div>
@@ -408,7 +403,7 @@ function TxCard({
             onSelect={onSelect}
             className="mr-0.5"
           />
-          <MerchantLink href={detailHref} merchant={tx.merchant} />
+          <Merchant merchant={tx.merchant} />
           <TxBadges tx={tx} />
         </div>
         <Amount cents={tx.amountCents} className="shrink-0 font-medium" />
