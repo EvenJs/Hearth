@@ -137,6 +137,19 @@ const CATEGORY_DEFS: CategoryDef[] = [
     ],
   },
   {
+    // 2026-10-25 加：只因为工作才花的钱（注册费、工会费、培训等）。没有预置规则
+    // 不设默认归属人，按卡号或账户决定（R5）；公私混用的不放这里
+    nameEn: 'Work',
+    kind: 'expense',
+    defaultMember: null,
+    children: [
+      'Registration & licences',
+      'Memberships & union',
+      'Training & courses',
+      'Tools & software',
+    ],
+  },
+  {
     // 退款和报销不放收入，冲减原支出分类（R7.1）
     // 交税记在 Income 下面（负数），不算支出
     nameEn: 'Income',

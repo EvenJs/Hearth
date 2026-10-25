@@ -29,10 +29,11 @@ describe('seed categories（seed-categories §2、§3）', () => {
     'Personal & medical': 8,
     'Entertainment & eat-out': 10,
     'Transport & auto': 6,
+    Work: 4,
     Income: 4,
   };
 
-  it('has the 6 expense top-levels and 1 income top-level in doc order', () => {
+  it('has the 7 expense top-levels and 1 income top-level in doc order', () => {
     expect(SEED_CATEGORIES.map((c) => [c.nameEn, c.kind])).toEqual([
       ['Home & utilities', 'expense'],
       ['Insurance & financial', 'expense'],
@@ -40,6 +41,7 @@ describe('seed categories（seed-categories §2、§3）', () => {
       ['Personal & medical', 'expense'],
       ['Entertainment & eat-out', 'expense'],
       ['Transport & auto', 'expense'],
+      ['Work', 'expense'],
       ['Income', 'income'],
     ]);
   });
@@ -76,8 +78,20 @@ describe('seed categories（seed-categories §2、§3）', () => {
       'Personal & medical': null,
       'Entertainment & eat-out': null,
       'Transport & auto': null,
+      Work: null,
       Income: null,
     });
+  });
+
+  it('Work (2026-10-25): documented subcategories in doc order, then Other', () => {
+    const work = SEED_CATEGORIES.find((c) => c.nameEn === 'Work');
+    expect(work?.children.map((ch) => ch.nameEn)).toEqual([
+      'Registration & licences',
+      'Memberships & union',
+      'Training & courses',
+      'Tools & software',
+      OTHER_NAME,
+    ]);
   });
 
   it('every default member refers to a seed member', () => {
@@ -116,7 +130,7 @@ describe('seed rules（seed-categories §5）', () => {
     expect(SEED_RULE_DEFAULTS).toEqual({ matchType: 'contains', priority: 0, isSystem: true });
   });
 
-  it('has the documented number of rules per top-level (83 total)', () => {
+  it('has the documented number of rules per top-level (83 total, none for Work)', () => {
     const counts: Record<string, number> = {};
     for (const r of SEED_RULES) counts[r.category] = (counts[r.category] ?? 0) + 1;
     expect(counts).toEqual({

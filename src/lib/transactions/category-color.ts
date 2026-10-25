@@ -21,7 +21,7 @@ export const CATEGORY_COLORS = [
 export type CategoryColor = (typeof CATEGORY_COLORS)[number];
 export type CategoryTone = CategoryColor | 'uncategorized' | 'system';
 
-// docs/seed-categories.md 第 2 节的 6 个支出一级
+// docs/seed-categories.md 第 2 节的 7 个支出一级
 // 色相尽量拉开：橙、靛蓝、青、紫红、玫红、黄绿，加上收入的绿（2026-10-24 调过一次，原来 Groceries 的青绿和收入太像）
 const SEED_EXPENSE: Record<string, CategoryColor> = {
   'Home & utilities': 'orange',
@@ -30,10 +30,11 @@ const SEED_EXPENSE: Record<string, CategoryColor> = {
   'Personal & medical': 'fuchsia',
   'Entertainment & eat-out': 'rose',
   'Transport & auto': 'lime',
+  Work: 'violet', // 2026-10-25 加，从 EXTRA 拿走
 };
 
 // 自己新建的支出一级从这里挑（不和 seed、收入撞色）
-const EXTRA: readonly CategoryColor[] = ['violet', 'teal', 'pink', 'emerald'];
+const EXTRA: readonly CategoryColor[] = ['teal', 'pink', 'emerald'];
 
 // 字符串 → 非负整数，同一个输入每次一样
 function hash(s: string): number {
