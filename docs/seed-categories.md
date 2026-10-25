@@ -1,7 +1,7 @@
 # Hearth 预置分类和规则
 
 > seed 脚本按这份文档创建归属人、分类和规则。
-> 分类列表是 2026-10-22 确定的版本，参考 Moneysmart Budget Planner 调整。
+> 分类列表是 2026-10-22 确定的版本，参考 Moneysmart Budget Planner 调整。2026-10-25 加了一级 Work。
 > 预置规则从 2026 年的真实 ANZ 和 CBA 流水整理，关键词匹配的是清洗后的 merchant（见 `business-rules.md` R3、R7）。
 > 标了 ❓ 的是猜的，导入后看一眼，不对就改。
 
@@ -30,11 +30,18 @@
 | **Personal & medical**      |            | Hair & beauty · Cosmetics & toiletries · Medicines & pharmacy · Hobbies · Clothing & shoes · Jewellery & accessories · Education · Computers & gadgets                    |
 | **Entertainment & eat-out** |            | Coffee & tea · Bubble tea · Lunches · Restaurants · Take-away & snacks · Drinks · Books · Movies & music · Holidays · Celebrations & gifts                                |
 | **Transport & auto**        |            | Public transport · Petrol / EV charging · Rego & licence · Road tolls & parking · Repairs & maintenance · Fines                                                           |
+| **Work**                    |            | Registration & licences · Memberships & union · Training & courses · Tools & software |
 
 - 默认归属人设在一级上，二级继承。空的表示不设，按卡号或账户决定（见 R5）
 - 中文名先不填，界面直接显示英文。以后要中文再补 `name_zh`
 - **Groceries 的二级是"店的类型"**：Supermarket、Butcher、Fruit、Vegetable 分别对应超市、肉店、水果店、蔬菜店。在超市买的水果算 Supermarket
 - Household supplies 没有预置规则，主要靠从超市账单里拆出来（F10）
+- **Work**（2026-10-25 加）：只因为工作才花的钱，如教师注册费（VIT）、WWCC、工会费、专业协会会费、PD 课程、急救证书、工作用的软件订阅和工具
+  - 不设默认归属人，按卡号或账户决定（R5）；归属人区分是谁的工作开销。老婆两份工作不按雇主分，需要时写备注
+  - 公私混用的（手机、网费、家里的电脑）照旧放原来的分类，不放 Work。能抵多少要按工作用途占比算，留给后续的标签功能（prd.md 第 4 节"抵税支出标记"）
+  - 雇主报销的，报销到账冲减 Work（R7.1），统计里只剩自己实际付的
+  - 放进 Work 不代表能抵税，以 ATO 为准
+  - 没有预置规则，一年就几笔，手动归类
 
 ---
 

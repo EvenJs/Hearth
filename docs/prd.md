@@ -148,7 +148,7 @@
 
 ### F5：分类
 
-- 两级分类：一级 6 个支出类 + Income（见第 7 节），二级用默认项 + 自定义
+- 两级分类：一级 7 个支出类 + Income（见第 7 节），二级用默认项 + 自定义
 - 每个一级分类自动带一个 **Other** 二级，放不进其他二级的先归到这里
 - 规则匹配：用清洗后商家名的关键词匹配（如含 `COLES` → Groceries / Supermarket），门店号不影响
 - 匹配不到的归到"未分类"，在 F8 流水查询里手动选，选完可以一键存成新规则
@@ -290,7 +290,7 @@
 
 ## 7. 分类体系
 
-2026-10-22 确定，参考 Moneysmart Budget Planner 调整。完整二级列表和预置规则见 `seed-categories.md`。
+2026-10-22 确定，参考 Moneysmart Budget Planner 调整；2026-10-25 加 Work。完整二级列表和预置规则见 `seed-categories.md`。
 
 | 一级分类                | 默认归属人 | 二级分类（每个一级另有 Other）                                                                                                                                  |
 | ----------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -300,9 +300,11 @@
 | Personal & medical      |            | Hair & beauty、Cosmetics & toiletries、Medicines & pharmacy、Hobbies、Clothing & shoes、Jewellery & accessories、Education、Computers & gadgets                 |
 | Entertainment & eat-out |            | Coffee & tea、Bubble tea、Lunches、Restaurants、Take-away & snacks、Drinks、Books、Movies & music、Holidays、Celebrations & gifts                                           |
 | Transport & auto        |            | Public transport、Petrol / EV charging、Rego & licence、Road tolls & parking、Repairs & maintenance、Fines                                                      |
+| Work                    |            | Registration & licences、Memberships & union、Training & courses、Tools & software |
 | Income                  |            | Salary、Contract income (B2B)（税前）、Interest（税前）、Tax (ATO)、Other                                                                                       |
 
 - 不设 Children 分类，花在孩子身上的钱用 Kid 归属人统计
+- Work：只因为工作才花的钱（注册费、工会费、培训等），公私混用的不放这里，见 `seed-categories.md` 第 2 节
 - Household supplies：卫生纸、洗洁精、垃圾袋这类全家用的日用品；个人护理用品放 Personal & medical / Cosmetics & toiletries
 - Groceries 的二级按店的类型理解，超市买的水果、肉都算 Supermarket
 - 界面先显示英文名
