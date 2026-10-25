@@ -10,11 +10,13 @@ import { processFile } from '../import/process';
 import {
   detectTransfer,
   findPair,
+  planTransferRedetect,
   planTransfers,
   resolveSuggestion,
   storedTransferAccountId,
   suggestTransfers,
   type HouseholdTransferTx,
+  type RedetectTx,
   type SuggestionTx,
   type TransferTx,
 } from './transfer';
@@ -693,5 +695,277 @@ describe('resolveSuggestion（R6.3 确认和拒绝）', () => {
   it('R6.3: error when the two are not paired with each other', () => {
     const b = { ...payid(), transferPairId: 'tx:other' };
     expect(resolveSuggestion(jointSeven(), b, 'confirm', ctx).ok).toBe(false);
+  });
+});
+
+describe('planTransferRedetect（R6.4 保存带尾号的账户时重新识别旧转账）', () => {
+  const plus = h.account('ANZ Plus Male');
+  const ctx = { categories: h.categories, cards: h.cards };
+  const GROCERIES = h.category('Groceries / Supermarket').id;
+
+  // 照 processFile 的结果当成已入库的交易（只有主拆分），id 用 "账户名#行号"
+  function storedRows(path: FixturePath, account: Account, accounts: readonly Account[]) {
+    const result = processFile(readFixture(path), account, { ...h, accounts });
+    if (!result.ok) throw new Error(result.message);
+    return result.rows.map((r, i): RedetectTx => ({
+      id: `${account.name}#${i + 1}`,
+      accountId: r.accountId,
+      rawDescription: r.rawDescription,
+      cardLast4: r.cardLast4,
+      transferStatus: r.transferStatus,
+      transferPairId: null,
+      splits: [
+        {
+          id: `split:${account.name}#${i + 1}`,
+          categoryId: r.categoryId,
+          categorySource: r.categorySource,
+          memberId: r.memberId,
+          memberSource: r.memberSource,
+          isPreTax: r.isPreTax,
+        },
+      ],
+    }));
+  }
+
+  // 一笔只有主拆分的旧交易，默认是 ANZ Male 里转去 ANZ Plus 的 Uncategorised
+  function tx(over: Partial<RedetectTx> & { split?: Partial<RedetectTx['splits'][number]> } = {}) {
+    const { split, ...rest } = over;
+    return {
+      id: 'tx:1',
+      accountId: male.id,
+      rawDescription: 'TRANSFER TO 012345-****0004 #123456',
+      cardLast4: null,
+      transferStatus: 'none',
+      transferPairId: null,
+      splits: [
+        {
+          id: 'split:1',
+          categoryId: UNCATEGORIZED,
+          categorySource: 'system',
+          memberId: h.member('Male').id,
+          memberSource: 'account',
+          isPreTax: false,
+          ...split,
+        },
+      ],
+      ...rest,
+    } satisfies RedetectTx;
+  }
+
+  describe('R6.4 例子 1：CBA Female 后来才填尾号', () => {
+    const noSuffix = h.accounts.map((a) => (a.id === female.id ? { ...a, numberSuffix: null } : a));
+    const femaleNoSuffix = noSuffix.find((a) => a.id === female.id)!;
+    const rows = storedRows('anz/joint-2026-09.csv', joint, noSuffix);
+
+    it('R6.4: without the suffix #11 was imported as Uncategorised, Home (account)', () => {
+      expect(rows[10]).toMatchObject({ transferStatus: 'none' });
+      expect(rows[10].splits[0]).toMatchObject({
+        categoryId: UNCATEGORIZED,
+        memberId: h.member('Home').id,
+        memberSource: 'account',
+      });
+    });
+
+    it('R6.4: saving CBA Female with an empty suffix → nothing to change', () => {
+      expect(planTransferRedetect(femaleNoSuffix, rows, noSuffix, ctx)).toEqual({
+        updates: [],
+        keptCount: 0,
+      });
+    });
+
+    it('R6.4: saving CBA Female with 0003 → #11 becomes auto, Internal transfer, Home (account); #18 (****9999) not included', () => {
+      // householdAccounts 里还是保存前的旧值（没有尾号），以传进来的 account 为准
+      const plan = planTransferRedetect(
+        { ...femaleNoSuffix, numberSuffix: '0003' },
+        rows,
+        noSuffix,
+        ctx,
+      );
+      expect(plan).toEqual({
+        updates: [
+          {
+            transactionId: 'ANZ Joint#11',
+            transferStatus: 'auto',
+            split: {
+              id: 'split:ANZ Joint#11',
+              categoryId: INTERNAL,
+              categorySource: 'system',
+              memberId: h.member('Home').id,
+              memberSource: 'account',
+              isPreTax: false,
+            },
+          },
+        ],
+        keptCount: 0,
+      });
+      expect(plan.updates.map((u) => u.transactionId)).not.toContain('ANZ Joint#18');
+    });
+  });
+
+  it('R6.4 例子 2: TRANSFER TO 012345-****0004 #123456 on ANZ Male matches ANZ Plus Male (0004)', () => {
+    expect(planTransferRedetect(plus, [tx()], h.accounts, ctx)).toEqual({
+      updates: [
+        {
+          transactionId: 'tx:1',
+          transferStatus: 'auto',
+          split: {
+            id: 'split:1',
+            categoryId: INTERNAL,
+            categorySource: 'system',
+            memberId: h.member('Male').id,
+            memberSource: 'account',
+            isPreTax: false,
+          },
+        },
+      ],
+      keptCount: 0,
+    });
+  });
+
+  describe('R6.4 表格', () => {
+    it('R6.4: only the primary split, category_source = rule → auto, Internal transfer, member by R5.1', () => {
+      // 规则分到 Groceries（默认 Home，category）→ 内部转账没有分类默认，走账户默认 Male
+      const t = tx({
+        split: {
+          categoryId: GROCERIES,
+          categorySource: 'rule',
+          memberId: h.member('Home').id,
+          memberSource: 'category',
+        },
+      });
+      expect(planTransferRedetect(plus, [t], h.accounts, ctx).updates[0]).toEqual({
+        transactionId: 'tx:1',
+        transferStatus: 'auto',
+        split: {
+          id: 'split:1',
+          categoryId: INTERNAL,
+          categorySource: 'system',
+          memberId: h.member('Male').id,
+          memberSource: 'account',
+          isPreTax: false,
+        },
+      });
+    });
+
+    it('R6.4: only the primary split, Uncategorised → auto, Internal transfer', () => {
+      const plan = planTransferRedetect(plus, [tx()], h.accounts, ctx);
+      expect(plan.updates).toHaveLength(1);
+      expect(plan.updates[0].split).toMatchObject({
+        categoryId: INTERNAL,
+        categorySource: 'system',
+      });
+    });
+
+    it('R6.4 + R5.1: manual member is kept when the category changes', () => {
+      const t = tx({ split: { memberId: h.member('Home').id, memberSource: 'manual' } });
+      expect(planTransferRedetect(plus, [t], h.accounts, ctx).updates[0].split).toMatchObject({
+        memberId: h.member('Home').id,
+        memberSource: 'manual',
+      });
+    });
+
+    it('R6.4: manual category → not changed, counted', () => {
+      const t = tx({ split: { categoryId: GROCERIES, categorySource: 'manual' } });
+      expect(planTransferRedetect(plus, [t], h.accounts, ctx)).toEqual({
+        updates: [],
+        keptCount: 1,
+      });
+    });
+
+    it('R6.4: more than one split → not changed, counted', () => {
+      const t = tx();
+      const second = {
+        ...t.splits[0],
+        id: 'split:2',
+        categoryId: GROCERIES,
+        categorySource: 'manual' as const,
+      };
+      expect(
+        planTransferRedetect(plus, [{ ...t, splits: [t.splits[0], second] }], h.accounts, ctx),
+      ).toEqual({ updates: [], keptCount: 1 });
+    });
+
+    it('R6.4: suggested (R6.3) is not a candidate → not changed, not counted', () => {
+      const t = tx({ transferStatus: 'suggested', transferPairId: 'tx:other' });
+      expect(planTransferRedetect(plus, [t], h.accounts, ctx)).toEqual({
+        updates: [],
+        keptCount: 0,
+      });
+    });
+  });
+
+  describe('R6.4 候选和匹配', () => {
+    it('R6.4: already a transfer (auto, confirmed) is not a candidate', () => {
+      const auto = tx({ id: 'tx:a', transferStatus: 'auto' });
+      const confirmed = tx({ id: 'tx:c', transferStatus: 'confirmed', transferPairId: 'tx:x' });
+      expect(planTransferRedetect(plus, [auto, confirmed], h.accounts, ctx)).toEqual({
+        updates: [],
+        keptCount: 0,
+      });
+    });
+
+    it('R6.4: none but paired (R6.2 kept a manual category, R16.7) is not a candidate', () => {
+      const t = tx({
+        transferPairId: 'tx:other',
+        split: { categoryId: GROCERIES, categorySource: 'manual' },
+      });
+      expect(planTransferRedetect(plus, [t], h.accounts, ctx)).toEqual({
+        updates: [],
+        keptCount: 0,
+      });
+    });
+
+    it('R6.4: transactions on the saved account itself are not candidates', () => {
+      const t = tx({ accountId: plus.id });
+      expect(planTransferRedetect(plus, [t], h.accounts, ctx)).toEqual({
+        updates: [],
+        keptCount: 0,
+      });
+    });
+
+    it('R6.4: matches a different household account → not changed, not counted', () => {
+      // ****0002 是 ANZ Male，不是这次保存的 ANZ Plus
+      const t = tx({
+        accountId: joint.id,
+        rawDescription: 'ANZ M-BANKING FUNDS TFER TRANSFER 100000  FROM  ****0002',
+      });
+      const manual = tx({
+        id: 'tx:m',
+        accountId: joint.id,
+        rawDescription: t.rawDescription,
+        split: { categorySource: 'manual' },
+      });
+      expect(planTransferRedetect(plus, [t, manual], h.accounts, ctx)).toEqual({
+        updates: [],
+        keptCount: 0,
+      });
+    });
+
+    it('R6.4: matches two household accounts (5678 vs 115678 and 225678) → not a transfer, not counted', () => {
+      const a = { ...plus, numberSuffix: '115678' };
+      const b: Account = { ...saver, id: 'account:other', numberSuffix: '225678' };
+      const accounts = [...h.accounts, b];
+      const t = tx({ rawDescription: 'ANZ M-BANKING FUNDS TFER TRANSFER 100000  TO  ****5678' });
+      const manual = tx({
+        id: 'tx:m',
+        rawDescription: t.rawDescription,
+        split: { categorySource: 'manual' },
+      });
+      expect(planTransferRedetect(a, [t, manual], accounts, ctx)).toEqual({
+        updates: [],
+        keptCount: 0,
+      });
+      // 只有一个账户对得上时照常认
+      expect(planTransferRedetect(a, [t], h.accounts, ctx).updates).toHaveLength(1);
+    });
+
+    it('R6.4: PayID transfer (no account) and non-transfer descriptions are not matched', () => {
+      const payid = tx({ rawDescription: 'Fast Transfer From TEST HOLDER to PayID Phone joint' });
+      const easi = tx({ id: 'tx:e', rawDescription: 'EASI AU ****0004' });
+      expect(planTransferRedetect(plus, [payid, easi], h.accounts, ctx)).toEqual({
+        updates: [],
+        keptCount: 0,
+      });
+    });
   });
 });

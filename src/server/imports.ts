@@ -2,7 +2,7 @@
 // 业务判断全部用 src/lib/ 的纯函数，这里只负责读写数据库和串流程
 // 不保存上传的原文件；日志和报错里不打印原始描述
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, gt, gte, inArray, isNull, lte, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, gte, inArray, lte, ne, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import {
   card,
@@ -21,12 +21,7 @@ import { processFile, type HouseholdConfig } from '@/lib/import/process';
 import { bySystemKey } from '@/lib/rules/classify';
 import { confirmPendingTransfer, findPendingMatches } from '@/lib/rules/pending';
 import { pendingsToCheck, reconcile, type Reconciliation } from '@/lib/rules/reconcile';
-import {
-  planTransfers,
-  storedTransferAccountId,
-  type HouseholdTransferTx,
-  type TransferPlan,
-} from '@/lib/rules/transfer';
+import type { TransferPlan } from '@/lib/rules/transfer';
 import type {
   CategorySource,
   MemberSource,
@@ -42,6 +37,7 @@ import {
   type UndoPlan,
 } from '@/lib/rules/undo';
 import type { HouseholdContext } from './context';
+import { pairHouseholdTransfers, primarySplitJoin, splitCountSql } from './transfers';
 
 export type ImportInput = {
   accountId: string;
@@ -112,13 +108,6 @@ function fail(
 ): ImportFailure {
   return { ok: false, reason, message, line };
 }
-
-const splitCountSql = sql<number>`(select count(*)::int from ${transactionSplit} s where s.transaction_id = ${transaction.id})`;
-
-const primarySplitJoin = and(
-  eq(transactionSplit.transactionId, transaction.id),
-  eq(transactionSplit.isPrimary, true),
-);
 
 // R5、R6.1、R7 要用的家庭配置
 // 账户和分类连已归档的一起读：转给已归档账户的钱 R6.1 照样认得出，规则指向已归档分类也不会找不到
@@ -193,7 +182,6 @@ export async function importCsv(ctx: HouseholdContext, input: ImportInput): Prom
   const config = await loadHouseholdConfig(ctx);
   const account = config.accounts.find((a) => a.id === input.accountId);
   if (!account) return fail('not_importable', '账户不存在');
-  const accountById = new Map(config.accounts.map((a) => [a.id, a]));
   const uncategorized = bySystemKey(config.categories, 'uncategorized');
 
   // ---------- R12 第 1、2 步：事务外 ----------
@@ -419,99 +407,13 @@ export async function importCsv(ctx: HouseholdContext, input: ImportInput): Prom
 
     // ---------- 6. R6.2 配对（整个家庭）、R6.3 兜底建议 ----------
 
-    // 整个家庭还没配对的 confirmed 交易（pending 不参与，等它被导入确认时再检查）
-    const unpaired = await tx
-      .select({
-        id: transaction.id,
-        accountId: transaction.accountId,
-        date: transaction.date,
-        amountCents: transaction.amountCents,
-        rawDescription: transaction.rawDescription,
-        cardLast4: transaction.cardLast4,
-        transferStatus: transaction.transferStatus,
-        categoryId: transactionSplit.categoryId,
-        categorySource: transactionSplit.categorySource,
-        memberId: transactionSplit.memberId,
-        memberSource: transactionSplit.memberSource,
-        splitCount: splitCountSql,
-      })
-      .from(transaction)
-      .innerJoin(transactionSplit, primarySplitJoin)
-      .where(
-        and(
-          eq(transaction.householdId, hh),
-          eq(transaction.status, 'confirmed'),
-          isNull(transaction.transferPairId),
-        ),
-      );
-
     // 本次的交易用内存里 R6.1 的结果；以前导入的 auto 转账从脱敏后的描述重认
-    const knownTransferAccount = new Map(transactions.map((t) => [t.id, t.transferAccountId]));
-    const householdTxs: HouseholdTransferTx[] = unpaired.map((t) => ({
-      id: t.id,
-      accountId: t.accountId,
-      date: t.date,
-      amountCents: t.amountCents,
-      transferStatus: t.transferStatus,
-      transferAccountId: knownTransferAccount.has(t.id)
-        ? knownTransferAccount.get(t.id)!
-        : t.transferStatus === 'auto'
-          ? storedTransferAccountId(
-              t.rawDescription,
-              accountById.get(t.accountId)!,
-              config.accounts,
-            )
-          : null,
-      transferPairId: null,
-      categoryId: t.categoryId,
-      categorySource: t.categorySource as CategorySource,
-      splitCount: t.splitCount,
-      cardLast4: t.cardLast4,
-      memberId: t.memberId,
-      memberSource: t.memberSource as MemberSource,
-    }));
-
     const newIds = new Set(toInsert.map((t) => t.id));
-    const transfers = planTransfers(householdTxs, newIds, config);
-
-    const byId = (id: string) => and(eq(transaction.id, id), eq(transaction.householdId, hh));
-    for (const p of transfers.pairs) {
-      await tx.update(transaction).set({ transferPairId: p.bId }).where(byId(p.aId));
-      const u = p.counterpartUpdate;
-      await tx
-        .update(transaction)
-        .set({ transferPairId: p.aId, ...(u ? { transferStatus: u.transferStatus } : {}) })
-        .where(byId(p.bId));
-      if (u) {
-        await tx
-          .update(transactionSplit)
-          .set({
-            categoryId: u.categoryId,
-            categorySource: u.categorySource,
-            isPreTax: u.isPreTax,
-            memberId: u.memberId,
-            memberSource: u.memberSource,
-          })
-          .where(
-            and(
-              eq(transactionSplit.transactionId, p.bId),
-              eq(transactionSplit.householdId, hh),
-              eq(transactionSplit.isPrimary, true),
-            ),
-          );
-      }
-    }
-    // R6.3：两边都标 suggested 并配对，分类和归属人不动（确认前还是未分类）
-    for (const s of transfers.suggestions) {
-      await tx
-        .update(transaction)
-        .set({ transferStatus: 'suggested', transferPairId: s.bId })
-        .where(byId(s.aId));
-      await tx
-        .update(transaction)
-        .set({ transferStatus: 'suggested', transferPairId: s.aId })
-        .where(byId(s.bId));
-    }
+    const knownTransferAccount = new Map(transactions.map((t) => [t.id, t.transferAccountId]));
+    const transfers = await pairHouseholdTransfers(tx, ctx, config, {
+      newIds,
+      knownTransferAccount,
+    });
 
     // ---------- 7. R9 对账：用数据库里该账户的交易，不只是本次文件 ----------
 

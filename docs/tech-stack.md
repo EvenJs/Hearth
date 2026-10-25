@@ -158,11 +158,12 @@ hearth/
 ```
 DATABASE_URL           # Neon 连接串
 BETTER_AUTH_SECRET     # 随机生成
-BETTER_AUTH_URL        # 本地 http://localhost:5000，线上用 Vercel 域名
+BETTER_AUTH_URL        # 本地 http://localhost:5000，线上用正在用的域名（自定义域名）
 ```
 
 - `.env.local` 不进 git，仓库里只放 `.env.example`
 - Vercel 上在项目设置里配置
+- 换域名时（2026-10-25 踩过）：Vercel 上 Production 的 `BETTER_AUTH_URL` 改成新域名（带 `https://`，结尾不带 `/`），然后 Redeploy。不改会登录 403 `Invalid origin`；改了以后只认新域名，旧域名登不上
 
 ---
 
