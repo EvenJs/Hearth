@@ -37,12 +37,12 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { formatAud } from '@/lib/rules/money';
-import { isCategoryLocked, shouldOfferRule } from '@/lib/transactions/inline-edit';
+import { isCategoryLocked } from '@/lib/transactions/inline-edit';
 import { memberSourceLabel } from '@/lib/transactions/split-form';
 import { cn } from '@/lib/utils';
 import type { SplitView, TransactionDetail } from '@/server/transactions';
 import { removeSplitAction } from '../actions';
-import type { EditOptions, RuleDraft } from '../inline-edit';
+import { offerRuleAfterChange, type EditOptions, type RuleDraft } from '../inline-edit';
 import { SaveRuleDialog } from '../save-rule-dialog';
 import { CategoryTag } from '../tx-badges';
 import { SplitDialog, type SplitSaved } from './split-dialog';
@@ -70,15 +70,19 @@ export function SplitSection({ tx, options }: { tx: TransactionDetail; options: 
   // R15.2 补充：auto / confirmed 转账不能拆分
   const canAdd = !isCategoryLocked(tx.transferStatus);
 
+  const offerRule = (draft: RuleDraft) =>
+    setRuleDraft((prev) => ({ key: (prev?.key ?? 0) + 1, draft }));
+
+  // R16.9：改了分类才问；详情页不做 R16.10 归属人联动
   function onSaved(r: SplitSaved) {
     setDialog(null);
     const c = r.categoryChanged;
-    if (c && shouldOfferRule({ isPrimary: r.isPrimary, changed: true, newKind: c.kind })) {
-      setRuleDraft((prev) => ({
-        key: (prev?.key ?? 0) + 1,
-        draft: { merchant: tx.merchant, categoryId: c.id, categoryLabel: c.label },
-      }));
-    }
+    if (!c) return;
+    void offerRuleAfterChange(
+      { transactionId: tx.id, isPrimary: r.isPrimary, kind: c.kind },
+      { merchant: tx.merchant, categoryId: c.id, categoryLabel: c.label },
+      offerRule,
+    );
   }
 
   const rowActions = (s: SplitView) => ({
