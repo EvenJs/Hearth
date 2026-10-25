@@ -12,7 +12,7 @@ const top = (id: string, nameEn: string, kind: 'expense' | 'income' = 'expense')
 });
 
 describe('categoryColor', () => {
-  it('seed 的 6 个支出一级各有固定颜色，互不相同', () => {
+  it('seed 的 7 个支出一级各有固定颜色，互不相同', () => {
     const names = [
       'Home & utilities',
       'Insurance & financial',
@@ -20,11 +20,29 @@ describe('categoryColor', () => {
       'Personal & medical',
       'Entertainment & eat-out',
       'Transport & auto',
+      'Work',
     ];
     const colors = names.map((n) => categoryColor(top(`id-${n}`, n)));
-    expect(new Set(colors).size).toBe(6);
+    expect(new Set(colors).size).toBe(7);
     // 固定的，不随 id 变
     expect(categoryColor(top('another-id', 'Groceries'))).toBe(colors[2]);
+  });
+
+  it('自己新建的一级不会分到 seed 一级的颜色（含 Work）', () => {
+    const seedNames = [
+      'Home & utilities',
+      'Insurance & financial',
+      'Groceries',
+      'Personal & medical',
+      'Entertainment & eat-out',
+      'Transport & auto',
+      'Work',
+    ];
+    const seedColors = new Set(seedNames.map((n) => categoryColor(top(`id-${n}`, n))));
+    for (let i = 0; i < 50; i++) {
+      const id = `5a1c0e7e-0000-4000-8000-${String(i).padStart(12, '0')}`;
+      expect(seedColors.has(categoryColor(top(id, `Custom ${i}`)))).toBe(false);
+    }
   });
 
   it('收入是绿色', () => {
