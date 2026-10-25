@@ -11,9 +11,11 @@ import {
   detectTransfer,
   findPair,
   planTransfers,
+  resolveSuggestion,
   storedTransferAccountId,
   suggestTransfers,
   type HouseholdTransferTx,
+  type SuggestionTx,
   type TransferTx,
 } from './transfer';
 import type { Account } from './types';
@@ -110,7 +112,10 @@ function load(path: FixturePath, account: Account): TransferTx[] {
     const { description, transferAccount } = extractAndMask(r.description);
     const t = detectTransfer({ transferAccount }, account, h.accounts);
     const c = classify(
-      { merchant: cleanMerchant(description), isInternalTransfer: t.transferStatus === 'auto' },
+      {
+        merchant: cleanMerchant(description),
+        isInternalTransfer: t.transferStatus === 'auto',
+      },
       h.rules,
       h.categories,
     );
@@ -149,7 +154,11 @@ describe('findPair（R6.2）', () => {
 
     expect(findPair(j11, femaleTxs, INTERNAL)).toEqual({
       counterpartId: 'CBA Female#10',
-      counterpart: { transferStatus: 'auto', categoryId: INTERNAL, categorySource: 'system' },
+      counterpart: {
+        transferStatus: 'auto',
+        categoryId: INTERNAL,
+        categorySource: 'system',
+      },
       manualCategoryKept: false,
     });
   });
@@ -164,7 +173,11 @@ describe('findPair（R6.2）', () => {
     );
     expect(findPair(j11, candidates, INTERNAL)).toEqual({
       counterpartId: 'CBA Female#10',
-      counterpart: { transferStatus: 'none', categoryId: restaurants, categorySource: 'manual' },
+      counterpart: {
+        transferStatus: 'none',
+        categoryId: restaurants,
+        categorySource: 'manual',
+      },
       manualCategoryKept: true,
     });
   });
@@ -180,7 +193,11 @@ describe('findPair（R6.2）', () => {
 
     expect(findPair(j17, meTxs, INTERNAL)).toEqual({
       counterpartId: 'ANZ Male#3',
-      counterpart: { transferStatus: 'auto', categoryId: INTERNAL, categorySource: 'system' },
+      counterpart: {
+        transferStatus: 'auto',
+        categoryId: INTERNAL,
+        categorySource: 'system',
+      },
       manualCategoryKept: false,
     });
     // 反过来找也是同一对
@@ -226,7 +243,11 @@ describe('findPair（R6.2）', () => {
   it('R6.2: counterpart with several splits (R15) → pair only, nothing changed, F8 hint', () => {
     expect(findPair(j11(), [{ ...c10(), splitCount: 2 }], INTERNAL)).toEqual({
       counterpartId: 'CBA Female#10',
-      counterpart: { transferStatus: 'none', categoryId: UNCATEGORIZED, categorySource: 'system' },
+      counterpart: {
+        transferStatus: 'none',
+        categoryId: UNCATEGORIZED,
+        categorySource: 'system',
+      },
       manualCategoryKept: true,
     });
   });
@@ -502,7 +523,11 @@ describe('planTransfers（R6.2 整个家庭配对，然后 R6.3 建议）', () =
     const joint9 = file('anz/joint-2026-09.csv', joint);
     const cba = file('cba/female-2026-09.csv', female).map((t) =>
       t.id === 'CBA Female#10'
-        ? { ...t, memberId: h.member('Home').id, memberSource: 'manual' as const }
+        ? {
+            ...t,
+            memberId: h.member('Home').id,
+            memberSource: 'manual' as const,
+          }
         : t,
     );
     const [pair] = planTransfers([...joint9, ...cba], ids(cba), h).pairs;
@@ -533,5 +558,140 @@ describe('planTransfers（R6.2 整个家庭配对，然后 R6.3 建议）', () =
     );
     const me = file('anz/me-2026-09.csv', male);
     expect(planTransfers([...joint9, ...me], ids(me), h).pairs).toEqual([]);
+  });
+});
+
+describe('resolveSuggestion（R6.3 确认和拒绝）', () => {
+  // fixtures/README.md "R6.3 确认和拒绝"：me 导入完成后
+  // Joint #7 PAYID DEPOSIT +80.00，Uncategorised，Home（account）
+  // ANZ Male PAYID PAYMENT -80.00，Uncategorised，Male（account）
+  const ctx = {
+    categories: h.categories,
+    cards: h.cards,
+    accounts: h.accounts,
+  };
+  const jointSeven = (): SuggestionTx => ({
+    id: 'tx:joint7',
+    accountId: joint.id,
+    cardLast4: null,
+    transferStatus: 'suggested',
+    transferPairId: 'tx:payid',
+    splits: [
+      {
+        id: 'split:joint7',
+        categoryId: UNCATEGORIZED,
+        categorySource: 'system',
+        memberId: h.member('Home').id,
+        memberSource: 'account',
+        isPreTax: false,
+      },
+    ],
+  });
+  const payid = (): SuggestionTx => ({
+    id: 'tx:payid',
+    accountId: male.id,
+    cardLast4: null,
+    transferStatus: 'suggested',
+    transferPairId: 'tx:joint7',
+    splits: [
+      {
+        id: 'split:payid',
+        categoryId: UNCATEGORIZED,
+        categorySource: 'system',
+        memberId: h.member('Male').id,
+        memberSource: 'account',
+        isPreTax: false,
+      },
+    ],
+  });
+
+  it('R6.3 confirm: both sides confirmed, Internal transfer, category_source manual, pair kept, member unchanged', () => {
+    expect(resolveSuggestion(jointSeven(), payid(), 'confirm', ctx)).toEqual({
+      ok: true,
+      a: {
+        transactionId: 'tx:joint7',
+        transferStatus: 'confirmed',
+        transferPairId: 'tx:payid',
+        splits: [
+          {
+            id: 'split:joint7',
+            categoryId: INTERNAL,
+            categorySource: 'manual',
+            memberId: h.member('Home').id,
+            memberSource: 'account',
+            isPreTax: false,
+          },
+        ],
+      },
+      b: {
+        transactionId: 'tx:payid',
+        transferStatus: 'confirmed',
+        transferPairId: 'tx:joint7',
+        splits: [
+          {
+            id: 'split:payid',
+            categoryId: INTERNAL,
+            categorySource: 'manual',
+            memberId: h.member('Male').id,
+            memberSource: 'account',
+            isPreTax: false,
+          },
+        ],
+      },
+    });
+  });
+
+  it('R6.3 reject: both sides none, pair cleared, category stays Uncategorised (no split changes)', () => {
+    expect(resolveSuggestion(jointSeven(), payid(), 'reject', ctx)).toEqual({
+      ok: true,
+      a: {
+        transactionId: 'tx:joint7',
+        transferStatus: 'none',
+        transferPairId: null,
+        splits: [],
+      },
+      b: {
+        transactionId: 'tx:payid',
+        transferStatus: 'none',
+        transferPairId: null,
+        splits: [],
+      },
+    });
+  });
+
+  it('R6.3: works from either side (b, a)', () => {
+    const r = resolveSuggestion(payid(), jointSeven(), 'confirm', ctx);
+    expect(r.ok && r.a.transactionId).toBe('tx:payid');
+    expect(r.ok && r.b.transferPairId).toBe('tx:payid');
+  });
+
+  it('R6.3 + R16.2: a suggested row whose category was changed is confirmed to Internal transfer; member by R5.1', () => {
+    // 先把 #7 手动改成 Restaurants（R16.2 允许，仍是 suggested），归属人没改过
+    const a = jointSeven();
+    a.splits = [
+      {
+        ...a.splits[0],
+        categoryId: h.category('Entertainment & eat-out / Restaurants').id,
+        categorySource: 'manual',
+      },
+    ];
+    const r = resolveSuggestion(a, payid(), 'confirm', ctx);
+    expect(r.ok && r.a.splits[0]).toMatchObject({
+      categoryId: INTERNAL,
+      categorySource: 'manual',
+      memberId: h.member('Home').id,
+      memberSource: 'account',
+    });
+  });
+
+  it('R6.3: error when a side is not suggested', () => {
+    const b = { ...payid(), transferStatus: 'none' as const };
+    expect(resolveSuggestion(jointSeven(), b, 'confirm', ctx).ok).toBe(false);
+    expect(resolveSuggestion(jointSeven(), b, 'reject', ctx).ok).toBe(false);
+  });
+
+  it('R6.3: error when the two are not paired with each other', () => {
+    const b = { ...payid(), transferPairId: 'tx:other' };
+    expect(resolveSuggestion(jointSeven(), b, 'confirm', ctx).ok).toBe(false);
   });
 });

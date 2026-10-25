@@ -54,6 +54,25 @@
 - 数据库读写集中在数据访问层
 - 页面和 Server Actions 只负责调用
 
+### 页面状态（2026-10-24 补）
+
+`next.config.ts` 开了 `cacheComponents: true`。离开页面时 Next 不卸载它，而是用 React 的 `<Activity>` 藏起来（`display: none`），React state 和 DOM 都留着（包括 file input 选的文件），最多保留 3 个路由。回到这个页面时看到的是离开时的样子，不是重新渲染的。见 `node_modules/next/dist/docs/01-app/02-guides/preserving-ui-state.md`。
+
+写客户端组件时，每个 state 想清楚离开再回来要不要留：
+
+| 要留 | 要清 |
+| --- | --- |
+| 填到一半的表单、筛选条件、展开收起 | 提交成功后的表单、勾选、弹窗和对话框、成功或失败提示 |
+
+清的办法：在 `useLayoutEffect` 的 cleanup 里重置（页面被隐藏时会执行）。整个表单要清空时，换外层组件的 `key` 让它重新挂载，file input 这种不受控的 DOM 状态也能一起清掉。
+
+已经处理的地方：
+
+- 导入页（`import-form.tsx`）：导入成功后再回来是空表单；填到一半离开、导入失败，都保留
+- 流水页（`transaction-list.tsx`）：离开时清掉批量修改的勾选和"存成规则"对话框，拆分的展开收起保留
+- 交易详情页（`transactions/[id]/split-section.tsx`）：离开时关掉拆分、删除确认和"存成规则"对话框
+- 看板时间段（`_dashboard/period-picker.tsx`）：自定义日期填到一半离开再回来保留；URL 变了（换时间段或归属人）时换 `key` 重新挂载，日期框跟着当前时间段
+
 ---
 
 ## 3. 数据库：Neon + Drizzle

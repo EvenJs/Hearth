@@ -3,6 +3,7 @@
 import { bySystemKey } from './classify';
 import { extractMaskedTransferSuffix } from './extract';
 import { recomputeMember, type MemberContext } from './member';
+import type { EditSplit, EditTx } from './split-edit';
 import type { Account, CategorySource, MemberSource, TransferStatus } from './types';
 
 // ---------- R6.1 ----------
@@ -176,6 +177,83 @@ export function suggestTransfers(
   return out;
 }
 
+// R6.3 在 F8 里确认或拒绝建议转账，两边一起改
+export type SuggestionTx = EditTx & {
+  id: string;
+  transferPairId: string | null;
+  splits: readonly EditSplit[];
+};
+
+// 一边要写的字段：transaction 上的两个字段 + 要改的拆分（拒绝时不改拆分，为空）
+export type SuggestionUpdate = {
+  transactionId: string;
+  transferStatus: 'confirmed' | 'none';
+  transferPairId: string | null;
+  splits: EditSplit[];
+};
+
+export type ResolveResult =
+  { ok: true; a: SuggestionUpdate; b: SuggestionUpdate } | { ok: false; message: string };
+
+// R6.3 确认：confirmed、内部转账、category_source = manual（R7.2 不会覆盖）、配对保留
+// is_pre_tax 按内部转账的默认值（R7）；归属人按 R5.1 重算，未分类 → 内部转账时结果不变
+function confirmSide(t: SuggestionTx, ctx: MemberContext): SuggestionUpdate {
+  const internal = bySystemKey(ctx.categories, 'internal_transfer');
+  const splits = t.splits.map((s) => ({
+    ...s,
+    categoryId: internal.id,
+    categorySource: 'manual' as const,
+    isPreTax: internal.isPreTaxDefault,
+    ...recomputeMember(
+      {
+        memberId: s.memberId,
+        memberSource: s.memberSource,
+        accountId: t.accountId,
+        cardLast4: t.cardLast4,
+      },
+      internal.id,
+      ctx,
+    ),
+  }));
+  return {
+    transactionId: t.id,
+    transferStatus: 'confirmed',
+    transferPairId: t.transferPairId,
+    splits,
+  };
+}
+
+// R6.3 拒绝：none、配对清空、分类和归属人不变
+function rejectSide(t: SuggestionTx): SuggestionUpdate {
+  return {
+    transactionId: t.id,
+    transferStatus: 'none',
+    transferPairId: null,
+    splits: [],
+  };
+}
+
+// R6.3：a、b 是互相配对的两笔 suggested 交易，从哪一边发起都行
+// 两边有一边有多个拆分时不能确认（规则文档没写，先报错）
+export function resolveSuggestion(
+  a: SuggestionTx,
+  b: SuggestionTx,
+  action: 'confirm' | 'reject',
+  ctx: MemberContext,
+): ResolveResult {
+  if (a.transferStatus !== 'suggested' || b.transferStatus !== 'suggested') {
+    return { ok: false, message: '不是建议转账' };
+  }
+  if (a.transferPairId !== b.id || b.transferPairId !== a.id) {
+    return { ok: false, message: '两笔交易没有互相配对' };
+  }
+  if (action === 'reject') return { ok: true, a: rejectSide(a), b: rejectSide(b) };
+  if (a.splits.length !== 1 || b.splits.length !== 1) {
+    return { ok: false, message: '有拆分的交易不能确认为内部转账，先删掉拆分' };
+  }
+  return { ok: true, a: confirmSide(a, ctx), b: confirmSide(b, ctx) };
+}
+
 // ---------- R12 第 6 步：R6.2 整个家庭配对，然后 R6.3 建议 ----------
 
 // R6.2：以前导入的 auto 转账，表里没存对方账户，完整账号也已经脱敏了
@@ -213,7 +291,10 @@ export type PairPlan = {
   manualCategoryKept: boolean; // 另一半是 manual 或多个拆分，没改，F8 提示
 };
 
-export type TransferPlan = { pairs: PairPlan[]; suggestions: TransferSuggestion[] };
+export type TransferPlan = {
+  pairs: PairPlan[];
+  suggestions: TransferSuggestion[];
+};
 
 const byDateThenId = (a: TransferTx, b: TransferTx) =>
   a.date < b.date ? -1 : a.date > b.date ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
@@ -274,5 +355,8 @@ export function planTransfers(
     });
   }
 
-  return { pairs, suggestions: suggestTransfers(all, uncategorized.id, newIds) };
+  return {
+    pairs,
+    suggestions: suggestTransfers(all, uncategorized.id, newIds),
+  };
 }
