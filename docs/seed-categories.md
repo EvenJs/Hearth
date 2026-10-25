@@ -4,6 +4,7 @@
 > 分类列表是 2026-10-22 确定的版本，参考 Moneysmart Budget Planner 调整。2026-10-25 加了一级 Work 和 Entertainment & eat-out / Bakery。
 > 预置规则从 2026 年的真实 ANZ 和 CBA 流水整理，关键词匹配的是清洗后的 merchant（见 `business-rules.md` R3、R7）。
 > 标了 ❓ 的是猜的，导入后看一眼，不对就改。
+> 分类和预置规则只在家庭第一次 seed（还没有分类）时插入，之后在设置 → 分类、设置 → 规则里管理。重跑 seed 不会加回来，这里新加的条目已有家庭要手动建（`business-rules.md` R18.5、R19.5）。
 
 ---
 
