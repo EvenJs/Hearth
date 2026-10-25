@@ -27,7 +27,7 @@ describe('seed categories（seed-categories §2、§3）', () => {
     'Insurance & financial': 3,
     Groceries: 5,
     'Personal & medical': 8,
-    'Entertainment & eat-out': 10,
+    'Entertainment & eat-out': 11,
     'Transport & auto': 6,
     Work: 4,
     Income: 4,
@@ -134,9 +134,9 @@ describe('seed rules（seed-categories §5）', () => {
     const counts: Record<string, number> = {};
     for (const r of SEED_RULES) counts[r.category] = (counts[r.category] ?? 0) + 1;
     expect(counts).toEqual({
-      Groceries: 23,
+      Groceries: 21,
       'Personal & medical': 14,
-      'Entertainment & eat-out': 26,
+      'Entertainment & eat-out': 28,
       'Transport & auto': 5,
       'Home & utilities': 8,
       'Insurance & financial': 2,
@@ -181,6 +181,15 @@ describe('seed rules（seed-categories §5）', () => {
       subcategory: 'Other',
     });
     expect(find('SEAFOOD')).toMatchObject({ category: 'Groceries', subcategory: 'Other' });
+    // 2026-10-25：面包店从 Groceries / Other 挪到 Bakery
+    expect(find('BREAD')).toMatchObject({
+      category: 'Entertainment & eat-out',
+      subcategory: 'Bakery',
+    });
+    expect(find('BAKERS')).toMatchObject({
+      category: 'Entertainment & eat-out',
+      subcategory: 'Bakery',
+    });
     expect(find('BPAY GWW')).toMatchObject({ category: 'Home & utilities', subcategory: 'Water' });
     expect(find('SALARY')).toMatchObject({ category: 'Income', subcategory: 'Salary' });
     expect(find('TAX OFFICE')).toMatchObject({ category: 'Income', subcategory: 'Tax (ATO)' });
