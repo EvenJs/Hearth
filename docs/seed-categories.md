@@ -1,7 +1,7 @@
 # Hearth 预置分类和规则
 
 > seed 脚本按这份文档创建归属人、分类和规则。
-> 分类列表是 2026-10-22 确定的版本，参考 Moneysmart Budget Planner 调整。2026-10-25 加了一级 Work。
+> 分类列表是 2026-10-22 确定的版本，参考 Moneysmart Budget Planner 调整。2026-10-25 加了一级 Work 和 Entertainment & eat-out / Bakery。
 > 预置规则从 2026 年的真实 ANZ 和 CBA 流水整理，关键词匹配的是清洗后的 merchant（见 `business-rules.md` R3、R7）。
 > 标了 ❓ 的是猜的，导入后看一眼，不对就改。
 
@@ -28,7 +28,7 @@
 | **Insurance & financial**   | Home       | Car insurance · Home insurance · Personal & life insurance                                                                                                                |
 | **Groceries**               | Home       | Supermarket · Butcher · Fruit · Vegetable · Pet                                                                                                                           |
 | **Personal & medical**      |            | Hair & beauty · Cosmetics & toiletries · Medicines & pharmacy · Hobbies · Clothing & shoes · Jewellery & accessories · Education · Computers & gadgets                    |
-| **Entertainment & eat-out** |            | Coffee & tea · Bubble tea · Lunches · Restaurants · Take-away & snacks · Drinks · Books · Movies & music · Holidays · Celebrations & gifts                                |
+| **Entertainment & eat-out** |            | Coffee & tea · Bubble tea · Lunches · Restaurants · Take-away & snacks · Drinks · Books · Movies & music · Holidays · Celebrations & gifts · Bakery                                |
 | **Transport & auto**        |            | Public transport · Petrol / EV charging · Rego & licence · Road tolls & parking · Repairs & maintenance · Fines                                                           |
 | **Work**                    |            | Registration & licences · Memberships & union · Training & courses · Tools & software |
 
@@ -102,8 +102,6 @@
 | MARKET BOYS ❓         | Vegetable   |
 | DOWNTOWN FRESH ❓      | Vegetable   |
 | SEAFOOD                | Other       |
-| BREAD                  | Other       |
-| BAKERS                 | Other       |
 
 ### Personal & medical
 
@@ -156,8 +154,12 @@
 | EAT EAT         | Restaurants          |
 | TICKETEK        | Movies & music       |
 | FLORIS          | Celebrations & gifts |
+| BREAD           | Bakery               |
+| BAKERS          | Bakery               |
 
 > Bubble tea 是奶茶店，Coffee & tea 是咖啡馆。
+> Bakery（2026-10-25 加）：面包店。原来 `BREAD`、`BAKERS` 归 Groceries / Other，默认归属人是 Home，自己吃的点心也记到 Home 上；放到这里没有分类默认，按卡号决定归属人（R5）。给全家买的面包偶尔算进来，不值得单独处理，需要时在 F8 手动改。
+> prod 的 Bakery 是 2026-10-25 手动用 SQL 加的（排在 Other 前面），规则在 F8 用 R16.6 覆盖、R7.2 重新应用。
 > `SW WHITE`：描述是 `272 SW WHITE ...` 这类，前面的数字是门店号，关键词只取后半段。
 > Lunches 没有预置规则：同一家面馆是不是午饭，从流水看不出来。
 

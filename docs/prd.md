@@ -290,7 +290,7 @@
 
 ## 7. 分类体系
 
-2026-10-22 确定，参考 Moneysmart Budget Planner 调整；2026-10-25 加 Work。完整二级列表和预置规则见 `seed-categories.md`。
+2026-10-22 确定，参考 Moneysmart Budget Planner 调整；2026-10-25 加 Work、Bakery。完整二级列表和预置规则见 `seed-categories.md`。
 
 | 一级分类                | 默认归属人 | 二级分类（每个一级另有 Other）                                                                                                                                  |
 | ----------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -298,7 +298,7 @@
 | Insurance & financial   | Home       | Car insurance、Home insurance、Personal & life insurance                                                                                                        |
 | Groceries               | Home       | Supermarket、Butcher、Fruit、Vegetable、Pet                                                                                                                     |
 | Personal & medical      |            | Hair & beauty、Cosmetics & toiletries、Medicines & pharmacy、Hobbies、Clothing & shoes、Jewellery & accessories、Education、Computers & gadgets                 |
-| Entertainment & eat-out |            | Coffee & tea、Bubble tea、Lunches、Restaurants、Take-away & snacks、Drinks、Books、Movies & music、Holidays、Celebrations & gifts                                           |
+| Entertainment & eat-out |            | Coffee & tea、Bubble tea、Lunches、Restaurants、Take-away & snacks、Drinks、Books、Movies & music、Holidays、Celebrations & gifts、Bakery                                           |
 | Transport & auto        |            | Public transport、Petrol / EV charging、Rego & licence、Road tolls & parking、Repairs & maintenance、Fines                                                      |
 | Work                    |            | Registration & licences、Memberships & union、Training & courses、Tools & software |
 | Income                  |            | Salary、Contract income (B2B)（税前）、Interest（税前）、Tax (ATO)、Other                                                                                       |
