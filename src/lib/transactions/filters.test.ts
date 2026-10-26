@@ -92,7 +92,7 @@ describe('filtersFromSearchParams', () => {
     ['unknown type', { type: 'savings' }],
     ['unknown status', { status: 'deleted' }],
     ['pretax not 0/1', { pretax: 'yes' }],
-    ['unknown quick', { quick: 'duplicates' }],
+    ['unknown quick', { quick: 'foo' }],
     ['batch not a uuid', { batch: 'last' }],
     ['blank merchant', { q: '   ' }],
   ])('invalid value is dropped, others kept: %s', (_, params) => {
@@ -114,6 +114,23 @@ describe('filtersFromSearchParams', () => {
 
   it.each(['-50', '+50', '12.345', 'abc', '1e3', ''])('invalid amount %j is dropped', (v) => {
     expect(filtersFromSearchParams({ min: v, max: v })).toEqual({});
+  });
+});
+
+describe('quick = duplicates（R17.6，M6-6 提示条的快捷方式）', () => {
+  it('?quick=duplicates 能读出来，和别的条件一起用', () => {
+    expect(filtersFromSearchParams({ quick: 'duplicates', account: ACCOUNT })).toEqual({
+      quick: 'duplicates',
+      accountId: ACCOUNT,
+    });
+  });
+
+  it('转回 URL 还是 quick=duplicates', () => {
+    expect(filtersToSearchParams({ quick: 'duplicates' }).toString()).toBe('quick=duplicates');
+  });
+
+  it('看的是交易本身，不算拆分条件（R16.5 合计按整笔）', () => {
+    expect(hasSplitFilter({ quick: 'duplicates' })).toBe(false);
   });
 });
 

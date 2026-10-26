@@ -1,4 +1,4 @@
-import { ArrowLeftRight, ChevronLeft, FileText } from 'lucide-react';
+import { ArrowLeftRight, ChevronLeft, Clock, Copy, FileText } from 'lucide-react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { connection } from 'next/server';
@@ -11,6 +11,7 @@ import { todayInMelbourne } from '@/lib/rules/periods';
 import { pickerSections } from '@/lib/transactions/category-picker';
 import { categoryOptionGroups } from '@/lib/transactions/inline-edit';
 import { cn } from '@/lib/utils';
+import { listAccounts } from '@/server/accounts';
 import { listCategoryTree } from '@/server/categories';
 import { getHouseholdContext } from '@/server/context';
 import { listMembers } from '@/server/members';
@@ -18,10 +19,12 @@ import { getTransaction, type TransactionDetail } from '@/server/transactions';
 import { formatTxDate } from '../format';
 import type { EditOptions } from '../inline-edit';
 import { TxBadges } from '../tx-badges';
+import { ManualActions } from './manual-actions';
 import { SplitSection } from './split-section';
 
 // F8 交易详情和拆分（设计图 04，M4-10）
-// 只看和拆分：编辑、删除整笔交易在 M6 做。设计图里文档没有的东西见 docs/design/README.md 第 4 节
+// 手动录入、还没被导入确认的交易能编辑、删除整笔（R17.5，M6-5）；可能重复的对方列在下面（R17.6）
+// 设计图里文档没有的东西见 docs/design/README.md 第 4 节
 // ?back= 是列表页的查询参数（筛选和页码），"返回流水"时带回去
 export default function TransactionDetailPage(props: PageProps<'/transactions/[id]'>) {
   return (
@@ -50,10 +53,11 @@ async function DetailSection({
   const ctx = await getHouseholdContext();
   await connection(); // "今天"每次请求重新算
   const today = todayInMelbourne();
-  const [tx, members, categories] = await Promise.all([
+  const [tx, members, categories, accounts] = await Promise.all([
     getTransaction(ctx, id),
     listMembers(ctx),
     listCategoryTree(ctx),
+    listAccounts(ctx), // 编辑整笔时选账户（没归档的）
   ]);
   if (!tx) notFound();
 
@@ -78,14 +82,34 @@ async function DetailSection({
         </Link>
       </nav>
 
-      <Summary tx={tx} today={today} />
+      <Summary
+        tx={tx}
+        today={today}
+        actions={
+          <ManualActions
+            tx={tx}
+            accounts={accounts.map(({ id, name, bank }) => ({ id, name, bank }))}
+            today={today}
+            listHref={listHref}
+          />
+        }
+      />
+      <DuplicatesCard tx={tx} today={today} detailHref={detailHref} />
       <InfoCard tx={tx} today={today} pairHref={tx.pair ? detailHref(tx.pair.id) : null} />
       <SplitSection tx={tx} options={options} />
     </>
   );
 }
 
-function Summary({ tx, today }: { tx: TransactionDetail; today: string }) {
+function Summary({
+  tx,
+  today,
+  actions,
+}: {
+  tx: TransactionDetail;
+  today: string;
+  actions: React.ReactNode;
+}) {
   return (
     <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
       <div className="flex min-w-0 flex-col gap-2">
@@ -99,15 +123,18 @@ function Summary({ tx, today }: { tx: TransactionDetail; today: string }) {
           {tx.cardLast4 && <> · 卡 ••{tx.cardLast4}</>}
         </p>
       </div>
-      <p
-        className={cn(
-          'shrink-0 text-3xl font-semibold tabular-nums',
-          tx.amountCents > 0 && 'text-green-700',
-        )}
-      >
-        {tx.amountCents > 0 ? '+' : ''}
-        {formatAud(tx.amountCents)}
-      </p>
+      <div className="flex shrink-0 flex-col gap-3 sm:items-end">
+        <p
+          className={cn(
+            'text-3xl font-semibold tabular-nums',
+            tx.amountCents > 0 && 'text-green-700',
+          )}
+        >
+          {tx.amountCents > 0 ? '+' : ''}
+          {formatAud(tx.amountCents)}
+        </p>
+        {actions}
+      </div>
     </header>
   );
 }
@@ -120,6 +147,60 @@ function TransferBadge({ status }: { status: TransactionDetail['transferStatus']
       <ArrowLeftRight />
       {status === 'auto' ? '内部转账（自动识别）' : '内部转账（已确认）'}
     </Badge>
+  );
+}
+
+// R17.6：和这笔可能重复的其他交易，点了跳过去。没有就不显示
+function DuplicatesCard({
+  tx,
+  today,
+  detailHref,
+}: {
+  tx: TransactionDetail;
+  today: string;
+  detailHref: (id: string) => string;
+}) {
+  if (tx.possibleDuplicates.length === 0) return null;
+  return (
+    // 玫红和 F8 的"可能重复"标签一致（M6-6），不用琥珀色免得和未分类混
+    <Card className="gap-3 border-rose-300 bg-rose-50/60 dark:border-rose-800 dark:bg-rose-950/30">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Copy className="size-4" />
+          可能重复
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <ul className="flex flex-col divide-y rounded-md border bg-background">
+          {tx.possibleDuplicates.map((d) => (
+            <li key={d.id}>
+              <Link
+                href={detailHref(d.id)}
+                className="flex flex-col gap-1 px-3 py-2 text-sm hover:bg-muted/60"
+              >
+                <span className="flex items-baseline justify-between gap-3">
+                  <span className="min-w-0 break-words">{d.merchant}</span>
+                  <span className="shrink-0 tabular-nums">{formatAud(d.amountCents)}</span>
+                </span>
+                <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                  <span>{formatTxDate(d.date, today)}</span>
+                  <span>{d.account.name}</span>
+                  {d.status === 'pending' && (
+                    <Badge variant="secondary" className="font-normal text-muted-foreground">
+                      <Clock />
+                      待确认
+                    </Badge>
+                  )}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+        <p className="text-xs text-muted-foreground">
+          导入时这几笔对上了同一笔银行交易。删掉或改掉多余的手动录入，提示会自动消失。
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 
