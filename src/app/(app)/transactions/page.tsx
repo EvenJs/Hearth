@@ -18,6 +18,7 @@ import { countQuickFilters, listTransactions } from '@/server/transactions';
 import { FilterBar, type FilterOptions } from './filter-bar';
 import type { EditOptions } from './inline-edit';
 import { transactionsHref } from './href';
+import { DuplicatesBanner } from './duplicates-banner';
 import { Pagination } from './pagination';
 import { QuickFilters } from './quick-filters';
 import { TransactionList } from './transaction-list';
@@ -74,6 +75,7 @@ async function TransactionsSection({
     <>
       <FilterBar filters={filters} options={options} />
       <QuickFilters filters={filters} counts={counts} />
+      <DuplicatesBanner filters={filters} pendingCount={list.duplicatePendingCount} />
 
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span className="text-sm text-muted-foreground">

@@ -12,7 +12,12 @@ import type { HouseholdContext } from './context';
 // 交易 id → 同组里其他还在显示的交易 id
 export type DuplicateGroups = Map<string, string[]>;
 
-export async function getPossibleDuplicates(ctx: HouseholdContext): Promise<DuplicateGroups> {
+export type PossibleDuplicates = {
+  groups: DuplicateGroups; // 所有带"可能重复"标签的交易（pending 和银行那笔）
+  pendingIds: Set<string>; // 其中还是 pending 的手动录入：F8 提示条的 N（M6-6）
+};
+
+export async function getPossibleDuplicates(ctx: HouseholdContext): Promise<PossibleDuplicates> {
   const hh = ctx.householdId;
   // 撤销导入（R12.1）后批次没了，提示跟着消失
   const batches = await db
@@ -30,7 +35,8 @@ export async function getPossibleDuplicates(ctx: HouseholdContext): Promise<Dupl
     (b) => (b.warnings as { possibleDuplicates: PossibleDuplicate[] }).possibleDuplicates,
   );
   const groups: DuplicateGroups = new Map();
-  if (records.length === 0) return groups;
+  const pending = new Set<string>();
+  if (records.length === 0) return { groups, pendingIds: pending };
 
   // 被删掉的 pending 查不到，正好不进 states
   const pendingIds = [...new Set(records.flatMap((r) => r.pendingIds))];
@@ -47,7 +53,8 @@ export async function getPossibleDuplicates(ctx: HouseholdContext): Promise<Dupl
       const others = new Set(groups.get(id) ?? []);
       for (const other of group) if (other !== id) others.add(other);
       groups.set(id, [...others]);
+      if (states.get(id) === 'pending') pending.add(id);
     }
   }
-  return groups;
+  return { groups, pendingIds: pending };
 }

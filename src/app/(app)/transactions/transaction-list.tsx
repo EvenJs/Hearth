@@ -18,6 +18,7 @@ import { selectionState } from '@/lib/transactions/bulk-edit';
 import { cn } from '@/lib/utils';
 import type { TransactionListItem } from '@/server/transactions';
 import { BulkBar } from './bulk-bar';
+import { DuplicateBadge } from './duplicate-badge';
 import { formatTxDate } from './format';
 import { transactionDetailHref } from './href';
 import {
@@ -102,6 +103,7 @@ export function TransactionList({ items, today, options, listHref }: Props) {
     selected: checked.has(tx.id),
     onSelect: (on: boolean) => setOne(tx.id, on),
     detailHref: transactionDetailHref(tx.id, listHref),
+    listHref,
   });
 
   return (
@@ -192,6 +194,7 @@ type RowProps = {
   selected: boolean;
   onSelect: (on: boolean) => void;
   detailHref: string;
+  listHref: string; // R17.6 标签浮层里跳到对方详情，带着当前筛选
 };
 
 function RowCheckbox({
@@ -269,6 +272,7 @@ function TableRows({
   selected,
   onSelect,
   detailHref,
+  listHref,
 }: RowProps) {
   const isSplit = tx.splits.length > 1;
   const primary = tx.splits[0];
@@ -323,6 +327,7 @@ function TableRows({
           <div className="flex max-w-96 flex-wrap items-center gap-1.5">
             <Merchant merchant={tx.merchant} />
             <TxBadges tx={tx} />
+            <DuplicateBadge partners={tx.duplicatePartners} today={today} listHref={listHref} />
             {tx.transferStatus === 'suggested' && <SuggestionButtons transactionId={tx.id} />}
           </div>
           {/* 脱敏后的原始描述（R2.3）。只占一行，悬停看完整的 */}
@@ -381,6 +386,7 @@ function TxCard({
   selected,
   onSelect,
   detailHref,
+  listHref,
 }: RowProps) {
   const isSplit = tx.splits.length > 1;
   const primary = tx.splits[0];
@@ -405,6 +411,7 @@ function TxCard({
           />
           <Merchant merchant={tx.merchant} />
           <TxBadges tx={tx} />
+          <DuplicateBadge partners={tx.duplicatePartners} today={today} listHref={listHref} />
         </div>
         <Amount cents={tx.amountCents} className="shrink-0 font-medium" />
       </div>

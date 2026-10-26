@@ -162,7 +162,8 @@ function DuplicatesCard({
 }) {
   if (tx.possibleDuplicates.length === 0) return null;
   return (
-    <Card className="gap-3 border-amber-300 bg-amber-50/60 dark:border-amber-800 dark:bg-amber-950/30">
+    // 玫红和 F8 的"可能重复"标签一致（M6-6），不用琥珀色免得和未分类混
+    <Card className="gap-3 border-rose-300 bg-rose-50/60 dark:border-rose-800 dark:bg-rose-950/30">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Copy className="size-4" />
@@ -175,18 +176,22 @@ function DuplicatesCard({
             <li key={d.id}>
               <Link
                 href={detailHref(d.id)}
-                className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm hover:bg-muted/60"
+                className="flex flex-col gap-1 px-3 py-2 text-sm hover:bg-muted/60"
               >
-                <span className="text-muted-foreground">{formatTxDate(d.date, today)}</span>
-                <span className="text-muted-foreground">{d.account.name}</span>
-                <span className="min-w-0 flex-1 break-words">{d.merchant}</span>
-                {d.status === 'pending' && (
-                  <Badge variant="secondary" className="font-normal text-muted-foreground">
-                    <Clock />
-                    待确认
-                  </Badge>
-                )}
-                <span className="tabular-nums">{formatAud(d.amountCents)}</span>
+                <span className="flex items-baseline justify-between gap-3">
+                  <span className="min-w-0 break-words">{d.merchant}</span>
+                  <span className="shrink-0 tabular-nums">{formatAud(d.amountCents)}</span>
+                </span>
+                <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                  <span>{formatTxDate(d.date, today)}</span>
+                  <span>{d.account.name}</span>
+                  {d.status === 'pending' && (
+                    <Badge variant="secondary" className="font-normal text-muted-foreground">
+                      <Clock />
+                      待确认
+                    </Badge>
+                  )}
+                </span>
               </Link>
             </li>
           ))}

@@ -100,6 +100,7 @@ export type TransactionListItem = {
   account: { id: string; name: string };
   splits: SplitView[]; // 主拆分在前，其他按金额绝对值从大到小
   possibleDuplicate: boolean; // R17.6：现在还要显示"可能重复"
+  duplicatePartners: DuplicatePartner[]; // R17.6：和哪几笔可能重复（M6-6 标签上展开）
 };
 
 export type TransactionList = {
@@ -108,6 +109,8 @@ export type TransactionList = {
   totalCents: number; // R16.5 合计（全部页）
   page: number;
   pageSize: number;
+  // R17.6 F8 提示条的 N：还是 pending 的可能重复手动录入。全部数据，不跟着当前筛选变
+  duplicatePendingCount: number;
 };
 
 export type TransactionDetail = TransactionListItem & {
@@ -143,7 +146,16 @@ function escapeLike(s: string): string {
 }
 
 // 交易本身的条件
-function transactionConditions(ctx: HouseholdContext, f: TransactionFilters, today: string): SQL[] {
+// duplicateIds：quick = duplicates 时带"可能重复"标签的交易 id（getPossibleDuplicates 算好传进来）
+// 没传就当成没有，quick = duplicates 什么都不命中
+type ListExtra = { duplicateIds?: readonly string[] };
+
+function transactionConditions(
+  ctx: HouseholdContext,
+  f: TransactionFilters,
+  today: string,
+  extra: ListExtra = {},
+): SQL[] {
   const c: SQL[] = [eq(transaction.householdId, ctx.householdId)];
   if (f.period !== undefined) {
     const { start, end } = periodRange(f.period, today); // R10.1
@@ -156,6 +168,11 @@ function transactionConditions(ctx: HouseholdContext, f: TransactionFilters, tod
   if (f.minCents !== undefined) c.push(sql`abs(${transaction.amountCents}) >= ${f.minCents}`);
   if (f.maxCents !== undefined) c.push(sql`abs(${transaction.amountCents}) <= ${f.maxCents}`);
   if (f.quick === 'suggested') c.push(eq(transaction.transferStatus, 'suggested'));
+  // R17.6：pending 和银行那笔都列出来，方便比对（M6-6）
+  if (f.quick === 'duplicates') {
+    const ids = extra.duplicateIds ?? [];
+    c.push(ids.length > 0 ? inArray(transaction.id, [...ids]) : sql`false`);
+  }
   if (f.batchId) c.push(eq(transaction.importBatchId, f.batchId));
   return c;
 }
@@ -193,8 +210,13 @@ const splitCategoryJoin = (ctx: HouseholdContext) =>
   and(eq(category.id, transactionSplit.categoryId), eq(category.householdId, ctx.householdId));
 
 // 列表用的 where：交易条件 + 有拆分条件时 EXISTS 一个命中的拆分
-function listWhere(ctx: HouseholdContext, f: TransactionFilters, today: string): SQL {
-  const c = transactionConditions(ctx, f, today);
+function listWhere(
+  ctx: HouseholdContext,
+  f: TransactionFilters,
+  today: string,
+  extra: ListExtra = {},
+): SQL {
+  const c = transactionConditions(ctx, f, today, extra);
   if (hasSplitFilter(f)) {
     c.push(
       exists(
@@ -216,6 +238,7 @@ async function totalCents(
   ctx: HouseholdContext,
   f: TransactionFilters,
   today: string,
+  extra: ListExtra = {},
 ): Promise<number> {
   const sumOf = (column: typeof transaction.amountCents | typeof transactionSplit.amountCents) =>
     sql<number>`coalesce(sum(${column}), 0)`.mapWith(Number);
@@ -224,7 +247,7 @@ async function totalCents(
     const [row] = await db
       .select({ sum: sumOf(transaction.amountCents) })
       .from(transaction)
-      .where(and(...transactionConditions(ctx, f, today)));
+      .where(and(...transactionConditions(ctx, f, today, extra)));
     return row.sum;
   }
   const [row] = await db
@@ -232,7 +255,7 @@ async function totalCents(
     .from(transaction)
     .innerJoin(transactionSplit, eq(transactionSplit.transactionId, transaction.id))
     .innerJoin(category, splitCategoryJoin(ctx))
-    .where(and(...transactionConditions(ctx, f, today), ...splitConditions(ctx, f)));
+    .where(and(...transactionConditions(ctx, f, today, extra), ...splitConditions(ctx, f)));
   return row.sum;
 }
 
@@ -337,12 +360,19 @@ const listColumns = {
   accountName: financialAccount.name,
 };
 
-type ListRow = Omit<TransactionListItem, 'account' | 'splits' | 'possibleDuplicate'> & {
+type ListRow = Omit<
+  TransactionListItem,
+  'account' | 'splits' | 'possibleDuplicate' | 'duplicatePartners'
+> & {
   accountId: string;
   accountName: string;
 };
 
-function toItem(r: ListRow, splits: SplitView[], possibleDuplicate: boolean): TransactionListItem {
+function toItem(
+  r: ListRow,
+  splits: SplitView[],
+  duplicatePartners: DuplicatePartner[],
+): TransactionListItem {
   return {
     id: r.id,
     date: r.date,
@@ -356,7 +386,8 @@ function toItem(r: ListRow, splits: SplitView[], possibleDuplicate: boolean): Tr
     transferPairId: r.transferPairId,
     account: { id: r.accountId, name: r.accountName },
     splits,
-    possibleDuplicate,
+    possibleDuplicate: duplicatePartners.length > 0,
+    duplicatePartners,
   };
 }
 
@@ -378,9 +409,12 @@ export async function listTransactions(
     MAX_PAGE_SIZE,
     Math.max(1, Math.floor(options.pageSize ?? DEFAULT_PAGE_SIZE)),
   );
-  const where = listWhere(ctx, filters, options.today);
+  // quick = duplicates 要先知道是哪几笔
+  const duplicates = await getPossibleDuplicates(ctx);
+  const extra: ListExtra = { duplicateIds: [...duplicates.groups.keys()] };
+  const where = listWhere(ctx, filters, options.today, extra);
 
-  const [rows, [{ count }], total, duplicates] = await Promise.all([
+  const [rows, [{ count }], total] = await Promise.all([
     db
       .select(listColumns)
       .from(transaction)
@@ -393,20 +427,29 @@ export async function listTransactions(
       .select({ count: sql<number>`count(*)`.mapWith(Number) })
       .from(transaction)
       .where(where),
-    totalCents(ctx, filters, options.today),
-    getPossibleDuplicates(ctx),
+    totalCents(ctx, filters, options.today, extra),
   ]);
 
-  const splits = await loadSplits(
-    ctx,
-    rows.map((r) => r.id),
-  );
+  // 这一页带标签的行，对方一次查出来
+  const partnerIds = new Set(rows.flatMap((r) => duplicates.groups.get(r.id) ?? []));
+  const [splits, partners] = await Promise.all([
+    loadSplits(
+      ctx,
+      rows.map((r) => r.id),
+    ),
+    loadDuplicatePartners(ctx, [...partnerIds]),
+  ]);
+  const partnersOf = (id: string) => {
+    const ids = duplicates.groups.get(id) ?? [];
+    return partners.filter((p) => ids.includes(p.id));
+  };
   return {
-    items: rows.map((r) => toItem(r, splits.get(r.id) ?? [], duplicates.has(r.id))),
+    items: rows.map((r) => toItem(r, splits.get(r.id) ?? [], partnersOf(r.id))),
     count,
     totalCents: total,
     page,
     pageSize,
+    duplicatePendingCount: duplicates.pendingIds.size,
   };
 }
 
@@ -486,11 +529,11 @@ export async function getTransaction(
     loadSplits(ctx, [row.id]),
     getPossibleDuplicates(ctx),
   ]);
-  const partnerIds = duplicates.get(row.id) ?? [];
+  const partners = await loadDuplicatePartners(ctx, duplicates.groups.get(row.id) ?? []);
 
   return {
-    ...toItem(row, splits.get(row.id) ?? [], partnerIds.length > 0),
-    possibleDuplicates: await loadDuplicatePartners(ctx, partnerIds),
+    ...toItem(row, splits.get(row.id) ?? [], partners),
+    possibleDuplicates: partners,
     balanceCents: row.balanceCents,
     note: row.note,
     confirmedAt: row.confirmedAt,
@@ -514,7 +557,7 @@ export async function getTransaction(
   };
 }
 
-// R17.6 详情页列出的"对方"，按日期排
+// R17.6 列表标签和详情页列出的"对方"，按日期排
 async function loadDuplicatePartners(
   ctx: HouseholdContext,
   ids: readonly string[],

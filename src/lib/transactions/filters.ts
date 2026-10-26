@@ -16,7 +16,8 @@ import { TRANSACTION_TYPES, type TransactionType } from '@/lib/rules/split-edit'
 export const TRANSACTION_STATUSES = ['pending', 'confirmed'] as const;
 export type TransactionStatus = (typeof TRANSACTION_STATUSES)[number];
 
-export const QUICK_FILTERS = ['uncategorized', 'suggested'] as const;
+// duplicates：R17.6 可能重复（M6-6），只由列表顶部的提示条打开，不在筛选栏和快捷 chips 里
+export const QUICK_FILTERS = ['uncategorized', 'suggested', 'duplicates'] as const;
 export type QuickFilter = (typeof QUICK_FILTERS)[number];
 
 export type TransactionFilters = {
@@ -30,7 +31,7 @@ export type TransactionFilters = {
   merchant?: string; // 商家关键词，不区分大小写
   minCents?: number; // 交易金额绝对值 ≥，含
   maxCents?: number; // 交易金额绝对值 ≤，含
-  quick?: QuickFilter; // 未分类（拆分）、建议转账（transfer_status = suggested）
+  quick?: QuickFilter; // 未分类（拆分）、建议转账（transfer_status = suggested）、可能重复（R17.6）
   batchId?: string; // transaction.import_batch_id
 };
 
