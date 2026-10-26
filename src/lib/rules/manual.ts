@@ -2,19 +2,19 @@
 // R17.5 编辑和删除、R17.6 可能重复
 // 函数只算出要写的字段，入库（一个事务）由 src/server/ 做
 // 纯函数，不 import 数据库和 Next.js
-import { parseSplitAmountInput } from "@/lib/transactions/split-form";
-import { bySystemKey, classify } from "./classify";
-import { maskLongDigits } from "./extract";
-import { cleanMerchant } from "./merchant";
-import { resolveMember, type MemberContext, type MemberResult } from "./member";
-import { initialStatus, type TransactionStatus } from "./pending";
-import { daysBetween } from "./periods";
+import { parseSplitAmountInput } from '@/lib/transactions/split-form';
+import { bySystemKey, classify } from './classify';
+import { maskLongDigits } from './extract';
+import { cleanMerchant } from './merchant';
+import { resolveMember, type MemberContext, type MemberResult } from './member';
+import { initialStatus, type TransactionStatus } from './pending';
+import { daysBetween } from './periods';
 import {
   isSelectableCategory,
   typeOfCategory,
   type EditCategory,
   type TransactionType,
-} from "./split-edit";
+} from './split-edit';
 import type {
   Account,
   CategoryRule,
@@ -22,18 +22,18 @@ import type {
   Member,
   MemberSource,
   TransferStatus,
-} from "./types";
+} from './types';
 
 // ---------- 类型 ----------
 
 // 表单上的"支出 / 收入"切换
-export type EntryKind = "expense" | "income";
+export type EntryKind = 'expense' | 'income';
 
 // 账户归档不在 Account 类型里，这里单独加，不传当成没归档
 export type ManualAccount = Account & { isArchived?: boolean };
 
 // accounts、categories 换成带归档字段的版本，仍然能当 MemberContext 传给 resolveMember
-export type ManualContext = Omit<MemberContext, "accounts" | "categories"> & {
+export type ManualContext = Omit<MemberContext, 'accounts' | 'categories'> & {
   members: readonly Member[];
   accounts: readonly ManualAccount[];
   categories: readonly EditCategory[];
@@ -54,7 +54,7 @@ export type ManualInput = {
 };
 
 export type ManualField =
-  "amount" | "description" | "accountId" | "date" | "categoryId" | "memberId";
+  'amount' | 'description' | 'accountId' | 'date' | 'categoryId' | 'memberId';
 export type ManualFieldErrors = Partial<Record<ManualField, string>>;
 
 // 要写入 transaction 的字段（created_by、id、时间戳由数据层填）
@@ -70,7 +70,7 @@ export type ManualTransaction = {
   dedupeKey: null;
   importBatchId: null;
   transferStatus: TransferStatus;
-  source: "manual";
+  source: 'manual';
 };
 
 // 要写入的主拆分（R15.1）
@@ -99,26 +99,23 @@ function isRealDate(date: string): boolean {
   const [year, month, day] = [Number(m[1]), Number(m[2]), Number(m[3])];
   if (month < 1 || month > 12 || day < 1) return false;
   const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
-  const days =
-    month === 2 ? (leap ? 29 : 28) : [4, 6, 9, 11].includes(month) ? 30 : 31;
+  const days = month === 2 ? (leap ? 29 : 28) : [4, 6, 9, 11].includes(month) ? 30 : 31;
   return day <= days;
 }
 
 // R17.1：默认今天，不能晚于今天，往前不限。YYYY-MM-DD 字符串直接比较
 function checkDate(date: string, today: string): string | null {
-  if (!isRealDate(date)) return "日期不对";
-  if (date > today) return "日期不能晚于今天";
+  if (!isRealDate(date)) return '日期不对';
+  if (date > today) return '日期不能晚于今天';
   return null;
 }
 
 // R17.1 + R2.3 + R3：去首尾空格 → 脱敏 → 清洗 merchant
 function checkDescription(
   description: string,
-):
-  | { ok: true; rawDescription: string; merchant: string }
-  | { ok: false; message: string } {
+): { ok: true; rawDescription: string; merchant: string } | { ok: false; message: string } {
   const trimmed = description.trim();
-  if (trimmed === "") return { ok: false, message: "请填描述" };
+  if (trimmed === '') return { ok: false, message: '请填描述' };
   if (trimmed.length > MAX_DESCRIPTION) {
     return { ok: false, message: `描述最长 ${MAX_DESCRIPTION} 个字` };
   }
@@ -127,10 +124,7 @@ function checkDescription(
 }
 
 // R17.1：本家庭没归档的账户
-function findAccount(
-  accountId: string,
-  ctx: ManualContext,
-): ManualAccount | null {
+function findAccount(accountId: string, ctx: ManualContext): ManualAccount | null {
   const a = ctx.accounts.find((x) => x.id === accountId);
   return a && !a.isArchived ? a : null;
 }
@@ -151,10 +145,8 @@ function isAllowedForKind(
   return typeOfCategory(c) === kind;
 }
 
-const signed = (cents: number, kind: EntryKind) =>
-  kind === "expense" ? -cents : cents;
-const kindOf = (amountCents: number): EntryKind =>
-  amountCents < 0 ? "expense" : "income";
+const signed = (cents: number, kind: EntryKind) => (kind === 'expense' ? -cents : cents);
+const kindOf = (amountCents: number): EntryKind => (amountCents < 0 ? 'expense' : 'income');
 
 // ---------- R17.2 猜分类 ----------
 
@@ -172,17 +164,13 @@ export function guessCategory(
   categories: readonly EditCategory[],
 ): CategoryGuess | null {
   const trimmed = description.trim();
-  if (trimmed === "") return null;
+  if (trimmed === '') return null;
   const merchant = cleanMerchant(maskLongDigits(trimmed));
 
   // 手动录入不跑 R6.1（R17.1），所以第 1 步永远不命中
-  const result = classify(
-    { merchant, isInternalTransfer: false },
-    rules,
-    categories,
-  );
+  const result = classify({ merchant, isInternalTransfer: false }, rules, categories);
   const category = categories.find((c) => c.id === result.categoryId)!;
-  if (category.systemKey === "uncategorized") return null;
+  if (category.systemKey === 'uncategorized') return null;
   if (!isAllowedForKind(category, kind, categories)) return null;
   return {
     categoryId: result.categoryId,
@@ -199,21 +187,13 @@ function categorySourceFor(
   categoryId: string,
   ctx: ManualContext,
 ): CategorySource {
-  if (!input.categoryGuessed) return "manual";
-  const guess = guessCategory(
-    input.description,
-    input.kind,
-    ctx.rules,
-    ctx.categories,
-  );
-  return guess?.categoryId === categoryId ? guess.categorySource : "manual";
+  if (!input.categoryGuessed) return 'manual';
+  const guess = guessCategory(input.description, input.kind, ctx.rules, ctx.categories);
+  return guess?.categoryId === categoryId ? guess.categorySource : 'manual';
 }
 
 // R17.1 新建一笔手动交易和主拆分。字段错误一次全部返回
-export function buildManualTransaction(
-  input: ManualInput,
-  ctx: ManualContext,
-): BuildResult {
+export function buildManualTransaction(input: ManualInput, ctx: ManualContext): BuildResult {
   const errors: ManualFieldErrors = {};
 
   const amount = parseSplitAmountInput(input.amount);
@@ -223,7 +203,7 @@ export function buildManualTransaction(
   if (!description.ok) errors.description = description.message;
 
   const account = findAccount(input.accountId, ctx);
-  if (!account) errors.accountId = "请选账户";
+  if (!account) errors.accountId = '请选账户';
 
   const dateError = checkDate(input.date, ctx.today);
   if (dateError) errors.date = dateError;
@@ -231,22 +211,14 @@ export function buildManualTransaction(
   if (input.categoryId !== null) {
     const c = ctx.categories.find((x) => x.id === input.categoryId);
     if (!c || !isAllowedForKind(c, input.kind, ctx.categories))
-      errors.categoryId = "不能选这个分类";
+      errors.categoryId = '不能选这个分类';
   }
 
-  if (
-    input.memberId !== null &&
-    !ctx.members.some((m) => m.id === input.memberId)
-  ) {
-    errors.memberId = "归属人不存在";
+  if (input.memberId !== null && !ctx.members.some((m) => m.id === input.memberId)) {
+    errors.memberId = '归属人不存在';
   }
 
-  if (
-    !amount.ok ||
-    !description.ok ||
-    !account ||
-    Object.keys(errors).length > 0
-  ) {
+  if (!amount.ok || !description.ok || !account || Object.keys(errors).length > 0) {
     return { ok: false, errors };
   }
 
@@ -255,12 +227,10 @@ export function buildManualTransaction(
   // R17.3 分类
   const category =
     input.categoryId === null
-      ? bySystemKey(ctx.categories, "uncategorized")
+      ? bySystemKey(ctx.categories, 'uncategorized')
       : ctx.categories.find((c) => c.id === input.categoryId)!;
   const categorySource: CategorySource =
-    input.categoryId === null
-      ? "system"
-      : categorySourceFor(input, category.id, ctx);
+    input.categoryId === null ? 'system' : categorySourceFor(input, category.id, ctx);
 
   // R17.3 归属人：自动 → R5（没有卡号），自己选 → manual
   const member = resolveMember(
@@ -286,8 +256,8 @@ export function buildManualTransaction(
       balanceCents: null,
       dedupeKey: null,
       importBatchId: null,
-      transferStatus: "none", // R17.1 不跑 R6.1
-      source: "manual",
+      transferStatus: 'none', // R17.1 不跑 R6.1
+      source: 'manual',
     },
     split: {
       isPrimary: true,
@@ -320,10 +290,7 @@ export function frequentCategories(
   today: string,
   n: number,
 ): string[] {
-  const stats = new Map<
-    string,
-    { count: number; lastDate: string; lastCreated: number }
-  >();
+  const stats = new Map<string, { count: number; lastDate: string; lastCreated: number }>();
   for (const r of recent) {
     if (r.categoryType !== kind) continue;
     const age = daysBetween(r.date, today);
@@ -331,15 +298,12 @@ export function frequentCategories(
 
     const s = stats.get(r.categoryId) ?? {
       count: 0,
-      lastDate: "",
+      lastDate: '',
       lastCreated: 0,
     };
     s.count++;
     const created = r.createdAt.getTime();
-    if (
-      r.date > s.lastDate ||
-      (r.date === s.lastDate && created > s.lastCreated)
-    ) {
+    if (r.date > s.lastDate || (r.date === s.lastDate && created > s.lastCreated)) {
       s.lastDate = r.date;
       s.lastCreated = created;
     }
@@ -349,9 +313,7 @@ export function frequentCategories(
   return [...stats.entries()]
     .sort(
       ([, a], [, b]) =>
-        b.count - a.count ||
-        b.lastDate.localeCompare(a.lastDate) ||
-        b.lastCreated - a.lastCreated,
+        b.count - a.count || b.lastDate.localeCompare(a.lastDate) || b.lastCreated - a.lastCreated,
     )
     .slice(0, n)
     .map(([id]) => id);
@@ -360,7 +322,7 @@ export function frequentCategories(
 // ---------- R17.5 能不能编辑、删除 ----------
 
 export type ManualEditableTx = {
-  source: "csv" | "manual" | "receipt";
+  source: 'csv' | 'manual' | 'receipt';
   importBatchId: string | null;
   transferPairId: string | null;
 };
@@ -374,25 +336,25 @@ export type EditPermission = {
 // R17.5：只有 source = manual 且 import_batch_id 为空的能编辑、删除整笔
 // 有 transfer_pair_id 的能编辑、不能删除（R6.3 建议先在 F8 拒绝）
 export function canEditManual(tx: ManualEditableTx): EditPermission {
-  if (tx.source !== "manual") {
+  if (tx.source !== 'manual') {
     return {
       canEdit: false,
       canDelete: false,
-      reason: "导入的交易只能改分类、归属人、拆分和备注",
+      reason: '导入的交易只能改分类、归属人、拆分和备注',
     };
   }
   if (tx.importBatchId !== null) {
     return {
       canEdit: false,
       canDelete: false,
-      reason: "这笔已经被导入确认，只能改分类、归属人、拆分和备注",
+      reason: '这笔已经被导入确认，只能改分类、归属人、拆分和备注',
     };
   }
   if (tx.transferPairId !== null) {
     return {
       canEdit: true,
       canDelete: false,
-      reason: "这笔和另一笔配成了转账，先在流水里拒绝建议再删",
+      reason: '这笔和另一笔配成了转账，先在流水里拒绝建议再删',
     };
   }
   return { canEdit: true, canDelete: true, reason: null };
@@ -432,12 +394,7 @@ export type ManualEdit = {
 export type ManualTxChanges = Partial<
   Pick<
     ManualEditTx,
-    | "accountId"
-    | "date"
-    | "amountCents"
-    | "rawDescription"
-    | "merchant"
-    | "status"
+    'accountId' | 'date' | 'amountCents' | 'rawDescription' | 'merchant' | 'status'
   >
 >;
 export type ManualSplitChange = {
@@ -460,21 +417,20 @@ export function applyManualEdit(
   ctx: ManualContext,
 ): EditManualResult {
   const permission = canEditManual(tx);
-  if (!permission.canEdit)
-    return { ok: false, errors: { form: permission.reason! } };
+  if (!permission.canEdit) return { ok: false, errors: { form: permission.reason! } };
 
   const kind = kindOf(tx.amountCents);
   if (edit.kind !== undefined && edit.kind !== kind) {
     return {
       ok: false,
-      errors: { amount: "不能把支出改成收入（或反过来），要改就删掉重记" },
+      errors: { amount: '不能把支出改成收入（或反过来），要改就删掉重记' },
     };
   }
 
   const errors: ManualFieldErrors = {};
   const changes: ManualTxChanges = {};
   const splitChanges = new Map<string, ManualSplitChange>();
-  const change = (id: string, patch: Omit<ManualSplitChange, "id">) =>
+  const change = (id: string, patch: Omit<ManualSplitChange, 'id'>) =>
     splitChanges.set(id, { ...(splitChanges.get(id) ?? { id }), ...patch });
 
   // 金额
@@ -487,7 +443,7 @@ export function applyManualEdit(
       if (amountCents !== tx.amountCents) {
         const primary = splits.find((s) => s.isPrimary);
         if (splits.length > 1 || !primary) {
-          errors.amount = "有多个拆分时不能改金额，先删掉拆分";
+          errors.amount = '有多个拆分时不能改金额，先删掉拆分';
         } else {
           changes.amountCents = amountCents;
           change(primary.id, { amountCents });
@@ -517,20 +473,19 @@ export function applyManualEdit(
   if (edit.accountId !== undefined && edit.accountId !== tx.accountId) {
     const account = findAccount(edit.accountId, ctx);
     if (!account) {
-      errors.accountId = "请选账户";
+      errors.accountId = '请选账户';
     } else {
       changes.accountId = account.id;
       const status = initialStatus(account); // R8.1
       if (status !== tx.status) changes.status = status;
 
       for (const s of splits) {
-        if (s.memberSource === "manual") continue;
+        if (s.memberSource === 'manual') continue;
         const m = resolveMember(
           { accountId: account.id, cardLast4: null, categoryId: s.categoryId },
           ctx,
         );
-        if (m.memberId !== s.memberId || m.memberSource !== s.memberSource)
-          change(s.id, m);
+        if (m.memberId !== s.memberId || m.memberSource !== s.memberSource) change(s.id, m);
       }
     }
   }
@@ -554,9 +509,7 @@ export function activeDuplicates(
 ): string[] {
   const ids = new Set<string>();
   for (const w of warnings) {
-    const alive = w.pendingIds.filter(
-      (id) => pendingStates.get(id) === "pending",
-    );
+    const alive = w.pendingIds.filter((id) => pendingStates.get(id) === 'pending');
     if (alive.length === 0) continue;
     ids.add(w.transactionId);
     for (const id of alive) ids.add(id);

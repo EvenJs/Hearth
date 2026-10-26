@@ -57,6 +57,7 @@ import {
   type TransactionStatus,
 } from '@/lib/transactions/filters';
 import type { HouseholdContext } from './context';
+import { getPossibleDuplicates } from './duplicates';
 import { isActiveMember } from './members';
 
 export const DEFAULT_PAGE_SIZE = 50;
@@ -98,6 +99,7 @@ export type TransactionListItem = {
   transferPairId: string | null; // R16.7：有配对但 transfer_status = none 时显示小标签
   account: { id: string; name: string };
   splits: SplitView[]; // 主拆分在前，其他按金额绝对值从大到小
+  possibleDuplicate: boolean; // R17.6：现在还要显示"可能重复"
 };
 
 export type TransactionList = {
@@ -120,6 +122,17 @@ export type TransactionDetail = TransactionListItem & {
     merchant: string;
     account: { id: string; name: string };
   } | null;
+  // R17.6：和这笔"可能重复"的其他交易（M6-5 详情页列出来，点了跳过去）
+  possibleDuplicates: DuplicatePartner[];
+};
+
+export type DuplicatePartner = {
+  id: string;
+  date: string;
+  amountCents: number;
+  merchant: string;
+  status: TransactionStatus;
+  account: { id: string; name: string };
 };
 
 // ---------- 条件 ----------
@@ -324,12 +337,12 @@ const listColumns = {
   accountName: financialAccount.name,
 };
 
-type ListRow = Omit<TransactionListItem, 'account' | 'splits'> & {
+type ListRow = Omit<TransactionListItem, 'account' | 'splits' | 'possibleDuplicate'> & {
   accountId: string;
   accountName: string;
 };
 
-function toItem(r: ListRow, splits: SplitView[]): TransactionListItem {
+function toItem(r: ListRow, splits: SplitView[], possibleDuplicate: boolean): TransactionListItem {
   return {
     id: r.id,
     date: r.date,
@@ -343,6 +356,7 @@ function toItem(r: ListRow, splits: SplitView[]): TransactionListItem {
     transferPairId: r.transferPairId,
     account: { id: r.accountId, name: r.accountName },
     splits,
+    possibleDuplicate,
   };
 }
 
@@ -366,7 +380,7 @@ export async function listTransactions(
   );
   const where = listWhere(ctx, filters, options.today);
 
-  const [rows, [{ count }], total] = await Promise.all([
+  const [rows, [{ count }], total, duplicates] = await Promise.all([
     db
       .select(listColumns)
       .from(transaction)
@@ -380,6 +394,7 @@ export async function listTransactions(
       .from(transaction)
       .where(where),
     totalCents(ctx, filters, options.today),
+    getPossibleDuplicates(ctx),
   ]);
 
   const splits = await loadSplits(
@@ -387,7 +402,7 @@ export async function listTransactions(
     rows.map((r) => r.id),
   );
   return {
-    items: rows.map((r) => toItem(r, splits.get(r.id) ?? [])),
+    items: rows.map((r) => toItem(r, splits.get(r.id) ?? [], duplicates.has(r.id))),
     count,
     totalCents: total,
     page,
@@ -467,10 +482,15 @@ export async function getTransaction(
     .where(and(eq(transaction.id, id), eq(transaction.householdId, ctx.householdId)));
 
   if (!row) return null;
-  const splits = await loadSplits(ctx, [row.id]);
+  const [splits, duplicates] = await Promise.all([
+    loadSplits(ctx, [row.id]),
+    getPossibleDuplicates(ctx),
+  ]);
+  const partnerIds = duplicates.get(row.id) ?? [];
 
   return {
-    ...toItem(row, splits.get(row.id) ?? []),
+    ...toItem(row, splits.get(row.id) ?? [], partnerIds.length > 0),
+    possibleDuplicates: await loadDuplicatePartners(ctx, partnerIds),
     balanceCents: row.balanceCents,
     note: row.note,
     confirmedAt: row.confirmedAt,
@@ -492,6 +512,32 @@ export async function getTransaction(
           }
         : null,
   };
+}
+
+// R17.6 详情页列出的"对方"，按日期排
+async function loadDuplicatePartners(
+  ctx: HouseholdContext,
+  ids: readonly string[],
+): Promise<DuplicatePartner[]> {
+  if (ids.length === 0) return [];
+  const rows = await db
+    .select({
+      id: transaction.id,
+      date: transaction.date,
+      amountCents: transaction.amountCents,
+      merchant: transaction.merchant,
+      status: transaction.status,
+      accountId: financialAccount.id,
+      accountName: financialAccount.name,
+    })
+    .from(transaction)
+    .innerJoin(financialAccount, accountJoin(ctx))
+    .where(and(eq(transaction.householdId, ctx.householdId), inArray(transaction.id, [...ids])))
+    .orderBy(asc(transaction.date), asc(transaction.id));
+  return rows.map(({ accountId, accountName, ...r }) => ({
+    ...r,
+    account: { id: accountId, name: accountName },
+  }));
 }
 
 // ---------- 修改（M4-3） ----------
