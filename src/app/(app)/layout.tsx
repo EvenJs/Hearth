@@ -28,7 +28,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <span className="font-semibold">Hearth</span>
           </div>
           <div className="ml-auto flex items-center gap-2 sm:gap-3">
-            {/* F3 快速录入（M6-3）。手机上的悬浮 + 按钮在 M6-4 */}
+            {/* F3 快速录入：电脑是顶栏按钮，手机是右下角悬浮 + 按钮（M6-3、M6-4） */}
             <QuickAddButton />
             {/* 读 session 的部分必须放在 Suspense 里（cacheComponents） */}
             <Suspense fallback={<div className="h-8 w-16" />}>
@@ -37,7 +37,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 p-4 sm:p-8">{children}</main>
+        {/* 手机上底部留出悬浮 + 按钮的位置（M6-4），最底下的内容能滚到按钮上面 */}
+        <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 p-4 pb-24 sm:p-8">
+          {children}
+        </main>
       </div>
     </div>
   );
