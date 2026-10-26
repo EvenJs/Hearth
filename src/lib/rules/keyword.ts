@@ -12,3 +12,9 @@ export function suggestKeyword(merchant: string): string {
   const kept = firstNumber > 0 ? words.slice(0, firstNumber) : words;
   return kept.join(' ');
 }
+
+// R13、R18.2：保存规则时关键词去首尾空格、多个空格合成一个、转大写
+// R7 规则匹配不区分大小写，关键词存大写；merchant 经过 R3 清洗也是单空格
+export function normalizeKeyword(keyword: string): string {
+  return keyword.trim().replace(/\s+/g, ' ').toUpperCase();
+}

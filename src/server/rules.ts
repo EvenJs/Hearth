@@ -4,6 +4,7 @@ import { and, asc, eq, exists, inArray, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/db';
 import { categoryRule, transaction, transactionSplit } from '@/db/schema';
+import { normalizeKeyword } from '@/lib/rules/keyword';
 import { planReapply, isSelectableCategory, type ReapplyTx } from '@/lib/rules/split-edit';
 import {
   RULE_MATCH_TYPES,
@@ -41,10 +42,8 @@ export type CreateRuleResult =
   // R16.6：没带 overwrite，什么都没改，UI 用 message 弹对话框
   | { ok: false; reason: 'conflict'; message: string; existing: ExistingRule };
 
-// R7：规则匹配不区分大小写，关键词存大写。多个空格合成一个（merchant 经过 R3 清洗也是单空格）
-export function normalizeKeyword(keyword: string): string {
-  return keyword.trim().replace(/\s+/g, ' ').toUpperCase();
-}
+// normalizeKeyword 挪到了 src/lib/rules/keyword.ts（M6.5-2），这里继续导出，调用方不用改
+export { normalizeKeyword };
 
 const createRuleSchema = z.object({
   keyword: z.string().transform(normalizeKeyword).pipe(z.string().min(1).max(100)),
