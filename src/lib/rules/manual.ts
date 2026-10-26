@@ -132,7 +132,7 @@ function findAccount(accountId: string, ctx: ManualContext): ManualAccount | nul
 // R17.1 分类可选项：R16.3 的下拉再按切换过滤
 // 支出 → expense 分类加现金支出、银行费用；收入 → income 分类。未分类用 null 表示，不在这里
 // R16.3：一级归档后它下面的二级也不能选
-function isAllowedForKind(
+export function isAllowedForKind(
   c: EditCategory,
   kind: EntryKind,
   categories: readonly EditCategory[],
