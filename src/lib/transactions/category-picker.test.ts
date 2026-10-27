@@ -59,6 +59,55 @@ describe('pickerSections', () => {
   });
 });
 
+describe('pickerSections 和归档（R19.4、R16.3）', () => {
+  // listCategoryTree(ctx, { includeArchived: true }) 的结构：一级归档了，二级也标归档
+  const withArchived: PickerTreeNode[] = [
+    {
+      id: 'old',
+      nameEn: 'Old stuff',
+      kind: 'expense',
+      systemKey: null,
+      isArchived: true,
+      children: [{ id: 'old-other', nameEn: 'Other', isArchived: true }],
+    },
+    {
+      id: 'ent',
+      nameEn: 'Entertainment & eat-out',
+      kind: 'expense',
+      systemKey: null,
+      isArchived: false,
+      children: [
+        { id: 'coffee', nameEn: 'Coffee & tea', isArchived: true },
+        { id: 'restaurants', nameEn: 'Restaurants', isArchived: false },
+        { id: 'ent-other', nameEn: 'Other', isArchived: false },
+      ],
+    },
+    ...tree,
+  ];
+
+  it('R19.4: 筛选带上归档的：归档的一级排在所有一级后面，归档的二级排在组里最后，都标 archived', () => {
+    const s = pickerSections(withArchived, { includeTransfer: true, includeArchived: true });
+    expect(s.groups.map((g) => g.id)).toEqual(['ent', 'groceries', 'income', 'old']);
+    expect(s.groups[0].children).toEqual([
+      { id: 'restaurants', name: 'Restaurants' },
+      { id: 'ent-other', name: 'Other' },
+      { id: 'coffee', name: 'Coffee & tea', archived: true },
+    ]);
+    expect(s.groups[3]).toMatchObject({
+      id: 'old',
+      archived: true,
+      children: [{ id: 'old-other', name: 'Other', archived: true }],
+    });
+    expect(s.groups[1].archived).toBeUndefined();
+  });
+
+  it('R16.3: 不带 includeArchived 时，归档的一级（连同二级）和归档的二级都去掉', () => {
+    const s = pickerSections(withArchived, { includeTransfer: false });
+    expect(s.groups.map((g) => g.id)).toEqual(['ent', 'groceries', 'income']);
+    expect(s.groups[0].children.map((c) => c.id)).toEqual(['restaurants', 'ent-other']);
+  });
+});
+
 describe('searchPicker', () => {
   const sections = pickerSections(tree, { includeTransfer: false });
 

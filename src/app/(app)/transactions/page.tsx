@@ -51,17 +51,22 @@ async function TransactionsSection({
   // "今天"每次请求都要重新算，不能被预渲染（cacheComponents 不允许直接用 new Date()）
   await connection();
   const today = todayInMelbourne();
-  const [list, counts, accounts, members, categories] = await Promise.all([
+  const [list, counts, accounts, members, categories, allCategories] = await Promise.all([
     listTransactions(ctx, filters, { page, today }),
     countQuickFilters(ctx),
     listAccounts(ctx, { includeArchived: true }), // 老交易可能在已归档的账户上
     listMembers(ctx),
-    listCategoryTree(ctx),
+    listCategoryTree(ctx), // 改分类用，没有归档的（R16.3）
+    listCategoryTree(ctx, { includeArchived: true }), // 筛选用，归档的放最后、灰色（R19.4）
   ]);
   const options: FilterOptions = {
     accounts: accounts.map(({ id, name, isArchived }) => ({ id, name, isArchived })),
     members: members.map(({ id, name }) => ({ id, name })),
-    categorySections: pickerSections(categories, { includeTransfer: true }), // 筛选时都能选
+    // 筛选时都能选，包括内部转账和归档的（R19.4）
+    categorySections: pickerSections(allCategories, {
+      includeTransfer: true,
+      includeArchived: true,
+    }),
   };
   // M4-8 行内修改的下拉选项（R16.3）
   const editOptions: EditOptions = {
