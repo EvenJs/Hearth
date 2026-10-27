@@ -4,6 +4,7 @@
 // 改分类（行内、批量、拆分对话框）和筛选栏共用。可选范围在 pickerSections 里定（R16.3）
 // - mode = edit：组里第一项"X（不细分）"是一级本身
 // - mode = filter：最上面"全部分类"（value = null），组里第一项"全部 X"包含它所有的二级
+// 归档的（只有筛选时会传进来，R19.4）：灰色，名字后面写"（已归档）"
 import { Check, ChevronRight, Search } from 'lucide-react';
 import { useLayoutEffect, useMemo, useState } from 'react';
 import { Input } from '@/components/ui/input';
@@ -27,6 +28,10 @@ type Props = {
   children: React.ReactNode; // 触发按钮（会被当成 asChild）
 };
 
+const ARCHIVED = '（已归档）';
+const archivedName = (x: { name: string; archived?: true }) =>
+  x.archived ? `${x.name}${ARCHIVED}` : x.name;
+
 const itemClass =
   'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm outline-hidden hover:bg-accent focus-visible:bg-accent';
 
@@ -38,9 +43,9 @@ function tone(g: PickerGroup) {
 export function pickerLabel(sections: PickerSections, id: string | null): string | null {
   if (!id) return null;
   for (const g of [...sections.groups, ...sections.system]) {
-    if (g.id === id) return g.name;
+    if (g.id === id) return archivedName(g);
     const c = g.children.find((x) => x.id === id);
-    if (c) return `${g.name} / ${c.name}`;
+    if (c) return `${g.name} / ${archivedName(c)}`;
   }
   return null;
 }
@@ -151,10 +156,10 @@ export function CategoryPicker({
                   type="button"
                   aria-expanded={expanded}
                   onClick={() => (g.children.length > 0 ? toggle(g.id) : choose(g.id))}
-                  className={cn(itemClass, 'font-medium')}
+                  className={cn(itemClass, 'font-medium', g.archived && 'text-muted-foreground')}
                 >
-                  <ToneDot tone={tone(g)} />
-                  <span className="min-w-0 flex-1 truncate">{g.name}</span>
+                  <ToneDot tone={tone(g)} className={cn(g.archived && 'opacity-50')} />
+                  <span className="min-w-0 flex-1 truncate">{archivedName(g)}</span>
                   {(value === g.id || g.children.some((c) => c.id === value)) && !expanded && (
                     <Check className="size-4 text-muted-foreground" />
                   )}
@@ -167,12 +172,17 @@ export function CategoryPicker({
                 </button>
                 {expanded && (
                   <div className="mb-1 ml-3 border-l pl-2">
-                    <Item selected={value === g.id} onClick={() => choose(g.id)}>
+                    <Item selected={value === g.id} onClick={() => choose(g.id)} muted={g.archived}>
                       {mode === 'filter' ? `全部 ${g.name}` : `${g.name}（不细分）`}
                     </Item>
                     {g.children.map((c) => (
-                      <Item key={c.id} selected={value === c.id} onClick={() => choose(c.id)}>
-                        {c.name}
+                      <Item
+                        key={c.id}
+                        selected={value === c.id}
+                        onClick={() => choose(c.id)}
+                        muted={c.archived}
+                      >
+                        {archivedName(c)}
                       </Item>
                     ))}
                   </div>
@@ -205,10 +215,12 @@ export function CategoryPicker({
 function Item({
   selected,
   onClick,
+  muted,
   children,
 }: {
   selected: boolean;
   onClick: () => void;
+  muted?: boolean; // 归档的
   children: React.ReactNode;
 }) {
   return (
@@ -217,7 +229,7 @@ function Item({
       role="option"
       aria-selected={selected}
       onClick={onClick}
-      className={cn(itemClass, selected && 'font-medium')}
+      className={cn(itemClass, selected && 'font-medium', muted && 'text-muted-foreground')}
     >
       <span className="flex min-w-0 flex-1 items-center gap-2 truncate">{children}</span>
       {selected && <Check className="size-4 shrink-0" />}
