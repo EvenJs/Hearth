@@ -4,6 +4,15 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useState } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import {
   Form,
@@ -34,7 +43,10 @@ import {
 import { canImportCsv } from '@/lib/import/banks';
 import type { Account } from '@/server/accounts';
 import type { Member } from '@/server/members';
-import { saveAccountAction } from './actions';
+import { previewAccountSaveAction, saveAccountAction } from './actions';
+
+// R6.4 弹窗：保存后会认成内部转账的 N 笔、对上了但不改的 M 笔，和当时的表单输入
+type RedetectPrompt = { count: number; keptCount: number; input: AccountInput };
 
 type Props = {
   account: Account | null; // null = 新建
@@ -44,6 +56,8 @@ type Props = {
 
 export function AccountForm({ account, members, onDone }: Props) {
   const [formError, setFormError] = useState<string | null>(null);
+  const [prompt, setPrompt] = useState<RedetectPrompt | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const form = useForm<AccountInput, unknown, AccountValues>({
     resolver: zodResolver(accountInputSchema),
@@ -63,22 +77,53 @@ export function AccountForm({ account, members, onDone }: Props) {
   const type = useWatch({ control: form.control, name: 'type' });
   const isCash = type === 'cash';
 
+  function showErrors(result: { message: string; fieldErrors?: Partial<Record<string, string>> }) {
+    for (const [field, message] of Object.entries(result.fieldErrors ?? {})) {
+      form.setError(field as keyof AccountInput, { message });
+    }
+    if (!result.fieldErrors) setFormError(result.message);
+  }
+
+  // redetect：R6.4 弹窗里选了"改"
+  async function save(input: AccountInput, redetect: boolean) {
+    setSaving(true);
+    try {
+      const result = await saveAccountAction(account?.id ?? null, input, redetect);
+      setPrompt(null);
+      if (!result.ok) {
+        showErrors(result);
+        return;
+      }
+      const saved = account ? '已保存' : '已新增账户';
+      toast.success(
+        result.redetectedCount > 0
+          ? `${saved}，${result.redetectedCount} 笔旧交易认成了内部转账`
+          : saved,
+      );
+      onDone();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // 先预览 R6.4：有旧交易会认成内部转账就弹窗问，没有（或尾号是空的）直接保存
   async function onSubmit() {
     setFormError(null);
     // 传原始输入，服务端用同一个 schema 再校验一次
-    const result = await saveAccountAction(account?.id ?? null, form.getValues());
-    if (!result.ok) {
-      for (const [field, message] of Object.entries(result.fieldErrors ?? {})) {
-        form.setError(field as keyof AccountInput, { message });
-      }
-      if (!result.fieldErrors) setFormError(result.message);
+    const input = form.getValues();
+    const preview = await previewAccountSaveAction(account?.id ?? null, input);
+    if (!preview.ok) {
+      showErrors(preview);
       return;
     }
-    toast.success(account ? '已保存' : '已新增账户');
-    onDone();
+    if (preview.count === 0) {
+      await save(input, false);
+      return;
+    }
+    setPrompt({ count: preview.count, keptCount: preview.keptCount, input });
   }
 
-  const submitting = form.formState.isSubmitting;
+  const submitting = form.formState.isSubmitting || saving;
 
   return (
     <Form {...form}>
@@ -221,11 +266,41 @@ export function AccountForm({ account, members, onDone }: Props) {
           <Button type="button" variant="outline" onClick={onDone} disabled={submitting}>
             取消
           </Button>
-          <Button type="submit" disabled={submitting}>
+          <Button type="submit" disabled={submitting || prompt !== null}>
             {submitting ? '保存中…' : '保存'}
           </Button>
         </div>
       </form>
+
+      <AlertDialog
+        open={prompt !== null}
+        onOpenChange={(open) => {
+          if (!open && !saving) setPrompt(null);
+        }}
+      >
+        {prompt && (
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>认成内部转账？</AlertDialogTitle>
+              <AlertDialogDescription>
+                有 {prompt.count} 笔旧交易会认成内部转账
+                {prompt.keptCount > 0 &&
+                  `（另有 ${prompt.keptCount} 笔分类是手动的或拆分过，不改）`}
+                。要改吗？
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={saving}>取消</AlertDialogCancel>
+              <Button variant="outline" onClick={() => save(prompt.input, false)} disabled={saving}>
+                不改，只保存账户
+              </Button>
+              <Button onClick={() => save(prompt.input, true)} disabled={saving}>
+                {saving ? '保存中…' : '改'}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        )}
+      </AlertDialog>
     </Form>
   );
 }

@@ -152,6 +152,7 @@
 - 每个一级分类自动带一个 **Other** 二级，放不进其他二级的先归到这里
 - 规则匹配：用清洗后商家名的关键词匹配（如含 `COLES` → Groceries / Supermarket），门店号不影响
 - 匹配不到的归到"未分类"，在 F8 流水查询里手动选，选完可以一键存成新规则
+- 设置里能管理分类（新建、改名、归档）和规则（查看、新建、修改、删除），见 R18、R19（2026-10-25 加，M6.5）
 - **内部转账**：
   - 描述里的账号尾号匹配上自己的账户 → 自动标记
   - 匹配不到时兜底：自己两个账户之间同金额、一正一负、日期相差 2 天内，标成"建议"，在 F8 确认后才算转账；拒绝过的不会再建议。朋友 AA 的转账可能凑巧对上，所以只建议不自动生效（R6.3）
@@ -290,7 +291,7 @@
 
 ## 7. 分类体系
 
-2026-10-22 确定，参考 Moneysmart Budget Planner 调整；2026-10-25 加 Work。完整二级列表和预置规则见 `seed-categories.md`。
+2026-10-22 确定，参考 Moneysmart Budget Planner 调整；2026-10-25 加 Work、Bakery。完整二级列表和预置规则见 `seed-categories.md`。
 
 | 一级分类                | 默认归属人 | 二级分类（每个一级另有 Other）                                                                                                                                  |
 | ----------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -298,7 +299,7 @@
 | Insurance & financial   | Home       | Car insurance、Home insurance、Personal & life insurance                                                                                                        |
 | Groceries               | Home       | Supermarket、Butcher、Fruit、Vegetable、Pet                                                                                                                     |
 | Personal & medical      |            | Hair & beauty、Cosmetics & toiletries、Medicines & pharmacy、Hobbies、Clothing & shoes、Jewellery & accessories、Education、Computers & gadgets                 |
-| Entertainment & eat-out |            | Coffee & tea、Bubble tea、Lunches、Restaurants、Take-away & snacks、Drinks、Books、Movies & music、Holidays、Celebrations & gifts                                           |
+| Entertainment & eat-out |            | Coffee & tea、Bubble tea、Lunches、Restaurants、Take-away & snacks、Drinks、Books、Movies & music、Holidays、Celebrations & gifts、Bakery                                           |
 | Transport & auto        |            | Public transport、Petrol / EV charging、Rego & licence、Road tolls & parking、Repairs & maintenance、Fines                                                      |
 | Work                    |            | Registration & licences、Memberships & union、Training & courses、Tools & software |
 | Income                  |            | Salary、Contract income (B2B)（税前）、Interest（税前）、Tax (ATO)、Other                                                                                       |

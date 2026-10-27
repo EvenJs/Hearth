@@ -1,5 +1,5 @@
 // 可折叠的分类下拉（2026-10-24）：一级是一组，点开看二级；系统分类一组放最后
-// 改分类时可选范围按 R16.3（不能选内部转账，归档的已经由 listCategoryTree 去掉）；筛选时全部能选
+// 改分类时可选范围按 R16.3（不能选内部转账、归档的）；筛选时全部能选，归档的也能（R19.4）
 // 纯函数，不 import 数据库和 Next.js
 
 type CategoryKind = 'expense' | 'income' | 'system';
@@ -10,15 +10,20 @@ export type PickerTreeNode = {
   nameEn: string;
   kind: CategoryKind;
   systemKey: string | null;
-  children: readonly { id: string; nameEn: string }[];
+  isArchived?: boolean; // 一级归档了，二级也是 true（listCategoryTree 已经标好）
+  children: readonly { id: string; nameEn: string; isArchived?: boolean }[];
 };
+
+// archived 只在归档的时候有（true），显示时灰色、名字后面加"（已归档）"
+export type PickerChild = { id: string; name: string; archived?: true };
 
 export type PickerGroup = {
   id: string;
   name: string;
   kind: CategoryKind;
   systemKey: string | null;
-  children: { id: string; name: string }[];
+  archived?: true;
+  children: PickerChild[];
 };
 
 export type PickerSections = {
@@ -26,24 +31,38 @@ export type PickerSections = {
   system: PickerGroup[]; // 系统分类，没有二级
 };
 
+// includeArchived（F8 筛选，R19.4）：归档的一级排在所有一级后面，归档的二级排在组里最后
+// 不带时归档的一级（连同二级）和归档的二级都去掉（R16.3）
 export function pickerSections(
   tree: readonly PickerTreeNode[],
-  opts: { includeTransfer: boolean },
+  opts: { includeTransfer: boolean; includeArchived?: boolean },
 ): PickerSections {
-  const groups: PickerGroup[] = [];
+  const live: PickerGroup[] = [];
+  const archived: PickerGroup[] = [];
   const system: PickerGroup[] = [];
   for (const t of tree) {
+    if (t.isArchived && !opts.includeArchived) continue;
+    const children: PickerChild[] = [];
+    const archivedChildren: PickerChild[] = [];
+    for (const c of t.children) {
+      if (!c.isArchived) children.push({ id: c.id, name: c.nameEn });
+      else if (opts.includeArchived)
+        archivedChildren.push({ id: c.id, name: c.nameEn, archived: true });
+    }
     const g: PickerGroup = {
       id: t.id,
       name: t.nameEn,
       kind: t.kind,
       systemKey: t.systemKey,
-      children: t.children.map((c) => ({ id: c.id, name: c.nameEn })),
+      ...(t.isArchived ? { archived: true as const } : {}),
+      children: [...children, ...archivedChildren],
     };
-    if (t.kind !== 'system') groups.push(g);
-    else if (opts.includeTransfer || t.systemKey !== 'internal_transfer') system.push(g);
+    if (t.kind === 'system') {
+      if (opts.includeTransfer || t.systemKey !== 'internal_transfer') system.push(g);
+    } else if (t.isArchived) archived.push(g);
+    else live.push(g);
   }
-  return { groups, system };
+  return { groups: [...live, ...archived], system };
 }
 
 export type PickerView = PickerSections & { expanded: string[] };

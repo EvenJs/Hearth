@@ -121,6 +121,7 @@ const CATEGORY_DEFS: CategoryDef[] = [
       'Movies & music',
       'Holidays',
       'Celebrations & gifts',
+      'Bakery', // 2026-10-25 加：面包店，归属人按卡号算（R5）
     ],
   },
   {
@@ -228,8 +229,6 @@ export const SEED_RULES: SeedRule[] = [
     ['MARKET BOYS', 'Vegetable'], // ❓
     ['DOWNTOWN FRESH', 'Vegetable'], // ❓
     ['SEAFOOD', OTHER_NAME],
-    ['BREAD', OTHER_NAME],
-    ['BAKERS', OTHER_NAME],
   ]),
   ...rulesFor('Personal & medical', [
     ['KIS HAIR', 'Hair & beauty'],
@@ -275,6 +274,8 @@ export const SEED_RULES: SeedRule[] = [
     ['EAT EAT', 'Restaurants'], // 转给朋友的聚餐 AA 款，备注里写了 "Eat Eat"
     ['TICKETEK', 'Movies & music'],
     ['FLORIS', 'Celebrations & gifts'],
+    ['BREAD', 'Bakery'], // 2026-10-25 从 Groceries / Other 挪过来
+    ['BAKERS', 'Bakery'],
   ]),
   ...rulesFor('Transport & auto', [
     ['MYKI', 'Public transport'],

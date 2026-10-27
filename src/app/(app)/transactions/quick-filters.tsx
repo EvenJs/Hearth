@@ -8,8 +8,9 @@ import { transactionsHref } from './href';
 
 // F8 快捷条件（M4-7）：点一下打开，再点一下关掉；和其他筛选条件可以组合
 // 笔数是全部数据的（countQuickFilters），不跟着当前筛选变
+// 可能重复（duplicates）不在这里，由列表顶部的提示条打开（M6-6）
 const CHIPS: {
-  key: QuickFilter;
+  key: Exclude<QuickFilter, 'duplicates'>;
   label: string;
   icon: typeof CircleDashed;
   idle: string;

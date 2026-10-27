@@ -6,9 +6,12 @@ import type { CategoryRef, SplitView, TransactionListItem } from '@/server/trans
 import { categoryLabel } from './format';
 
 // 流水里的标签（docs/design/README.md 第 3 节、R16.7）
-// 未分类琥珀色、建议转账蓝色、pending 灰色带时钟；R6.2 只配对没改的交易显示"已配对，分类是手动的"
+// 未分类琥珀色、建议转账蓝色、pending 灰色带时钟、可能重复玫红（duplicate-badge.tsx）；R6.2 只配对没改的交易显示"已配对，分类是手动的"
 
 const base = 'border-transparent font-normal';
+
+// R17.6 可能重复（M6-6）：玫红，和未分类、建议转账、待确认、分类色系都不撞
+export const DUPLICATE_TONE = 'bg-rose-100 text-rose-800';
 
 export function isUncategorized(s: SplitView): boolean {
   return s.category.systemKey === 'uncategorized';

@@ -301,3 +301,49 @@ Below, a read-only estimate table per person: 工资, 税前收入（B2B、利�
 ```
 Mobile tax settings of Hearth, 375px. Title "税务", year chip "2026-27 ▾". Info banner "估算，以 ATO 为准". Segmented control "Male / Female". For the selected person: two inputs (全年工资税前总额, 雇主已代扣的税) and a save button, then a summary card listing 应纳税收入, 预计总税额, 已缴, and a large bold "预计年底补税 $8,700.00".
 ```
+
+---
+
+## 12 规则设置
+
+### `12-settings-rules`（Desktop）
+```
+Category rules settings page of Hearth, desktop 1440px, sidebar "设置 > 规则" active. Title "分类规则" with a short grey subtitle "导入时按商家名自动分类。关键词越长越优先。" and a terracotta "新建规则" button on the right.
+Toolbar: a search input "搜索关键词" and a select "全部分类 ▾".
+A compact table with columns: "关键词" (monospace uppercase, e.g. "COLES", "WOOLWORTHS", "MYKI", "GONG CHA", "CAFE"), "匹配方式" (muted text "包含" or "开头是"), "分类" (category tag, e.g. "Groceries / Supermarket" light orange tag, "Public transport" light teal tag, "Coffee & tea"), "命中" (right-aligned number as a link, e.g. "42 笔", "0 笔" in muted grey, "186 笔"), a small grey "预置" badge on some rows, and a row action menu "⋯" with "修改" and "删除".
+No pagination needed for about 40 rows. No priority column, no toggles, no AI suggestions.
+```
+
+### `12-settings-rules-dialog`（Desktop）
+```
+The same page dimmed, with a centered dialog 440px titled "修改规则". Fields: "关键词" input "CAFE" (helper "匹配清洗后的商家名，不区分大小写"), "匹配方式" segmented control "包含 / 开头是" (包含 selected), "分类" searchable grouped dropdown showing "Coffee & tea". A muted line "现在命中 12 笔". Buttons "取消" and terracotta "保存".
+Show a second small state below as a follow-up dialog: "规则已保存。要对 8 笔交易应用吗？只会改按规则分类的和未分类的，手动改过的不动。" with buttons "暂不" and "应用".
+```
+
+### `12-settings-rules-mobile`（Mobile）
+```
+Mobile category rules page of Hearth, 375px. Title "分类规则" and a "新建" text button. Search input on top. A simple list: each row shows the keyword in bold monospace, the category tag below it, and on the right "42 笔" and a "⋯" button. "预置" small grey badge where relevant. No horizontal scrolling.
+```
+
+---
+
+## 13 分类设置
+
+### `13-settings-categories`（Desktop）
+```
+Category settings page of Hearth, desktop 1440px, sidebar "设置 > 分类" active. Title "分类" with a terracotta "新建一级分类" button on the right and a small checkbox "显示已归档".
+Two sections: "支出" and "收入". Each top-level category is a collapsible row with its colour tag (e.g. "Groceries", "Transport & auto", "Work", "Income"), default member dot and name (e.g. "Home"), "1,204 笔", "3 条规则", and a "⋯" menu (修改 / 新建二级 / 归档). Expanded rows show indented subcategories as lighter tags (e.g. "Supermarket", "Bakery", "Other"), each with usage count, rule count and "⋯". Income subcategories like "Interest" and "Contract income" show a small "税前" badge. "Other" rows have no rename option.
+At the bottom, a muted read-only section "系统分类": 未分类, 内部转账, 现金支出, 银行费用, with grey dashed tags and a note "系统分类不能修改".
+No drag handles, no icons picker, no colour picker.
+```
+
+### `13-settings-categories-dialog`（Desktop）
+```
+The same page dimmed, with a centered dialog 440px titled "新建二级分类 · Groceries". Fields: "名字" input "Asian grocer" (helper "英文，最长 50 字"), "默认归属人" select "继承一级（Home）". Buttons "取消" and terracotta "保存".
+Also show a small warning dialog state: "有 3 条规则指向这个分类，先去规则页改掉或删掉，才能归档。" with a link "去规则页 →" and a "知道了" button.
+```
+
+### `13-settings-categories-mobile`（Mobile）
+```
+Mobile category settings of Hearth, 375px. Title "分类" and a "新建" text button. Segmented control "支出 / 收入". A simple collapsible list of top-level categories with their colour tag and "⋯"; tapping expands subcategories below. System categories listed at the bottom in grey. No horizontal scrolling.
+```

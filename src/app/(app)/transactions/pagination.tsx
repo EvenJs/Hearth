@@ -3,8 +3,9 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import type { TransactionFilters } from '@/lib/transactions/filters';
 import { transactionsHref } from './href';
+import { PageJump } from './page-jump';
 
-// 翻页时筛选条件不丢
+// 翻页时筛选条件不丢。中间的页码框能直接输入跳转（M5.5-5）
 
 export function Pagination({
   filters,
@@ -22,9 +23,7 @@ export function Pagination({
         <ChevronLeft className="size-4" />
         上一页
       </PageLink>
-      <span className="text-muted-foreground tabular-nums">
-        第 {page} / {totalPages} 页
-      </span>
+      <PageJump filters={filters} page={page} totalPages={totalPages} />
       <PageLink filters={filters} page={page + 1} disabled={page >= totalPages}>
         下一页
         <ChevronRight className="size-4" />

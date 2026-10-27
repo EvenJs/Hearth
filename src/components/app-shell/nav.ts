@@ -23,6 +23,8 @@ export const NAV_ITEMS: NavItem[] = [
     icon: Settings,
     children: [
       { label: '账户', href: '/settings/accounts' },
+      { label: '规则', href: '/settings/rules' },
+      { label: '分类', href: '/settings/categories' },
       { label: '预算', href: null },
       { label: '税务', href: null },
     ],

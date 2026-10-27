@@ -43,6 +43,11 @@ describe('extractTransferAccount（R2.2）', () => {
     expect(extractTransferAccount(description)).toBe(expected);
   });
 
+  it('R2.2: account with 6-digit BSB prefix (ANZ Plus) → account only, BSB and #ref not extracted', () => {
+    expect(extractTransferAccount('TRANSFER TO 012345-400000004 #123456')).toBe('400000004');
+    expect(extractTransferAccount('TRANSFER FROM 012345-400000004 #123456')).toBe('400000004');
+  });
+
   it('R2.2: PayID transfer has only a name → null', () => {
     expect(
       extractTransferAccount('Transfer To MISS X Y PayID Phone from CommBank App Eat Eat'),
@@ -74,6 +79,12 @@ describe('maskLongDigits（R2.3）', () => {
     ['LN REPAY 700006979', 'LN REPAY ****6979'],
   ])('R2.3: %s → %s', (input, expected) => {
     expect(maskLongDigits(input)).toBe(expected);
+  });
+
+  it('R2.3: BSB-prefixed account → only the account is masked, BSB and #ref unchanged', () => {
+    expect(maskLongDigits('TRANSFER TO 012345-400000004 #123456')).toBe(
+      'TRANSFER TO 012345-****0004 #123456',
+    );
   });
 
   it('R2.3: exactly 8 digits are masked, 7 are not', () => {
@@ -177,6 +188,9 @@ describe('extractMaskedTransferSuffix（R12.1 用脱敏后的描述重跑 R6.1�
     ['TRANSFER 681801  TO  ****6691', '6691'],
     ['TRANSFER 815033  FROM       ****6691', '6691'],
     ['ANZ FUNDS TFER TO ****1234', '1234'],
+    // R2.2 带 BSB 的格式脱敏后一样取后 4 位
+    ['TRANSFER TO 012345-****0004 #123456', '0004'],
+    ['TRANSFER FROM 012345-****0004 #123456', '0004'],
     // CBA 的 xx 尾号脱敏时不受影响，照常能取
     ['Transfer from xx5678 CommBank app Home', '5678'],
   ])('R12.1: %s → %s', (masked, expected) => {

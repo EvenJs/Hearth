@@ -360,3 +360,93 @@ export function planTransfers(
     suggestions: suggestTransfers(all, uncategorized.id, newIds),
   };
 }
+
+// ---------- R6.4 保存带尾号的账户时重新识别 ----------
+
+// 本家庭的旧交易：脱敏后的描述 + 拆分（第 1 个是主拆分）
+export type RedetectTx = {
+  id: string;
+  accountId: string;
+  rawDescription: string; // R2.3 脱敏后
+  cardLast4: string | null; // R5.1 重算归属人用
+  transferStatus: TransferStatus;
+  transferPairId: string | null;
+  splits: readonly EditSplit[];
+};
+
+// 认成转账后要写的：transaction.transfer_status + 主拆分
+export type RedetectUpdate = {
+  transactionId: string;
+  transferStatus: 'auto';
+  split: EditSplit;
+};
+
+export type RedetectPlan = {
+  updates: RedetectUpdate[]; // 弹窗里的 N
+  keptCount: number; // 对上了，但分类是 manual 或有多个拆分，不改（弹窗里的 M）
+};
+
+// R6.4 第 1 到 3 步。account 是正在保存的账户（新的尾号），householdAccounts 是本家庭的账户
+// （可以还是保存前的旧值，同 id 的以 account 为准；新建时可以不含 account）
+// 第 4 步 R6.2 配对、弹窗和事务由调用方做
+export function planTransferRedetect(
+  account: Account,
+  candidates: readonly RedetectTx[],
+  householdAccounts: readonly Account[],
+  ctx: Omit<MemberContext, 'accounts'>,
+): RedetectPlan {
+  const plan: RedetectPlan = { updates: [], keptCount: 0 };
+  if (!account.numberSuffix) return plan; // 尾号是空的不触发
+
+  const accounts = [...householdAccounts.filter((a) => a.id !== account.id), account];
+  const memberCtx: MemberContext = { ...ctx, accounts };
+  const internal = bySystemKey(ctx.categories, 'internal_transfer');
+  const uncategorized = bySystemKey(ctx.categories, 'uncategorized');
+
+  for (const tx of candidates) {
+    // 第 1 步：其他账户里 none、没配对的（suggested、auto、confirmed 和 R16.7 只配对的都不算）
+    if (tx.accountId === account.id) continue;
+    if (tx.transferStatus !== 'none' || tx.transferPairId !== null) continue;
+
+    // 第 2 步：脱敏后的描述重跑 R2.2、R6.1，只看是不是唯一对上这个账户
+    const txAccount = accounts.find((a) => a.id === tx.accountId);
+    if (!txAccount) throw new Error(`账户不存在: ${tx.accountId}`);
+    if (storedTransferAccountId(tx.rawDescription, txAccount, accounts) !== account.id) continue;
+
+    // 第 3 步：多拆分、manual 的不改，计数
+    const [split] = tx.splits;
+    if (!split) continue;
+    if (tx.splits.length > 1 || split.categorySource === 'manual') {
+      plan.keptCount++;
+      continue;
+    }
+    // 表格第 1 行：rule 来源或未分类的才改（和 R7.2 同一个范围）
+    const changeable =
+      split.categorySource === 'rule' ||
+      (split.categorySource === 'system' && split.categoryId === uncategorized.id);
+    if (!changeable) continue;
+
+    const member = recomputeMember(
+      {
+        memberId: split.memberId,
+        memberSource: split.memberSource,
+        accountId: tx.accountId,
+        cardLast4: tx.cardLast4,
+      },
+      internal.id,
+      memberCtx,
+    );
+    plan.updates.push({
+      transactionId: tx.id,
+      transferStatus: 'auto',
+      split: {
+        id: split.id,
+        categoryId: internal.id,
+        categorySource: 'system',
+        isPreTax: internal.isPreTaxDefault,
+        ...member,
+      },
+    });
+  }
+  return plan;
+}

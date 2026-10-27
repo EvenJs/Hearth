@@ -1,7 +1,6 @@
 'use client';
 
 import { ChevronDown, CornerDownRight } from 'lucide-react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useLayoutEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -19,6 +18,7 @@ import { selectionState } from '@/lib/transactions/bulk-edit';
 import { cn } from '@/lib/utils';
 import type { TransactionListItem } from '@/server/transactions';
 import { BulkBar } from './bulk-bar';
+import { DuplicateBadge } from './duplicate-badge';
 import { formatTxDate } from './format';
 import { transactionDetailHref } from './href';
 import {
@@ -26,8 +26,11 @@ import {
   MemberSelect,
   SuggestionButtons,
   type EditOptions,
+  type FollowUp,
+  type MemberPrompt,
   type RuleDraft,
 } from './inline-edit';
+import { MemberPropagationDialog } from './member-propagation-dialog';
 import { SaveRuleDialog } from './save-rule-dialog';
 import { isUncategorized, TxBadges } from './tx-badges';
 
@@ -64,14 +67,22 @@ export function TransactionList({ items, today, options, listHref }: Props) {
   const [ruleDraft, setRuleDraft] = useState<{ key: number; draft: RuleDraft } | null>(null);
   const offerRule = (draft: RuleDraft) =>
     setRuleDraft((prev) => ({ key: (prev?.key ?? 0) + 1, draft }));
+  // R16.10 的弹窗。存规则对话框开着时先不显示，等它关了再问（先存规则，再问归属人）
+  const [memberPrompt, setMemberPrompt] = useState<{ key: number; prompt: MemberPrompt } | null>(
+    null,
+  );
+  const askMember = (prompt: MemberPrompt) =>
+    setMemberPrompt((prev) => ({ key: (prev?.key ?? 0) + 1, prompt }));
+  const followUp: FollowUp = { offerRule, askMember };
 
   // cacheComponents 下离开页面时 Next 用 <Activity> 把页面藏起来，state 会留着
-  // 勾选和"存成规则"对话框是一次性的，页面被隐藏时清掉；拆分的展开、收起保留
+  // 勾选、"存成规则"和归属人联动的对话框是一次性的，页面被隐藏时清掉；拆分的展开、收起保留
   // 见 docs/tech-stack.md 2. 关键约定 "页面状态"
   useLayoutEffect(
     () => () => {
       setChecked(new Set());
       setRuleDraft(null);
+      setMemberPrompt(null);
     },
     [],
   );
@@ -88,10 +99,11 @@ export function TransactionList({ items, today, options, listHref }: Props) {
     expanded: !collapsed.has(tx.id),
     onToggle: () => toggle(tx.id),
     options,
-    onOfferRule: offerRule,
+    followUp,
     selected: checked.has(tx.id),
     onSelect: (on: boolean) => setOne(tx.id, on),
     detailHref: transactionDetailHref(tx.id, listHref),
+    listHref,
   });
 
   return (
@@ -160,6 +172,14 @@ export function TransactionList({ items, today, options, listHref }: Props) {
           onClose={() => setRuleDraft(null)}
         />
       )}
+
+      {memberPrompt && !ruleDraft && (
+        <MemberPropagationDialog
+          key={memberPrompt.key}
+          prompt={memberPrompt.prompt}
+          onClose={() => setMemberPrompt(null)}
+        />
+      )}
     </>
   );
 }
@@ -170,10 +190,11 @@ type RowProps = {
   expanded: boolean;
   onToggle: () => void;
   options: EditOptions;
-  onOfferRule: (draft: RuleDraft) => void;
+  followUp: FollowUp;
   selected: boolean;
   onSelect: (on: boolean) => void;
   detailHref: string;
+  listHref: string; // R17.6 标签浮层里跳到对方详情，带着当前筛选
 };
 
 function RowCheckbox({
@@ -205,13 +226,9 @@ function useRowClick(href: string) {
   };
 }
 
-// 商家名保留真正的链接：键盘 Tab、中键新标签页都能用（M4-10）
-function MerchantLink({ href, merchant }: { href: string; merchant: string }) {
-  return (
-    <Link href={href} className="font-medium break-words hover:underline underline-offset-2">
-      {merchant}
-    </Link>
-  );
+// 商家名是普通文字，点它和点行的其他地方一样进详情（design/README 第 3 节，2026-10-25）
+function Merchant({ merchant }: { merchant: string }) {
+  return <span className="font-medium break-words">{merchant}</span>;
 }
 
 function Amount({ cents, className }: { cents: number; className?: string }) {
@@ -251,10 +268,11 @@ function TableRows({
   expanded,
   onToggle,
   options,
-  onOfferRule,
+  followUp,
   selected,
   onSelect,
   detailHref,
+  listHref,
 }: RowProps) {
   const isSplit = tx.splits.length > 1;
   const primary = tx.splits[0];
@@ -290,7 +308,7 @@ function TableRows({
             <SplitToggle count={tx.splits.length} expanded={expanded} onToggle={onToggle} />
           ) : (
             primary && (
-              <CategorySelect tx={tx} split={primary} options={options} onOfferRule={onOfferRule} />
+              <CategorySelect tx={tx} split={primary} options={options} followUp={followUp} />
             )
           )}
         </TableCell>
@@ -301,12 +319,15 @@ function TableRows({
           )}
         </TableCell>
         <TableCell className="align-top">
-          {!isSplit && primary && <MemberSelect split={primary} options={options} />}
+          {!isSplit && primary && (
+            <MemberSelect tx={tx} split={primary} options={options} followUp={followUp} />
+          )}
         </TableCell>
         <TableCell className="pr-4 align-top whitespace-normal">
           <div className="flex max-w-96 flex-wrap items-center gap-1.5">
-            <MerchantLink href={detailHref} merchant={tx.merchant} />
+            <Merchant merchant={tx.merchant} />
             <TxBadges tx={tx} />
+            <DuplicateBadge partners={tx.duplicatePartners} today={today} listHref={listHref} />
             {tx.transferStatus === 'suggested' && <SuggestionButtons transactionId={tx.id} />}
           </div>
           {/* 脱敏后的原始描述（R2.3）。只占一行，悬停看完整的 */}
@@ -335,11 +356,11 @@ function TableRows({
               <Amount cents={s.amountCents} />
             </TableCell>
             <TableCell className="text-foreground">
-              <CategorySelect tx={tx} split={s} options={options} onOfferRule={onOfferRule} />
+              <CategorySelect tx={tx} split={s} options={options} followUp={followUp} />
             </TableCell>
             <TableCell />
             <TableCell className="text-foreground">
-              <MemberSelect split={s} options={options} />
+              <MemberSelect tx={tx} split={s} options={options} followUp={followUp} />
             </TableCell>
             <TableCell className="pr-4 whitespace-normal">
               <span className="flex items-center gap-1.5">
@@ -361,10 +382,11 @@ function TxCard({
   expanded,
   onToggle,
   options,
-  onOfferRule,
+  followUp,
   selected,
   onSelect,
   detailHref,
+  listHref,
 }: RowProps) {
   const isSplit = tx.splits.length > 1;
   const primary = tx.splits[0];
@@ -387,8 +409,9 @@ function TxCard({
             onSelect={onSelect}
             className="mr-0.5"
           />
-          <MerchantLink href={detailHref} merchant={tx.merchant} />
+          <Merchant merchant={tx.merchant} />
           <TxBadges tx={tx} />
+          <DuplicateBadge partners={tx.duplicatePartners} today={today} listHref={listHref} />
         </div>
         <Amount cents={tx.amountCents} className="shrink-0 font-medium" />
       </div>
@@ -400,8 +423,8 @@ function TxCard({
       {tx.transferStatus === 'suggested' && <SuggestionButtons transactionId={tx.id} />}
       {!isSplit && primary && (
         <div className="flex flex-wrap items-center gap-1 text-xs">
-          <CategorySelect tx={tx} split={primary} options={options} onOfferRule={onOfferRule} />
-          <MemberSelect split={primary} options={options} />
+          <CategorySelect tx={tx} split={primary} options={options} followUp={followUp} />
+          <MemberSelect tx={tx} split={primary} options={options} followUp={followUp} />
         </div>
       )}
       <div title={tx.rawDescription} className="truncate font-mono text-xs text-muted-foreground">
@@ -415,8 +438,8 @@ function TxCard({
               {tx.splits.map((s) => (
                 <li key={s.id} className="flex items-start justify-between gap-3">
                   <span className="flex min-w-0 flex-wrap items-center gap-1">
-                    <CategorySelect tx={tx} split={s} options={options} onOfferRule={onOfferRule} />
-                    <MemberSelect split={s} options={options} />
+                    <CategorySelect tx={tx} split={s} options={options} followUp={followUp} />
+                    <MemberSelect tx={tx} split={s} options={options} followUp={followUp} />
                   </span>
                   <Amount cents={s.amountCents} className="shrink-0" />
                 </li>

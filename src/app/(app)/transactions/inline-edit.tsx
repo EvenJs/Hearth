@@ -2,6 +2,7 @@
 
 // F8 行内修改（M4-8，设计图 03）：分类、归属人下拉，建议转账的"确认""不是"
 // 改的都是一个拆分（R16.1）；auto / confirmed 转账分类只读（R16.2）；下拉选项按 R16.3
+// 改完之后的追问（M5.5-4）：存成规则（R16.9）、同商家一起改归属人（R16.10）
 import { Check, ChevronDown, Loader2, X } from 'lucide-react';
 import { useTransition } from 'react';
 import { toast } from 'sonner';
@@ -15,7 +16,6 @@ import {
 } from '@/components/ui/select';
 import {
   isCategoryLocked,
-  shouldOfferRule,
   type CategoryOption,
   type CategoryOptionGroup,
 } from '@/lib/transactions/inline-edit';
@@ -23,7 +23,9 @@ import type { PickerSections } from '@/lib/transactions/category-picker';
 import { cn } from '@/lib/utils';
 import type { SplitView, TransactionListItem } from '@/server/transactions';
 import {
+  previewMemberPropagationAction,
   resolveSuggestionAction,
+  ruleOfferAction,
   updateSplitCategoryAction,
   updateSplitMemberAction,
 } from './actions';
@@ -38,6 +40,40 @@ export type EditOptions = {
 
 // 改完分类后要弹"存成规则"时，交给列表层的对话框（行可能因为筛选条件消失）
 export type RuleDraft = { merchant: string; categoryId: string; categoryLabel: string };
+
+// R16.10 改完归属人后的弹窗内容，交给列表层
+export type MemberPrompt = {
+  transactionId: string;
+  memberId: string;
+  memberName: string;
+  keyword: string;
+  count: number;
+};
+
+// 列表层的对话框入口
+export type FollowUp = {
+  offerRule: (draft: RuleDraft) => void;
+  askMember: (prompt: MemberPrompt) => void;
+};
+
+// R16.9：dialog 直接打开存规则对话框；toast 只在提示里放"存成规则"按钮（这个商家目前只有这一笔）
+export async function offerRuleAfterChange(
+  input: { transactionId: string; isPrimary: boolean; kind: CategoryOption['kind'] },
+  draft: RuleDraft,
+  offerRule: (draft: RuleDraft) => void,
+) {
+  const offer = await ruleOfferAction({
+    transactionId: input.transactionId,
+    isPrimary: input.isPrimary,
+    newKind: input.kind,
+  });
+  if (offer === 'dialog') offerRule(draft);
+  if (offer === 'toast') {
+    toast.success(`已改成 ${draft.categoryLabel}`, {
+      action: { label: '存成规则', onClick: () => offerRule(draft) },
+    });
+  }
+}
 
 const triggerClass =
   'h-auto min-h-7 max-w-full gap-1 border-transparent bg-transparent px-1 py-0.5 shadow-none hover:bg-muted data-[state=open]:bg-muted dark:bg-transparent';
@@ -56,12 +92,12 @@ export function CategorySelect({
   tx,
   split,
   options,
-  onOfferRule,
+  followUp,
 }: {
-  tx: Pick<TransactionListItem, 'merchant' | 'transferStatus'>;
+  tx: Pick<TransactionListItem, 'id' | 'merchant' | 'transferStatus'>;
   split: SplitView;
   options: EditOptions;
-  onOfferRule: (draft: RuleDraft) => void;
+  followUp: FollowUp;
 }) {
   const [pending, startTransition] = useTransition();
 
@@ -80,9 +116,12 @@ export function CategorySelect({
         toast.error(r.message);
         return;
       }
-      if (shouldOfferRule({ isPrimary: split.isPrimary, changed: r.changed, newKind: next.kind })) {
-        onOfferRule({ merchant: tx.merchant, categoryId, categoryLabel: next.label });
-      }
+      if (!r.changed) return;
+      await offerRuleAfterChange(
+        { transactionId: tx.id, isPrimary: split.isPrimary, kind: next.kind },
+        { merchant: tx.merchant, categoryId, categoryLabel: next.label },
+        followUp.offerRule,
+      );
     });
   }
 
@@ -112,7 +151,17 @@ export function CategorySelect({
 
 // ---------- 归属人 ----------
 
-export function MemberSelect({ split, options }: { split: SplitView; options: EditOptions }) {
+export function MemberSelect({
+  tx,
+  split,
+  options,
+  followUp,
+}: {
+  tx: Pick<TransactionListItem, 'id'>;
+  split: SplitView;
+  options: EditOptions;
+  followUp: FollowUp;
+}) {
   const [pending, startTransition] = useTransition();
   const known = options.members.some((m) => m.id === split.member.id);
 
@@ -120,7 +169,16 @@ export function MemberSelect({ split, options }: { split: SplitView; options: Ed
     if (memberId === split.member.id) return;
     startTransition(async () => {
       const r = await updateSplitMemberAction({ splitId: split.id, memberId });
-      if (!r.ok) toast.error(r.message);
+      if (!r.ok) {
+        toast.error(r.message);
+        return;
+      }
+      // R16.10：只问主拆分；同商家没有要改的（count = 0）不弹
+      if (!r.changed || !split.isPrimary) return;
+      const p = await previewMemberPropagationAction({ splitId: split.id });
+      if (p && p.count > 0) {
+        followUp.askMember({ transactionId: tx.id, memberId, ...p });
+      }
     });
   }
 

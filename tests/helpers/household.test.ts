@@ -42,13 +42,13 @@ describe('test household（fixtures/README.md 测试用的家庭配置）', () =
     ]);
   });
 
-  it('category count matches seed data (8 top + 51 named + 8 Other + 4 system = 71, Work added 2026-10-25)', () => {
+  it('category count matches seed data (8 top + 52 named + 8 Other + 4 system = 72, Work and Bakery added 2026-10-25)', () => {
     const fromSeed =
       SEED_CATEGORIES.length +
       SEED_CATEGORIES.reduce((n, c) => n + c.children.length, 0) +
       SEED_SYSTEM_CATEGORIES.length;
     expect(h.categories).toHaveLength(fromSeed);
-    expect(h.categories).toHaveLength(71);
+    expect(h.categories).toHaveLength(72);
   });
 
   it('category ids are unique', () => {
