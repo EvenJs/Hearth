@@ -232,6 +232,11 @@ describe('checkNewCategory（R19.2）', () => {
     );
   });
 
+  it('R19.2: a child can be created under an archived top (2026-10-27)', () => {
+    const list = cats.map((c) => (c.id === ENT.id ? { ...c, isArchived: true } : c));
+    expect(checkNewCategory({ nameEn: 'Gaming', parentId: ENT.id }, list).ok).toBe(true);
+  });
+
   it('R19.2: bad name is reported before anything else', () => {
     expectError(checkNewCategory({ nameEn: '  ', parentId: ENT.id }, cats), /不能为空/);
   });
