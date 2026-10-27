@@ -15,7 +15,8 @@ export type ClassifyResult = {
 
 // R7 第 2 步：硬编码的系统规则，不在 category_rule 表里
 // 其他银行费用（信用卡利息等）拿到对应 CSV 后再加，不提前猜
-function matchSystemRule(merchant: string): SystemCategoryKey | null {
+// R18.1 命中数也要用（命中系统规则的不算），所以导出
+export function matchSystemRule(merchant: string): SystemCategoryKey | null {
   const m = merchant.toUpperCase();
   if (m.startsWith('ATM')) return 'cash_withdrawal';
   if (m.includes('ACCOUNT SERVICING FEE')) return 'bank_fee'; // 包括 REVERSAL OF
