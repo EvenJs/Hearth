@@ -177,20 +177,21 @@ rule_match_type      contains | starts_with
 | household_id          | uuid        | FK, not null                     |                                                   |
 | account_id            | uuid        | FK → financial_account, not null |                                                   |
 | file_name             | text        | not null                         |                                                   |
-| date_from             | date        | not null                         | 文件里最早日期                                    |
-| date_to               | date        | not null                         | 文件里最晚日期                                    |
+| source                | text        | not null, default `csv`          | `csv` / `pdf`（ANZ 对账单，R1C；M6.6 加）。R12.2 找上一份对账单用 |
+| date_from             | date        | not null                         | 文件里最早日期；PDF 是账期开始日的**第二天**（R1C） |
+| date_to               | date        | not null                         | 文件里最晚日期；PDF 是账期结束日                  |
 | row_count             | integer     | not null                         | 文件有效行数                                      |
 | inserted_count        | integer     | not null                         | 新增                                              |
 | duplicate_count       | integer     | not null                         | 跳过的重复                                        |
 | matched_pending_count | integer     | not null                         | 确认的 pending                                    |
-| opening_balance_cents | integer     | null                             | 用于对账。ANZ 手动填（可选），CBA 自动算（R1B.2） |
+| opening_balance_cents | integer     | null                             | 用于对账。ANZ CSV 手动填（可选），ANZ PDF 从汇总页读（R1C），CBA 自动算（R1B.2） |
 | closing_balance_cents | integer     | null                             | 同上                                              |
 | reconciled            | boolean     | null                             | 没有余额时为空                                    |
 | warnings              | jsonb       | null                             | 导入警告，如 CBA 余额不连续（R1B.1）              |
 | created_by            | text        | FK → user.id, not null           |                                                   |
 | created_at            | timestamptz | not null                         |                                                   |
 
-**不保存上传的原始文件。**
+**不保存上传的原始文件**（CSV 和 PDF 都不存）。
 
 ### transaction
 
@@ -242,7 +243,7 @@ rule_match_type      contains | starts_with
 应用层保证：同一交易所有拆分的 `amount_cents` 合计 = 交易的 `amount_cents`；至少有一行；恰好一行 `is_primary = true`。拆分规则见 R15。
 唯一：`(transaction_id)` where `is_primary`（partial unique index）
 
-### receipt（M6.6，2026-10-27 加）
+### receipt（M6.7，2026-10-27 加）
 
 小票识别的结果，挂在一笔交易上（R20）。**不存图片。**
 

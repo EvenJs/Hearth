@@ -6,20 +6,22 @@
 
 ---
 
-## R1. CSV 解析
+## R1. 解析（CSV 和 ANZ 对账单）
 
-**输入**：CSV 文件文本 + 账户的银行
+**输入**：CSV 文件文本（R1A、R1B），或 ANZ 对账单读出来的文字行（R1C）+ 账户的银行
 **输出**：`ParsedRow[]`，每行 `{ date: 'YYYY-MM-DD', amountCents: number, description: string, balanceCents: number | null, rowIndex: number }`
 
 按 `financial_account.bank` 选解析器：
 
 | bank                  | 解析器 | 说明                               |
 | --------------------- | ------ | ---------------------------------- |
-| anz                   | R1A    |                                    |
+| anz                   | R1A    | CSV。PDF 对账单用 R1C（2026-10-28） |
 | cba                   | R1B    |                                    |
 | anz_plus、cash、other | 无     | 不能导入 CSV，只能手动录入（R8.1） |
 
 ### R1.0 两个解析器共用的规则
+
+> R1A、R1B 两个 CSV 解析器都用。R1C 对账单只用第 4（金额）、6（出错整份失败）、7（按文件顺序输出）条。
 
 > 引用下面某一条时写 `R1.0-N`，如 `R1.0-4` 是金额。
 
@@ -50,6 +52,68 @@
 | `02/09/2026,"2000.00",ANZ M-BANKING FUNDS TFER TRANSFER 815033  FROM       400006691` | `{ date: '2026-09-02', amountCents: 200000, ... }`                                                                                  |
 | `31/02/2026,"-1.00",X`                                                                | 报错：第 n 行日期非法                                                                                                               |
 | 空行                                                                                  | 跳过                                                                                                                                |
+
+### R1C ANZ PDF 对账单（2026-10-28 新增，M6.6）
+
+ANZ 账户除了 CSV，还能导入 PDF 对账单。对账单的账期是固定的、首尾相接，每行都有余额，所以用来**补漏和自动对账**：平时照样导 CSV（及时），对账单出来后把 PDF 导进同一个账户，CSV 已有的被 R4 跳过，漏掉的补上，期初期末自动填进 R9。
+
+2026-10-28 用一份真实的 Access Advantage 半年对账单（50 笔）和同账期的 CSV 对过：日期、金额、描述（多行拼起来）**全部一致**，余额逐行连续，最后等于汇总页的期末余额。所以同一个账户 CSV 和 PDF 可以混着导，不会重复。Progress Saver、Joint 的对账单还没对过，格式应该一样，验收时确认。
+
+**两层**：
+
+1. 读文字（`src/server/pdf/`，用 `unpdf`）：把每一页的文字按坐标拼成行，同一行里隔得远的两段之间放两个空格，返回 `{ page, text }[]`。读不出文字（扫描件）→ 报错"读不出文字"
+2. 解析（`src/lib/import/anz-statement.ts`，纯函数）：输入上面的行，输出和 R1 一样的 `ParsedRow[]`，外加账期、期初期末、账号尾号。测试只用 `fixtures/anz-statement/` 里编的文字，不用 PDF
+
+**表头**（找不到任何一项 → 整份失败）：
+
+- 有一行含 `ANZ` 和 `STATEMENT`
+- 账期：`DD MONTH YYYY TO DD MONTH YYYY`（如 `04 MARCH 2026 TO 04 SEPTEMBER 2026`）→ `periodFrom`、`periodTo`
+- **账期是 `(periodFrom, periodTo]`**（2026-10-28 定）：`OPENING BALANCE` 那行的日期是 `periodFrom`，是那天结束时的余额，`periodFrom` 当天的交易在上一份对账单里。上一份的 `periodTo` = 这一份的 `periodFrom`
+- 账号：`Account Number dddd-ddddd`。只拿来核对：去掉 `-` 后要以账户的 `number_suffix` 结尾，不然整份失败"这份对账单不是这个账户的"。账户没填尾号也失败，提示先去账户设置填。**账号不存、不进日志**
+- 汇总：`Opening Balance`、`Closing Balance`、`Total Deposits`、`Total Withdrawals`（`$` 和金额可能在下一行）
+
+**交易行**：
+
+- 以 `DD MON`（如 `05 MAR`）开头，最后三段依次是支出、存入、余额。支出和存入**恰好一个是金额、另一个是 `blank`**，余额是金额
+- 栏位的位置每页不一样，**不按列宽切**，按"最后三段"认
+- 金额：去掉千分位逗号，按 R1.0-4 转成分。支出是负数，存入是正数
+- 描述：交易行里日期之后、金额之前的部分，加上后面的续行，用一个空格拼起来，去首尾空白。和 CSV 的描述一致（R4 的 `normalizedDescription` 会合并空白，空格多少不影响去重）
+- 续行：下一行既不是交易行，也不是下面要跳过的行，就是描述的续行
+- `OPENING BALANCE` 那行不是交易，金额要等于汇总页的期初
+- `balanceCents`：解析出来给检查用，**不写进 key、不存库**（R4.1：ANZ 的 key 不放余额，不然和 CSV 对不上）
+
+**跳过的行**：`EFFECTIVE DATE ...`（实际消费日期，不拼进描述）、`TOTALS AT END OF PAGE`、`TOTALS AT END OF PERIOD`、页眉页脚（`Page n of m`、对账单标题、`Account Number`、`Transaction Details`、栏位标题 `Date  Transaction Details ...`）、只有年份和 `blank` 的那行。汇总页、对账单最后的说明页没有交易行，不影响
+
+**年份**：交易行只有日和月。
+
+- 按出现顺序（旧的在前），起始年份 = `periodFrom` 的年份；月份比上一笔小（如 DEC → JAN）就加一年
+- 遇到只有年份的那行（`2026  blank  blank`），以它为准
+- 算出来的日期不在 `(periodFrom, periodTo]` 里 → 整份失败
+- 正好等于 `periodFrom` 时，错误信息单独写"账期第一天有交易，R1C 对账期的假设不对"，要回来改规则（这个假设是从 `OPENING BALANCE` 的日期推的，还没见过首日有交易的对账单）
+
+**检查**（任何一条不过 → 整份失败，什么都不导，错误带第几笔和页码）：
+
+- 期初 + 逐笔金额 = 每一行的余额（读错了一行就会在这里断开）
+- 最后的余额 = 汇总页的期末
+- 支出合计、存入合计 = 汇总页的 Total Withdrawals、Total Deposits
+
+和 CBA 不一样：CBA 的余额不连续只警告（R1B.1），对账单是银行给的正本，对不上多半是解析读错了，所以拒绝。
+
+**输出顺序**：和文件一致（旧的在前，和 CSV 相反）。R4.1 的 `occurrence` 只对完全相同的行计数，顺序不影响结果。
+
+**一笔都没有**（这个月没有交易）：照样能导入，只建 `import_batch` 做对账和首尾衔接（R12.2）。
+
+**R9 的日期范围**：`import_batch.date_from` 存 `periodFrom` 的第二天，`date_to` 存 `periodTo`，R9 照旧按 `[date_from, date_to]` 算，正好是 `(periodFrom, periodTo]`。
+
+### R1C.1 例子
+
+`fixtures/anz-statement/joint-2026-09.txt`（编的，和 `anz/joint-2026-09.csv` 同样的 19 笔）：
+
+- 解析出 19 行，`(date, amountCents, description)` 和 R1A 解析 `joint-2026-09.csv` 的结果一样（不管顺序）
+- 先导入 CSV 再导入这份 PDF：新增 0，跳过 19，`reconciled = true`
+- 只导入 PDF：结果和只导入 CSV 一样（fixtures/README 那张 19 行的表）
+
+更多用例见 fixtures/README 的"ANZ 对账单用例"。
 
 ### R1B CBA（2026-10 用真实导出确认）
 
@@ -180,7 +244,7 @@ ANZ 和 CBA 用同一套步骤，不适用的步骤自然不生效。按顺序�
 dedupe_key = sha256( account_id | date | amount_cents | normalizedDescription | occurrence | balance_cents )
 ```
 
-- `balance_cents`：CBA 有余额，写进 key；ANZ 没有，写空字符串
+- `balance_cents`：CBA 有余额，写进 key；ANZ 没有，写空字符串。ANZ 的 PDF 对账单虽然有余额，也写空字符串（R1C），不然和 CSV 的 key 对不上
 - `normalizedDescription`：**脱敏后**的原始描述，转大写，连续空白合并为一个空格，去首尾空白（不是 merchant，清洗规则以后会改，key 不能跟着变）
 - `occurrence`：同一个文件内，`(date, amount_cents, normalizedDescription)` 完全相同的第几笔，从 1 开始，按文件里的出现顺序计数
 
@@ -431,7 +495,7 @@ ANZ Plus 只能看 PDF 对账单，利息每月手动记一笔（Income / Intere
 
 ## R9. 对账校验
 
-有期初和期末余额时（ANZ 由用户手动填，CBA 按 R1B.2 自动得出）：
+有期初和期末余额时（ANZ 的 CSV 由用户手动填，ANZ 的 PDF 对账单从汇总页读（R1C），CBA 按 R1B.2 自动得出）：
 
 ```
 opening_balance + Σ(该账户所有 confirmed 交易，date ∈ [date_from, date_to]) == closing_balance
@@ -563,6 +627,7 @@ opening_balance + Σ(该账户所有 confirmed 交易，date ∈ [date_from, dat
 ```
 1. R1 解析整个文件            失败 → 报错，什么都不写
    CBA：R1B.1 余额检查（只记警告）、R1B.2 得出期初期末
+   ANZ PDF：R1C 的检查（不过就失败）、期初期末从汇总页来；import_batch 的 date_from = 账期开始日的第二天，date_to = 账期结束日（R1C）
 2. 对每行：R2 提取脱敏 → R3 清洗 → R4 生成 key
 3. 开启事务
 4.   创建 import_batch
@@ -598,6 +663,35 @@ opening_balance + Σ(该账户所有 confirmed 交易，date ∈ [date_from, dat
 - 改回未分类的，按 R5.1 重算归属人
 - 重跑 R6.1 用的是数据库里**脱敏后**的描述，完整账号已经没了：`****1234` 当成 4 位尾号，按 CBA 的方式匹配（家庭账户的尾号以这 4 位结尾）。前面带 BSB 的 `012345-****1234` 一样取 `1234`（R2.2）
 - 先清空配对再删交易，所以 `transfer_pair_id` 的外键不用改
+
+### R12.2 防漏导（2026-10-28 新增）
+
+ANZ 的 CSV 要自己选时间段，又没有余额，容易漏一段。三层提示，都**不拦**导入：
+
+**导入前：建议从哪天开始导出**
+
+选了账户后显示"上次导入到 X"，X = 这个账户所有导入批次里最大的 `date_to`（CSV 是文件里最晚的交易日期，PDF 是账期结束日）。
+
+- 建议导出范围：X − 7 天 到今天。故意往前重叠一周：晚入账的交易会补上，重复的由 R4 跳过
+- 这个账户还没导入过：不显示
+
+**导入后：和上次之间可能有空档**
+
+**只对 CSV 批次**：本次 `date_from` > 上次的 X（和以前的导入没有重叠）→ 结果页警告"这次最早是 A，上次导到 X，中间可能漏了，下次导出往前多选几天"。
+
+CSV 的 `date_from` 是第一笔交易的日期，中间几天正好没交易也会触发，所以只是提醒。真正确定有没有漏，靠 PDF 对账单（R1C + R9）。PDF 批次不做这个检查（它的 `date_from` 是账期开始日的第二天，和上一份对账单的 `date_to` 永远差一天），用下面的首尾衔接。
+
+**PDF 对账单：首尾衔接**
+
+导入 PDF 时找这个账户上一份 PDF 批次（`source = pdf`，`date_to` 最大的、早于本次的）：
+
+| 情况 | 结果页 |
+| --- | --- |
+| 上一份的期末 = 本次的期初 | "和上一份对账单（A 到 B）接上了" |
+| 余额对不上 | 警告"和上一份对账单之间余额对不上，差 $X，可能中间少了一份对账单" |
+| 没有上一份 | 不提示 |
+
+导入页还显示"对账单已经导到 B"，提醒下一份该从 B 开始。
 
 ---
 
@@ -1104,7 +1198,7 @@ seed 脚本**只在本家庭还没有分类时**插分类和预置规则（第�
 - 付款：有 `EFT`、`VISA`、`MASTERCARD`、`DEBIT`、`CREDIT` → card，`*****` 或 `****` 后面的 4 位数是 `cardLast4`；有 `CASH` → cash；都没有 → unknown
 - 解析不出总额或一件商品都没有 → 识别失败
 
-**前提**：复制出来的文字里，商品名和价格在同一行。如果手机把名字和价格分成两列，这个 reader 做不了，先不做。2026-10-27 还没试，M6.6 里排在最后，试过再定。
+**前提**：复制出来的文字里，商品名和价格在同一行。如果手机把名字和价格分成两列，这个 reader 做不了，先不做。2026-10-27 还没试，M6.7 里排在最后，试过再定。
 
 ### R20.2 整理和校验
 

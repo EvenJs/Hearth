@@ -19,6 +19,7 @@
 | 图表       | Recharts（通过 shadcn/ui charts）                           |                                                     |
 | 表单和校验 | Zod + react-hook-form                                       | Zod schema 前后端共用                               |
 | CSV 解析   | Papa Parse                                                  |                                                     |
+| PDF 读文字 | `unpdf`（包装 Mozilla PDF.js，serverless 能用）             | ANZ 对账单（R1C，M6.6 加）。要求 Node ≥ 22；装时定死版本 |
 | 测试       | Vitest                                                      | 核心逻辑单元测试                                    |
 | 代码规范   | ESLint + Prettier                                           |                                                     |
 | 包管理     | pnpm                                                        |                                                     |
@@ -139,12 +140,15 @@ hearth/
 │   │   └── index.ts       # 数据库连接
 │   ├── lib/
 │   │   ├── auth.ts        # Better Auth 配置
-│   │   ├── import/        # CSV 解析器，每个银行一个文件
+│   │   ├── import/        # CSV 解析器（每个银行一个文件）、ANZ 对账单解析（R1C）
 │   │   ├── rules/         # 清洗、去重、转账、分类、匹配、统计（纯函数）
 │   │   ├── tax/           # 税率表和税后估算（纯函数）
 │   │   ├── accounts/      # 账户、卡的输入校验（Zod）
 │   │   └── seed/          # 种子数据定义（seed 脚本和测试共用）
 │   ├── server/            # 数据访问层 + Server Actions
+│   │   ├── pdf/           # 读 PDF 文字（unpdf，M6.6）
+│   │   ├── llm/           # LLM 客户端（M6.7）
+│   │   └── receipt-readers/  # 小票 reader 接口和实现（M6.7）
 │   └── proxy.ts           # 未登录跳转（Next.js 16 的路由拦截）
 └── tests/
     ├── helpers/           # 测试用的家庭配置、读 fixtures
@@ -159,7 +163,7 @@ hearth/
 DATABASE_URL           # Neon 连接串
 BETTER_AUTH_SECRET     # 随机生成
 BETTER_AUTH_URL        # 本地 http://localhost:5000，线上用正在用的域名（自定义域名）
-LLM_BASE_URL           # OpenAI 兼容接口地址，如 https://api.groq.com/openai/v1（M6.6 起）
+LLM_BASE_URL           # OpenAI 兼容接口地址，如 https://api.groq.com/openai/v1（M6.7 起）
 LLM_API_KEY            # 服务商的 key
 LLM_VISION_MODEL       # 看图的模型，如 qwen/qwen3.8-27b（小票识别，R20.1a）
 RECEIPT_READER         # 小票用哪个 reader：llm | text | none，不填当作 none（R20.1）
@@ -180,7 +184,7 @@ RECEIPT_READER         # 小票用哪个 reader：llm | text | none，不填当�
 | Vercel Hobby               | 限个人非商业使用；超额后要等 30 天 | 家庭自用没问题                     |
 | Neon Free | 0.5 GB 存储；闲置 5 分钟后计算归零，下次查询自动唤醒 | 冷启动：隔一段时间第一次打开慢 1 到 2 秒（Neon 唤醒 + Vercel 函数启动），之后正常 |
 | Neon Free | 即时恢复只能回到 **6 小时以内** | 6 小时后才发现的误删、坏迁移救不回来，所以要自己备份（第 10 节） |
-| LLM API（小票识别，M6.6） | 用免费额度，见第 11 节 | 一周几张小票，远低于限额；额度用完只影响识别 |
+| LLM API（小票识别，M6.7） | 用免费额度，见第 11 节 | 一周几张小票，远低于限额；额度用完只影响识别 |
 
 ---
 
@@ -233,7 +237,7 @@ RECEIPT_READER         # 小票用哪个 reader：llm | text | none，不填当�
 
 ---
 
-## 11. LLM（M6.6 小票识别先接，其他 AI 功能以后）
+## 11. LLM（M6.7 小票识别先接，其他 AI 功能以后）
 
 > 功能和原则见 `prd.md` 第 4 节"AI 功能"。免费额度经常变，接之前去官网再确认一遍。
 
@@ -254,20 +258,20 @@ Hearth 的用量很小（每月几十个商家名），免费额度够用。只�
 
 | 服务 | 模型 | 限额 | 说明 |
 |---|---|---|---|
-| **Groq**（首选） | `qwen/qwen3.8-27b` | 文档写每分钟 30 次、每天 1000 次、每分钟 8K tokens；一张图算 2048 个输入 token，一次最多 3 张，图片不超过 20MB | 文档的限额表没分清是免费版还是 Developer 版，以控制台 Settings → Limits 为准（M6.6-0） |
+| **Groq**（首选） | `qwen/qwen3.8-27b` | 文档写每分钟 30 次、每天 1000 次、每分钟 8K tokens；一张图算 2048 个输入 token，一次最多 3 张，图片不超过 20MB | 文档的限额表没分清是免费版还是 Developer 版，以控制台 Settings → Limits 为准（M6.7-0） |
 | Cloudflare Workers AI（备选） | 没核实 | 每天约 1 万 neurons | 当时没查到现在有哪些看图模型、数据政策，要用之前再查 |
 
 Groq 另一个看图模型 `muse-spark-open` 在限量预览，要申请，不用。
 
 ### 11.2 接法
 - 用 OpenAI 兼容的接口格式，直接 `fetch`，不引入 SDK。上面几家都支持这种格式
-- 服务商地址、API key、模型名放环境变量：`LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`。换服务商只改环境变量，不改代码
+- 服务商地址、API key、模型名放环境变量：`LLM_BASE_URL`、`LLM_API_KEY`，模型按用途分开：`LLM_VISION_MODEL`（小票，M6.7）；以后做文字类功能（分类建议等）再加 `LLM_TEXT_MODEL`。换服务商只改环境变量，不改代码
 - 调用代码放 `src/server/llm/`，只在服务器端调用，API key 不进浏览器
 - 分小批调用（比如每次 20 个商家），避免超过 Vercel Hobby 的函数执行时间上限
 - 返回结果用 Zod 校验，格式不对就当作没有建议，不报错
 - 免费服务随时可能改额度或停掉：调用失败时界面显示"暂时没有建议"，其他功能照常
 
-### 11.3 小票识别（M6.6，规则见 R20）
+### 11.3 小票识别（M6.7，规则见 R20）
 
 - **reader 是注入的**（R20.1）。接口和工厂在 `src/server/receipt-readers/`：
 

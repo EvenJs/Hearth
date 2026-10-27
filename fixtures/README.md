@@ -54,6 +54,7 @@
 | `anz/invalid-zero-amount.csv`   | ANZ 任意   | 金额 0，应失败（R1）                                           |
 | `cba/female-2026-09.csv`        | CBA Female | CBA 解析和清洗、余额、税前收入、Tax (ATO)、和 joint 的转账配对 |
 | `cba/broken-balance.csv`        | CBA Female | 余额不连续时只警告不失败（R1B.1）                              |
+| `anz-statement/*.txt`           | ANZ Joint  | ANZ PDF 对账单（R1C、R12.2），读文字以后的样子，见"ANZ 对账单用例" |
 | `receipts/*.json`               | —          | 小票识别（R20），见最后一节"小票用例"                       |
 
 ---
@@ -319,7 +320,41 @@ Male 没有 tax_profile 也没有税前收入 → 全部为 0，卡片提示去�
 
 ---
 
-## 小票用例（R20，M6.6）
+## ANZ 对账单用例（R1C、R12.2，M6.6）
+
+`anz-statement/` 里是**编的**对账单文字，模拟 `unpdf` 读出来再拼成行的样子（R1C 第一层的输出），不是 PDF，也不是真对账单。格式照真实对账单的结构：表头、汇总、交易行最后三段是"支出 / 存入 / 余额"（空的写 `blank`）、多行描述、`EFFECTIVE DATE` 行、每页的 `TOTALS AT END OF PAGE`、页眉。分页用单独一行 `<<<PAGE>>>`。账号用测试家庭的假尾号，金额、期初是编的。
+
+账期照真实对账单的样子，同一天首尾相接：`31 AUGUST 2026 TO 30 SEPTEMBER 2026` 包含的是 9/1 到 9/30（R1C：`(periodFrom, periodTo]`）。
+
+| 文件 | 内容 |
+| --- | --- |
+| `joint-2026-09.txt` | `31 AUGUST 2026 TO 30 SEPTEMBER 2026`，账号以 `0001` 结尾，期初 5,000.00，和 `anz/joint-2026-09.csv` 同样的 19 笔，分两页 |
+| `joint-2026-10.txt` | `30 SEPTEMBER 2026 TO 31 OCTOBER 2026`，期初 = 上一份的期末，**一笔交易都没有** |
+| `joint-2026-11-gap.txt` | `31 OCTOBER 2026 TO 30 NOVEMBER 2026`，期初比上一份的期末多 100.00，2 笔交易 |
+| `broken-balance.txt` | 和 `joint-2026-09.txt` 一样，第 2 页第 3 笔的余额改错 |
+| `wrong-account.txt` | 和 `joint-2026-09.txt` 一样，账号以 `0002` 结尾 |
+| `year-rollover.txt` | `15 DECEMBER 2026 TO 15 JANUARY 2027`，DEC 和 JAN 各有交易 |
+| `first-day.txt` | 和 `joint-2026-09.txt` 一样，多一笔 `31 AUG` 的交易 |
+
+| 用例 | 前置 | 操作 | 期望 |
+| --- | --- | --- | --- |
+| S1 | 空数据库 | 导入 `joint-2026-09.txt` 到 ANZ Joint | 19 笔，结果和只导入 `joint-2026-09.csv` 一样（上面 19 行的表）。`source = pdf`，`date_from = 2026-09-01`，`date_to = 2026-09-30`，期初期末从汇总页来，`reconciled = true`。卡号消费的 `EFFECTIVE DATE` 没有进描述 |
+| S2 | 导入 `joint-2026-09.csv` | 再导入 `joint-2026-09.txt` | 新增 0，跳过 19，`reconciled = true` |
+| S3 | 导入去掉 #12 的 joint CSV（测试里现拼） | 导入 `joint-2026-09.txt` | 新增 1（#12），跳过 18，`reconciled = true` |
+| S4 | S1 | 导入 `joint-2026-10.txt` | 新增 0，建了批次，`reconciled = true`；R12.2 提示"和上一份对账单接上了" |
+| S5 | S4 | 导入 `joint-2026-11-gap.txt` | 2 笔照常导入；R12.2 警告和上一份差 $100.00 |
+| S6 | 空数据库 | 导入 `broken-balance.txt` | 整份失败，错误写第 2 页第 3 笔，什么都没写 |
+| S7 | 空数据库 | 把 `wrong-account.txt` 导入到 ANZ Joint | 整份失败"这份对账单不是这个账户的"；错误信息里没有完整账号 |
+| S8 | 纯函数 | 解析 `year-rollover.txt` | DEC 的是 2026 年，JAN 的是 2027 年 |
+| S8b | 纯函数 | 解析 `first-day.txt` | 失败，信息写"账期第一天有交易，R1C 对账期的假设不对" |
+| S9 | 导入 `joint-2026-09.csv` | 导入页选 ANZ Joint | 显示"上次导入到 2026-09-30"（CSV 最晚一笔），建议导出 2026-09-23 到今天 |
+| S10 | S9 | 再导入一份最早是 2026-10-05 的 CSV（测试里现拼） | 结果页警告和上次之间可能漏了 |
+
+另外：解析结果里没有完整账号；测试检查 `import_batch`、`transaction` 里没有 8 位以上连续数字（R2.3 照旧）。
+
+---
+
+## 小票用例（R20，M6.7）
 
 `receipts/` 里的 `.json` 是**假的** reader 原始结果（R20.1 的格式，金额、日期都是原样字符串），测试里用假 reader 直接返回它们；不是真小票，也没有图片。照着真小票的几种格式编的：称重行（已经去掉）、单件折扣、整单折扣。真实小票只在 `tests/local/` 里试，不提交。
 
@@ -329,7 +364,7 @@ Male 没有 tax_profile 也没有税前收入 → 全部为 0，卡片提示去�
 | `grocer-b.json` | SUNNY GROCER，`25/09/2026`，card `null`，3 件 + 整单折扣 `-$1.00`，总额 `$32.33` | R-B |
 | `bad-total.json` | 商品合计 `30.00`，总额 `31.00` | R-D |
 | `coles-e.json` | COLES，`28/09/2026`，card `2222`，总额 `$23.45`，商品分类都是 `null` | R-E |
-| `coles-a.txt`、`grocer-b.txt` | 假的"手机识别文字"，内容和对应的 `.json` 一样（M6.6-5b，`text` reader 做了才加） | R20.1b |
+| `coles-a.txt`、`grocer-b.txt` | 假的"手机识别文字"，内容和对应的 `.json` 一样（M6.7-5b，`text` reader 做了才加） | R20.1b |
 | `noisy.json` | 多返回了 `customer: "TEST CUSTOMER"`、`cashier`、商品名里有 `12345678` | R20.1、R20.2：多的字段被 Zod 丢掉；8 位数字脱敏成 `****5678` |
 
 期望值见 `business-rules.md` R20.8，汇总：
