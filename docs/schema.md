@@ -242,6 +242,28 @@ rule_match_type      contains | starts_with
 应用层保证：同一交易所有拆分的 `amount_cents` 合计 = 交易的 `amount_cents`；至少有一行；恰好一行 `is_primary = true`。拆分规则见 R15。
 唯一：`(transaction_id)` where `is_primary`（partial unique index）
 
+### receipt（M6.6，2026-10-27 加）
+
+小票识别的结果，挂在一笔交易上（R20）。**不存图片。**
+
+| 字段           | 类型        | 约束                                           | 说明                                                                 |
+| -------------- | ----------- | ---------------------------------------------- | -------------------------------------------------------------------- |
+| id             | uuid        | PK                                             |                                                                      |
+| household_id   | uuid        | FK, not null                                   |                                                                      |
+| transaction_id | uuid        | FK → transaction, null, **on delete set null** | 挂的交易。为空 = 没挂上（撤销导入、删了交易以后，R20.7）             |
+| merchant       | text        | not null                                       | 小票上的店名，R20.2 整理后（脱敏，最长 100）                         |
+| receipt_date   | date        | not null                                       | 小票日期                                                             |
+| total_cents    | integer     | not null, > 0                                  | 小票总额，正数                                                       |
+| parsed_json    | jsonb       | not null                                       | `{ items: [{ name, amountCents, category }], discounts: [{ label, amountCents }], payment: 'card' \| 'cash' \| 'unknown' }`，用户核对后的版本。**不含卡号、人名** |
+| reader         | text        | not null                                       | 用哪个 reader 读的（R20.1）：`llm:<模型名>`、`text`、`manual`（识别失败或 `none` 时手动填的） |
+| created_by     | text        | FK → user.id, not null                         |                                                                      |
+| created_at     | timestamptz | not null                                       |                                                                      |
+
+唯一：`(transaction_id)`（不为空时，partial unique index）
+索引：`(household_id, receipt_date)`
+
+`transaction.source = receipt` 表示交易是小票建的（R20.5）；挂到已有交易上的小票不改交易的 `source`。
+
 ### budget
 
 | 字段                | 类型        | 约束                    | 说明             |
@@ -284,7 +306,8 @@ household ─┬─ household_user ── user (Better Auth)
            ├─ financial_account ── card
            ├─ category (自引用 parent_id，default_member_id → member) ── category_rule
            ├─ import_batch
-           ├─ transaction ── transaction_split ── category / member
+           ├─ transaction ─┬─ transaction_split ── category / member
+           │               └─ receipt（0 或 1 张）
            └─ budget ── category
 ```
 
@@ -295,7 +318,6 @@ household ─┬─ household_user ── user (Better Auth)
 ```
 tag               id, household_id, name
 transaction_tag   transaction_id, tag_id
-receipt           id, household_id, transaction_id, image_url, parsed_json, created_at
 ```
 
 Female 没有注册 GST（2026-10-23 确认）。以后注册了，可以在 `transaction_split` 加 `gst_cents integer null`，B2B 收入里的 GST 部分不算收入。
