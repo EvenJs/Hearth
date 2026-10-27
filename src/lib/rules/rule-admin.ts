@@ -120,7 +120,7 @@ function compareKeyword(a: FilterableRule, b: FilterableRule): number {
 export function filterRules<T extends FilterableRule>(
   rules: readonly T[],
   filter: RuleFilter,
-  categories: readonly Category[],
+  categories: readonly Pick<Category, 'id' | 'parentId'>[], // 只用 id 和 parentId
 ): T[] {
   const search = filter.search?.trim().toUpperCase() ?? '';
   const top = filter.topCategoryId;
