@@ -1,0 +1,21 @@
+ANZ ACCESS ADVANTAGE STATEMENT
+Statement Period  30 SEPTEMBER 2026 TO 31 OCTOBER 2026
+Page 1 of 1
+TEST HOUSEHOLD
+1 EXAMPLE STREET
+MELBOURNE VIC 3000
+Account Number  1234-50001
+Account Summary
+Opening Balance  $
+6,385.10
+Total Deposits  $0.00
+Total Withdrawals  $
+0.00
+Closing Balance  $6,385.10
+Transaction Details
+Date  Transaction Details  Withdrawals ($)  Deposits ($)  Balance ($)
+2026  blank  blank
+30 SEP  OPENING BALANCE  blank  blank  6,385.10
+TOTALS AT END OF PERIOD  $0.00  $0.00
+This statement is made up for tests. It is not a real ANZ statement.
+Please check your transactions carefully.

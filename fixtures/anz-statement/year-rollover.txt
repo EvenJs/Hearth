@@ -1,0 +1,26 @@
+ANZ ACCESS ADVANTAGE STATEMENT
+Statement Period  15 DECEMBER 2026 TO 15 JANUARY 2027
+Page 1 of 1
+TEST HOUSEHOLD
+1 EXAMPLE STREET
+MELBOURNE VIC 3000
+Account Number  1234-50001
+Account Summary
+Opening Balance  $
+1,000.00
+Total Deposits  $200.00
+Total Withdrawals  $
+87.50
+Closing Balance  $1,112.50
+Transaction Details
+Date  Transaction Details  Withdrawals ($)  Deposits ($)  Balance ($)
+2026  blank  blank
+15 DEC  OPENING BALANCE  blank  blank  1,000.00
+20 DEC  VISA DEBIT PURCHASE CARD 1111 COLES 0559 MELBOURNE  45.00  blank  955.00
+EFFECTIVE DATE 18 DEC 2026
+28 DEC  EFTPOS MELB ASIAN MARKET\  12.50  blank  942.50
+03 JAN  PAYID DEPOSIT REF NEW YEAR  blank  200.00  1,142.50
+10 JAN  NON-ANZ ATM CBA\HAWTHORN VIC AU  30.00  blank  1,112.50
+TOTALS AT END OF PERIOD  $87.50  $200.00
+This statement is made up for tests. It is not a real ANZ statement.
+Please check your transactions carefully.

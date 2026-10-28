@@ -1,0 +1,24 @@
+ANZ ACCESS ADVANTAGE STATEMENT
+Statement Period  31 OCTOBER 2026 TO 30 NOVEMBER 2026
+Page 1 of 1
+TEST HOUSEHOLD
+1 EXAMPLE STREET
+MELBOURNE VIC 3000
+Account Number  1234-50001
+Account Summary
+Opening Balance  $
+6,485.10
+Total Deposits  $60.00
+Total Withdrawals  $
+32.60
+Closing Balance  $6,512.50
+Transaction Details
+Date  Transaction Details  Withdrawals ($)  Deposits ($)  Balance ($)
+2026  blank  blank
+31 OCT  OPENING BALANCE  blank  blank  6,485.10
+05 NOV  VISA DEBIT PURCHASE CARD 1111 COLES 0559 MELBOURNE  32.60  blank  6,452.50
+EFFECTIVE DATE 03 NOV 2026
+20 NOV  PAYID DEPOSIT REF NOVEMBER SPLIT  blank  60.00  6,512.50
+TOTALS AT END OF PERIOD  $32.60  $60.00
+This statement is made up for tests. It is not a real ANZ statement.
+Please check your transactions carefully.
