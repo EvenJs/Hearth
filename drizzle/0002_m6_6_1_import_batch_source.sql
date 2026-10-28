@@ -1,0 +1,2 @@
+ALTER TABLE "import_batch" ADD COLUMN "source" text DEFAULT 'csv' NOT NULL;--> statement-breakpoint
+ALTER TABLE "import_batch" ADD CONSTRAINT "import_batch_source_check" CHECK ("import_batch"."source" in ('csv', 'pdf'));
