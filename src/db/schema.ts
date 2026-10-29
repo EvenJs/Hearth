@@ -278,28 +278,34 @@ export const categoryRule = pgTable(
 );
 
 // 不保存上传的原始文件
-export const importBatch = pgTable('import_batch', {
-  id: id(),
-  householdId: householdId(),
-  accountId: uuid('account_id')
-    .notNull()
-    .references(() => financialAccount.id),
-  fileName: text('file_name').notNull(),
-  dateFrom: date('date_from', { mode: 'string' }).notNull(),
-  dateTo: date('date_to', { mode: 'string' }).notNull(),
-  rowCount: integer('row_count').notNull(),
-  insertedCount: integer('inserted_count').notNull(),
-  duplicateCount: integer('duplicate_count').notNull(),
-  matchedPendingCount: integer('matched_pending_count').notNull(),
-  openingBalanceCents: integer('opening_balance_cents'),
-  closingBalanceCents: integer('closing_balance_cents'),
-  reconciled: boolean('reconciled'),
-  warnings: jsonb('warnings'),
-  createdBy: text('created_by')
-    .notNull()
-    .references(() => user.id),
-  createdAt: createdAt(),
-});
+export const importBatch = pgTable(
+  'import_batch',
+  {
+    id: id(),
+    householdId: householdId(),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => financialAccount.id),
+    fileName: text('file_name').notNull(),
+    // csv / pdf（ANZ 对账单，R1C）。R12.2 找上一份对账单用
+    source: text('source').notNull().default('csv'),
+    dateFrom: date('date_from', { mode: 'string' }).notNull(),
+    dateTo: date('date_to', { mode: 'string' }).notNull(),
+    rowCount: integer('row_count').notNull(),
+    insertedCount: integer('inserted_count').notNull(),
+    duplicateCount: integer('duplicate_count').notNull(),
+    matchedPendingCount: integer('matched_pending_count').notNull(),
+    openingBalanceCents: integer('opening_balance_cents'),
+    closingBalanceCents: integer('closing_balance_cents'),
+    reconciled: boolean('reconciled'),
+    warnings: jsonb('warnings'),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => user.id),
+    createdAt: createdAt(),
+  },
+  (t) => [check('import_batch_source_check', sql`${t.source} in ('csv', 'pdf')`)],
+);
 
 export const transaction = pgTable(
   'transaction',

@@ -1,6 +1,7 @@
 import { CheckCircle2, ChevronLeft, CircleSlash, FileUp, XCircle } from 'lucide-react';
 import Link from 'next/link';
 import { Suspense } from 'react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -12,6 +13,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { BANK_LABELS } from '@/lib/accounts/account-input';
+import { statementPeriod } from '@/lib/import/anz-statement';
 import { formatAud } from '@/lib/rules/money';
 import type { Reconciliation } from '@/lib/rules/reconcile';
 import { getHouseholdContext } from '@/server/context';
@@ -119,6 +121,31 @@ async function HistorySection() {
   );
 }
 
+// CSV 显示文件里的日期范围；对账单显示纸面上的账期（R1C）
+function DateRange({ r }: { r: ImportHistoryRow }) {
+  if (r.source === 'pdf') {
+    const p = statementPeriod(r.dateFrom, r.dateTo);
+    return (
+      <>
+        账期 {p.from} 至 {p.to}
+      </>
+    );
+  }
+  return (
+    <>
+      {r.dateFrom} 至 {r.dateTo}
+    </>
+  );
+}
+
+function SourceBadge({ source }: { source: ImportHistoryRow['source'] }) {
+  return (
+    <Badge variant="outline" className="shrink-0">
+      {source === 'pdf' ? '对账单' : 'CSV'}
+    </Badge>
+  );
+}
+
 // "CBA · CBA" 这种账户名已经带银行名的，不再重复显示银行
 function AccountLabel({ account }: { account: ImportHistoryRow['account'] }) {
   const bank = BANK_LABELS[account.bank];
@@ -146,6 +173,7 @@ function HistoryCard({ r }: { r: ImportHistoryRow }) {
             {r.canUndo && <UndoImportButton batchId={r.batchId} after="history" />}
           </div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <SourceBadge source={r.source} />
             <Link
               href={`/import/${r.batchId}`}
               className="min-w-0 break-all text-primary underline-offset-4 hover:underline"
@@ -157,7 +185,7 @@ function HistoryCard({ r }: { r: ImportHistoryRow }) {
             </span>
           </div>
           <span className="text-muted-foreground tabular-nums">
-            {r.dateFrom} 至 {r.dateTo}
+            <DateRange r={r} />
           </span>
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 pt-1">
             <span className="tabular-nums">
@@ -179,20 +207,23 @@ function HistoryRow({ r }: { r: ImportHistoryRow }) {
         <AccountLabel account={r.account} />
       </TableCell>
       {/* 导入时间是辅助信息，放文件名下面，不单独占一列 */}
-      <TableCell className="max-w-52">
-        <Link
-          href={`/import/${r.batchId}`}
-          title={r.fileName}
-          className="block truncate text-primary underline-offset-4 hover:underline"
-        >
-          {r.fileName}
-        </Link>
+      <TableCell className="max-w-60">
+        <div className="flex min-w-0 items-center gap-2">
+          <SourceBadge source={r.source} />
+          <Link
+            href={`/import/${r.batchId}`}
+            title={r.fileName}
+            className="block min-w-0 truncate text-primary underline-offset-4 hover:underline"
+          >
+            {r.fileName}
+          </Link>
+        </div>
         <span className="text-xs text-muted-foreground tabular-nums">
           {createdAtFormat.format(r.createdAt)}
         </span>
       </TableCell>
       <TableCell className="tabular-nums">
-        {r.dateFrom} 至 {r.dateTo}
+        <DateRange r={r} />
       </TableCell>
       <TableCell className="text-right tabular-nums">{r.insertedCount}</TableCell>
       <TableCell className="text-right tabular-nums">{r.duplicateCount}</TableCell>

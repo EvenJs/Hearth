@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { buildTestHousehold } from '../../../tests/helpers/household';
 import { readFixture } from '../../../tests/helpers/fixtures';
 import type { MemberSource, ProcessedRow, TransferStatus } from '../rules/types';
-import { processFile } from './process';
+import { parseAnzStatement } from './anz-statement';
+import { parseBankCsv } from './index';
+import { processFile, processRows } from './process';
+import { readStatementFixture } from '../../../tests/helpers/fixtures';
 
 // 期望值来自 fixtures/README.md "期望结果：joint-2026-09.csv" 和 "期望结果：导入 cba/female-2026-09.csv"
 // 每个文件单独处理（R12 第 2 步、第 5 步里"新交易"的部分），不含 R6.2 配对、R6.3 建议
@@ -519,5 +522,39 @@ describe('processFile：失败', () => {
     expect(
       processFile(readFixture('anz/joint-2026-09.csv'), h.account('ANZ Plus Male'), h).ok,
     ).toBe(false);
+  });
+});
+
+// M6.6-4：processFile 拆成"解析"和"处理已解析的行"两步，CSV 和 PDF 共用后一步
+describe('processRows', () => {
+  it('R12: processFile = parseBankCsv + processRows', () => {
+    const text = readFixture('anz/joint-2026-09.csv');
+    const parsed = parseBankCsv('anz', text);
+    if (!parsed.ok) throw new Error(parsed.message);
+    expect(processRows(parsed.rows, joint, h)).toEqual(rows(processFile(text, joint, h)));
+  });
+
+  it('R1C: statement rows give the same processed rows as the CSV (any order)', () => {
+    const statement = parseAnzStatement(readStatementFixture('joint-2026-09.txt'), '0001');
+    if (!statement.ok) throw new Error(statement.message);
+    const fromPdf = processRows(statement.rows, joint, h);
+    const fromCsv = rows(processFile(readFixture('anz/joint-2026-09.csv'), joint, h));
+    const pick = (r: ProcessedRow) =>
+      [
+        r.date,
+        r.amountCents,
+        r.merchant,
+        r.dedupeKey,
+        r.categoryId,
+        r.memberId,
+        r.transferStatus,
+      ].join('|');
+    expect(fromPdf.map(pick).sort()).toEqual(fromCsv.map(pick).sort());
+    // R1C：余额不存
+    expect(fromPdf.every((r) => r.balanceCents === null)).toBe(true);
+  });
+
+  it('R1C: a statement with no transactions gives no rows', () => {
+    expect(processRows([], joint, h)).toEqual([]);
   });
 });

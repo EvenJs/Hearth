@@ -1,0 +1,40 @@
+ANZ ACCESS ADVANTAGE STATEMENT
+STATEMENT NUMBER 9
+15 DECEMBER 2026 TO 15 JANUARY 2027
+TEST HOUSEHOLD
+1 EXAMPLE STREET
+MELBOURNE VIC 3000
+Welcome to your ANZ account at a glance
+Account Summary
+Opening Balance:
+TEST HOUSEHOLD
+$
+JOINT ACCOUNT  1,000.00
+Branch Number (BSB)  Total Deposits:
+012-345  $
+200.00
+Account Number
+Total Withdrawals:
+1234-50001
+$
+87.50
+Closing Balance:
+$
+1,112.50
+Need to get in touch?
+Page 1 of 1
+Account Number 1234-50001
+Transaction Details
+Please retain this statement for taxation purposes
+Date  Transaction Details  Withdrawals ($)  Deposits ($)  Balance ($)
+2026  blank  blank
+15 DEC  OPENING BALANCE  1,000.00
+20 DEC  VISA DEBIT PURCHASE CARD 1111 COLES 0559 MELBOURNE  45.00  blank  955.00
+EFFECTIVE DATE 18 DEC 2026
+28 DEC  EFTPOS MELB ASIAN MARKET\  12.50  blank  942.50
+2027  blank
+03 JAN  PAYID DEPOSIT REF NEW YEAR  200.00  1,142.50
+10 JAN  NON-ANZ ATM CBA\HAWTHORN VIC AU  30.00  blank  1,112.50
+TOTALS AT END OF PERIOD  $87.50  $200.00  $1,112.50
+This statement is made up for tests. It is not a real ANZ statement.
+Please check your transactions carefully.

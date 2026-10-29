@@ -57,7 +57,9 @@
 
 ANZ 账户除了 CSV，还能导入 PDF 对账单。对账单的账期是固定的、首尾相接，每行都有余额，所以用来**补漏和自动对账**：平时照样导 CSV（及时），对账单出来后把 PDF 导进同一个账户，CSV 已有的被 R4 跳过，漏掉的补上，期初期末自动填进 R9。
 
-2026-10-28 用一份真实的 Access Advantage 半年对账单（50 笔）和同账期的 CSV 对过：日期、金额、描述（多行拼起来）**全部一致**，余额逐行连续，最后等于汇总页的期末余额。所以同一个账户 CSV 和 PDF 可以混着导，不会重复。Progress Saver、Joint 的对账单还没对过，格式应该一样，验收时确认。
+2026-10-28 用一份真实的 Access Advantage 半年对账单（50 笔）和同账期的 CSV 对过：日期、金额、描述（多行拼起来）**全部一致**，余额逐行连续，最后等于汇总页的期末余额。所以同一个账户 CSV 和 PDF 可以混着导，不会重复。
+
+2026-10-29 换成 `unpdf` 读，又试了 Joint、Progress Saver 各一份：格式有 5 处和最初写的不一样（汇总、账号、`OPENING BALANCE`、换年少一个 `blank`、合计行前面的 `blank`），下面已经改过来。改完以后三份都解析成功、三项检查通过，Access Advantage 50 笔还是和 CSV 全部一致。
 
 **两层**：
 
@@ -69,20 +71,27 @@ ANZ 账户除了 CSV，还能导入 PDF 对账单。对账单的账期是固定�
 - 有一行含 `ANZ` 和 `STATEMENT`
 - 账期：`DD MONTH YYYY TO DD MONTH YYYY`（如 `04 MARCH 2026 TO 04 SEPTEMBER 2026`）→ `periodFrom`、`periodTo`
 - **账期是 `(periodFrom, periodTo]`**（2026-10-28 定）：`OPENING BALANCE` 那行的日期是 `periodFrom`，是那天结束时的余额，`periodFrom` 当天的交易在上一份对账单里。上一份的 `periodTo` = 这一份的 `periodFrom`
-- 账号：`Account Number dddd-ddddd`。只拿来核对：去掉 `-` 后要以账户的 `number_suffix` 结尾，不然整份失败"这份对账单不是这个账户的"。账户没填尾号也失败，提示先去账户设置填。**账号不存、不进日志**
-- 汇总：`Opening Balance`、`Closing Balance`、`Total Deposits`、`Total Withdrawals`（`$` 和金额可能在下一行）
+- 账号：`Account Number` 后面的 `dddd-ddddd`，可能在同一行，也可能在后面 3 行里（汇总页左右两栏拼在一起，号码常常在下面几行）。去掉 `-` 后要以账户的 `number_suffix` 结尾，不然整份失败"这份对账单不是这个账户的"。账户没填尾号也失败，提示先去账户设置填。**账号不存、不进日志，错误信息里最多带后 4 位**
+- **自动认账户**（2026-10-29 加，M6.6-6b）：导入对账单不用先选账户。用账号去找本家庭**没归档的 ANZ 账户**里 `number_suffix` 和账号尾部对得上的：
+  - 正好一个 → 导入这个账户，之后照上一条核对
+  - 一个都没有 → 整份失败"找不到尾号是 dddd 的 ANZ 账户，先去账户设置填上尾号"（dddd 是账号后 4 位）
+  - 两个以上（尾号填得太短）→ 整份失败"有 n 个 ANZ 账户的尾号都对得上，去账户设置把尾号填长一点"
+  - 找不到账号 → 整份失败"找不到账号"
+  - CSV 里没有账号，还是要选账户
+- 汇总：`Opening Balance`、`Closing Balance`、`Total Deposits`、`Total Withdrawals`。标签后面可能带冒号，也不一定在行首（左栏的姓名、BSB 会拼在同一行前面）。金额取标签之后、同一行或后面 4 行里的**第一个金额**（`$` 常常单独一行，中间可能隔着左栏的文字）。取错了会被下面的三项检查拦下
 
 **交易行**：
 
 - 以 `DD MON`（如 `05 MAR`）开头，最后三段依次是支出、存入、余额。支出和存入**恰好一个是金额、另一个是 `blank`**，余额是金额
 - 栏位的位置每页不一样，**不按列宽切**，按"最后三段"认
+- 例外：换年时，只有年份的那行会占掉下一笔的一个 `blank`（PDF 里 `blank` 印在交易行上方，读文字时和年份拼成一行），这一笔末尾只剩**金额、余额两段**（倒数第三段不是金额也不是 `blank`）。这时用上一笔的余额（第一笔用期初）判断方向：上一笔余额 − 金额 = 这一行的余额 → 支出；上一笔余额 + 金额 = 这一行的余额 → 存入；都不是 → 整份失败
 - 金额：去掉千分位逗号，按 R1.0-4 转成分。支出是负数，存入是正数
 - 描述：交易行里日期之后、金额之前的部分，加上后面的续行，用一个空格拼起来，去首尾空白。和 CSV 的描述一致（R4 的 `normalizedDescription` 会合并空白，空格多少不影响去重）
 - 续行：下一行既不是交易行，也不是下面要跳过的行，就是描述的续行
-- `OPENING BALANCE` 那行不是交易，金额要等于汇总页的期初
+- `OPENING BALANCE` 那行不是交易，**最后一段**是余额，要等于汇总页的期初。真实对账单里这行是 `DD MON  OPENING BALANCE  余额`，它的 `blank  blank` 跑到了上面年份那行
 - `balanceCents`：解析出来给检查用，**不写进 key、不存库**（R4.1：ANZ 的 key 不放余额，不然和 CSV 对不上）
 
-**跳过的行**：`EFFECTIVE DATE ...`（实际消费日期，不拼进描述）、`TOTALS AT END OF PAGE`、`TOTALS AT END OF PERIOD`、页眉页脚（`Page n of m`、对账单标题、`Account Number`、`Transaction Details`、栏位标题 `Date  Transaction Details ...`）、只有年份和 `blank` 的那行。汇总页、对账单最后的说明页没有交易行，不影响
+**跳过的行**：`EFFECTIVE DATE ...`（实际消费日期，不拼进描述）、`TOTALS AT END OF PAGE`、`TOTALS AT END OF PERIOD`（前面可能多一个 `blank`；PERIOD 那行最后还有期末余额）、页眉页脚（`Page n of m`、对账单标题、`Account Number`、`Transaction Details`、栏位标题 `Date  Transaction Details ...`）、只有年份和 `blank` 的那行（`blank` 可能是一个或两个）。汇总页、对账单最后的说明页没有交易行，不影响
 
 **年份**：交易行只有日和月。
 

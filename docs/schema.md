@@ -207,7 +207,7 @@ rule_match_type      contains | starts_with
 | card_last4       | char(4)            | null                             | 从描述里提取                           |
 | balance_cents    | integer            | null                             | 银行给的余额（CBA 有，ANZ 没有）       |
 | status           | transaction_status | not null                         |                                        |
-| source           | transaction_source | not null                         |                                        |
+| source           | transaction_source | not null                         | `csv` = 银行导入，ANZ PDF 对账单（R1C）进来的也是 `csv`，批次来源看 `import_batch.source`（M6.6-4 定） |
 | transfer_status  | transfer_status    | not null, default `none`         |                                        |
 | transfer_pair_id | uuid               | FK → transaction, null           | 对应的另一半转账。外键不级联，撤销导入时先清空两边（R12.1） |
 | dedupe_key       | text               | null                             | 只有来自 CSV 的交易有                  |

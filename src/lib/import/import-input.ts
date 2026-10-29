@@ -1,10 +1,14 @@
 // M3-7 导入页的表单校验。前端表单和 Server Action 共用
 // 纯函数，不 import 数据库和 Next.js
 import { z } from 'zod';
+import type { Bank } from '@/lib/accounts/account-input';
 import { parseBalanceToCents } from '@/lib/rules/money';
 
 // 半年流水远远够
 export const MAX_CSV_BYTES = 1024 * 1024;
+
+// ANZ 对账单（R1C，M6.6-4）。Server Action 请求体上限 2 MB（next.config.ts），留余量给表单字段
+export const MAX_PDF_BYTES = 1.5 * 1024 * 1024;
 
 // 余额输入框：单位是元。空 → null；允许从 PDF 对账单抄来的 $ 和千分位逗号，可以是 0 或负数
 // 去掉 $、逗号、空格后按 R1.0-4 的规则转成整数分，格式不对抛错
@@ -56,4 +60,27 @@ export function checkCsvFile(file: { name: string; size: number }): string | nul
   if (file.size === 0) return '文件是空的';
   if (file.size > MAX_CSV_BYTES) return '文件不能超过 1 MB';
   return null;
+}
+
+// ANZ 对账单（R1C）的文件检查：只要 .pdf、不超过 1.5 MB、不是空文件。返回错误信息，没问题返回 null
+export function checkPdfFile(file: { name: string; size: number }): string | null {
+  if (!/.\.pdf$/i.test(file.name)) return '只支持 .pdf 文件';
+  if (file.size === 0) return '文件是空的';
+  if (file.size > MAX_PDF_BYTES) return '文件不能超过 1.5 MB';
+  return null;
+}
+
+export type ImportFileKind = 'csv' | 'pdf';
+
+// 导入页的文件检查（M6.6-6）：ANZ 收 .csv 和 .pdf 对账单（R1C），CBA 只收 .csv
+// 按扩展名分，大小按各自的上限。kind = null 表示这种文件不能导入
+export function checkImportFile(
+  file: { name: string; size: number },
+  bank: Bank,
+): { kind: ImportFileKind | null; error: string | null } {
+  if (bank === 'anz' && /.\.pdf$/i.test(file.name)) {
+    return { kind: 'pdf', error: checkPdfFile(file) };
+  }
+  if (/.\.csv$/i.test(file.name)) return { kind: 'csv', error: checkCsvFile(file) };
+  return { kind: null, error: bank === 'anz' ? '只支持 .csv 或 .pdf 文件' : '只支持 .csv 文件' };
 }
