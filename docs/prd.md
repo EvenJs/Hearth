@@ -240,7 +240,7 @@
 - 统计增强：任意两个时间段对比、超过 12 个月的长期趋势
 - 导出筛选结果（CSV / Excel / PDF）
 - 税务增强：业务开支抵扣、Medicare levy 低收入减免、GST 处理（以后老婆注册 GST 时）
-- ANZ Plus PDF 对账单解析
+- ANZ Plus PDF 对账单解析（2026-10-29 排到 M7.5，见 roadmap）
 
 ### AI 功能（都在 MVP 之后）
 

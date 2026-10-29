@@ -324,6 +324,8 @@ Male 没有 tax_profile 也没有税前收入 → 全部为 0，卡片提示去�
 
 `anz-statement/` 里是**编的**对账单文字，模拟 `unpdf` 读出来再拼成行的样子（R1C 第一层的输出），不是 PDF，也不是真对账单。格式照真实对账单的结构：表头、汇总、交易行最后三段是"支出 / 存入 / 余额"（空的写 `blank`）、多行描述、`EFFECTIVE DATE` 行、每页的 `TOTALS AT END OF PAGE`、页眉。分页用单独一行 `<<<PAGE>>>`。
 
+标题都是 `ANZ ACCESS ADVANTAGE STATEMENT`。Progress Saver 的标题 `PROGRESS SAVER ACCOUNT STATEMENT`（没有 `ANZ`，R1C 2026-10-29 改）不单独编文件，测试里把 `joint-2026-09.txt` 的标题换掉再解析。
+
 2026-10-29 照 `unpdf` 读真实对账单的样子改过（R1C）：汇总页左右两栏拼在一起，标签带冒号、`$` 和金额在后面几行；`Account Number` 的号码在下面两行；`OPENING BALANCE` 那行只有余额，`blank  blank` 在上面年份那行；合计行前面多一个 `blank`，`TOTALS AT END OF PERIOD` 最后还有期末余额。账号用测试家庭的假尾号，金额、期初是编的。
 
 账期照真实对账单的样子，同一天首尾相接：`31 AUGUST 2026 TO 30 SEPTEMBER 2026` 包含的是 9/1 到 9/30（R1C：`(periodFrom, periodTo]`）。
