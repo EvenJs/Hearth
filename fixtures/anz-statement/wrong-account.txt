@@ -1,21 +1,34 @@
 ANZ ACCESS ADVANTAGE STATEMENT
-Statement Period  31 AUGUST 2026 TO 30 SEPTEMBER 2026
-Page 1 of 2
+STATEMENT NUMBER 9
+31 AUGUST 2026 TO 30 SEPTEMBER 2026
 TEST HOUSEHOLD
 1 EXAMPLE STREET
 MELBOURNE VIC 3000
-Account Number  1234-50002
+Welcome to your ANZ account at a glance
 Account Summary
-Opening Balance  $
-5,000.00
-Total Deposits  $2,432.30
-Total Withdrawals  $
+Opening Balance:
+TEST HOUSEHOLD
+$
+JOINT ACCOUNT  5,000.00
+Branch Number (BSB)  Total Deposits:
+012-345  $
+2,432.30
+Account Number
+Total Withdrawals:
+1234-50002
+$
 1,047.20
-Closing Balance  $6,385.10
+Closing Balance:
+$
+6,385.10
+Need to get in touch?
+Page 1 of 2
+Account Number 1234-50002
 Transaction Details
+Please retain this statement for taxation purposes
 Date  Transaction Details  Withdrawals ($)  Deposits ($)  Balance ($)
 2026  blank  blank
-31 AUG  OPENING BALANCE  blank  blank  5,000.00
+31 AUG  OPENING BALANCE  5,000.00
 01 SEP  VISA DEBIT PURCHASE CARD 1111 COLES 0559 MELBOURNE  58.40  blank  4,941.60
 EFFECTIVE DATE 30 AUG 2026
 02 SEP  ANZ M-BANKING FUNDS TFER TRANSFER 100003  blank  300.00  5,241.60
@@ -32,12 +45,12 @@ EFFECTIVE DATE 06 SEP 2026
 15 SEP  ANZ M-BANKING FUNDS TFER TRANSFER 100002  500.00  blank  6,616.65
 TO  012345400000003
 18 SEP  EFTPOS MEDICARE BENEFIT  blank  45.80  6,662.45
-TOTALS AT END OF PAGE  $684.85  $2,347.30
+blank  TOTALS AT END OF PAGE  $684.85  $2,347.30
 <<<PAGE>>>
 ANZ ACCESS ADVANTAGE STATEMENT
-Page 2 of 2
-Account Number  1234-50002
+Account Number 1234-50002
 Transaction Details
+Please retain this statement for taxation purposes
 Date  Transaction Details  Withdrawals ($)  Deposits ($)  Balance ($)
 20 SEP  VISA DEBIT PURCHASE CARD 2222 CROWN ASIAN SPENCER  38.75  blank  6,623.70
 DOCKLANDS
@@ -57,6 +70,6 @@ EFFECTIVE DATE 26 SEP 2026
 30 SEP  REVERSAL OF ACCOUNT SERVICING FEE  blank  5.00  6,385.10
 MINIMUM $2000 IN DEPOSITS
 RECEIVED
-TOTALS AT END OF PERIOD  $1,047.20  $2,432.30
+TOTALS AT END OF PERIOD  $1,047.20  $2,432.30  $6,385.10
 This statement is made up for tests. It is not a real ANZ statement.
 Please check your transactions carefully.

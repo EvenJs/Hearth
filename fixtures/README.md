@@ -322,7 +322,9 @@ Male 没有 tax_profile 也没有税前收入 → 全部为 0，卡片提示去�
 
 ## ANZ 对账单用例（R1C、R12.2，M6.6）
 
-`anz-statement/` 里是**编的**对账单文字，模拟 `unpdf` 读出来再拼成行的样子（R1C 第一层的输出），不是 PDF，也不是真对账单。格式照真实对账单的结构：表头、汇总、交易行最后三段是"支出 / 存入 / 余额"（空的写 `blank`）、多行描述、`EFFECTIVE DATE` 行、每页的 `TOTALS AT END OF PAGE`、页眉。分页用单独一行 `<<<PAGE>>>`。账号用测试家庭的假尾号，金额、期初是编的。
+`anz-statement/` 里是**编的**对账单文字，模拟 `unpdf` 读出来再拼成行的样子（R1C 第一层的输出），不是 PDF，也不是真对账单。格式照真实对账单的结构：表头、汇总、交易行最后三段是"支出 / 存入 / 余额"（空的写 `blank`）、多行描述、`EFFECTIVE DATE` 行、每页的 `TOTALS AT END OF PAGE`、页眉。分页用单独一行 `<<<PAGE>>>`。
+
+2026-10-29 照 `unpdf` 读真实对账单的样子改过（R1C）：汇总页左右两栏拼在一起，标签带冒号、`$` 和金额在后面几行；`Account Number` 的号码在下面两行；`OPENING BALANCE` 那行只有余额，`blank  blank` 在上面年份那行；合计行前面多一个 `blank`，`TOTALS AT END OF PERIOD` 最后还有期末余额。账号用测试家庭的假尾号，金额、期初是编的。
 
 账期照真实对账单的样子，同一天首尾相接：`31 AUGUST 2026 TO 30 SEPTEMBER 2026` 包含的是 9/1 到 9/30（R1C：`(periodFrom, periodTo]`）。
 
@@ -333,7 +335,7 @@ Male 没有 tax_profile 也没有税前收入 → 全部为 0，卡片提示去�
 | `joint-2026-11-gap.txt` | `31 OCTOBER 2026 TO 30 NOVEMBER 2026`，期初比上一份的期末多 100.00，2 笔交易 |
 | `broken-balance.txt` | 和 `joint-2026-09.txt` 一样，第 2 页第 3 笔的余额改错 |
 | `wrong-account.txt` | 和 `joint-2026-09.txt` 一样，账号以 `0002` 结尾 |
-| `year-rollover.txt` | `15 DECEMBER 2026 TO 15 JANUARY 2027`，DEC 和 JAN 各有交易 |
+| `year-rollover.txt` | `15 DECEMBER 2026 TO 15 JANUARY 2027`，DEC 和 JAN 各有交易。JAN 前面有 `2027  blank` 那行，JAN 第一笔（存入）只剩金额、余额两段（R1C 换年的例外） |
 | `first-day.txt` | 和 `joint-2026-09.txt` 一样，多一笔 `31 AUG` 的交易 |
 
 | 用例 | 前置 | 操作 | 期望 |
