@@ -18,9 +18,15 @@ import type { Bank } from '@/lib/accounts/account-input';
 import { canImportCsv } from '@/lib/import/banks';
 import { parseAnzStatement, type StatementLine } from '@/lib/import/anz-statement';
 import { checkBalanceContinuity, deriveBalances, type BalanceWarning } from '@/lib/import/cba';
+import {
+  csvGapWarning,
+  importCoverage,
+  type ImportCoverage,
+  type ImportGap,
+} from '@/lib/import/coverage';
 import { checkPdfFile } from '@/lib/import/import-input';
 import { processFile, processRows, type HouseholdConfig } from '@/lib/import/process';
-import { addDays } from '@/lib/rules/periods';
+import { addDays, todayInMelbourne } from '@/lib/rules/periods';
 import { bySystemKey } from '@/lib/rules/classify';
 import { confirmPendingTransfer, findPendingMatches } from '@/lib/rules/pending';
 import { pendingsToCheck, reconcile, type Reconciliation } from '@/lib/rules/reconcile';
@@ -80,6 +86,7 @@ export type ImportWarnings = {
   pendingTransferSplits: string[]; // R8.3 例外：pending 有多个拆分，没改，F8 提示
   reconciliation: Reconciliation; // R9，差额只能在导入时算准，存下来给结果页
   statementContinuity?: StatementContinuity; // R12.2，只有 PDF 批次有
+  importGap?: ImportGap; // R12.2，只有 CSV 批次、和以前的导入没有重叠时才有
 };
 
 // 本次新插入的交易和被确认的 pending
@@ -390,6 +397,24 @@ async function findStatementContinuity(
     : { status: 'mismatch', previous: prev, differenceCents };
 }
 
+// R12.2：这个账户所有导入批次的来源和 date_to
+async function loadCoverageBatches(q: Tx | typeof db, ctx: HouseholdContext, accountId: string) {
+  return q
+    .select({ source: importBatch.source, dateTo: importBatch.dateTo })
+    .from(importBatch)
+    .where(and(eq(importBatch.householdId, ctx.householdId), eq(importBatch.accountId, accountId)))
+    .then((rows) => rows.map((r) => ({ source: r.source as 'csv' | 'pdf', dateTo: r.dateTo })));
+}
+
+// R12.2 导入前：上次导到哪天、建议导出范围、对账单导到哪天。账户不属于这个家庭时和没导入过一样
+export async function getImportCoverage(
+  ctx: HouseholdContext,
+  accountId: string,
+  today: string = todayInMelbourne(),
+): Promise<ImportCoverage> {
+  return importCoverage(await loadCoverageBatches(db, ctx, accountId), today);
+}
+
 // ---------- R12 第 3 到 9 步：一个事务。CSV 和对账单共用 ----------
 async function runImport(ctx: HouseholdContext, p: PreparedImport): Promise<ImportSuccess> {
   const { config, account, rows, dateFrom, dateTo, openingBalanceCents, closingBalanceCents } = p;
@@ -400,11 +425,20 @@ async function runImport(ctx: HouseholdContext, p: PreparedImport): Promise<Impo
     const possibleDuplicates: ImportWarnings['possibleDuplicates'] = [];
     const pendingTransferSplits: string[] = [];
 
-    // R12.2：在创建本次批次之前找上一份，免得找到自己
+    // R12.2：在创建本次批次之前找，免得找到自己
+    // PDF：首尾衔接。CSV：和这个账户所有批次（CSV、PDF）里最大的 date_to 比，没有重叠就警告
     const statementContinuity =
       p.source === 'pdf'
         ? await findStatementContinuity(tx, ctx, account.id, dateTo, openingBalanceCents)
         : undefined;
+    const importGap =
+      p.source === 'csv'
+        ? csvGapWarning(
+            dateFrom,
+            importCoverage(await loadCoverageBatches(tx, ctx, account.id), todayInMelbourne())
+              .lastDateTo,
+          )
+        : null;
 
     // 4. 创建 import_batch，计数最后再更新
     const [batch] = await tx
@@ -624,6 +658,8 @@ async function runImport(ctx: HouseholdContext, p: PreparedImport): Promise<Impo
       reconciliation,
       // CSV 批次不带这个字段
       ...(statementContinuity === undefined ? {} : { statementContinuity }),
+      // 没有空档就不带这个字段
+      ...(importGap === null ? {} : { importGap }),
     };
     await tx
       .update(importBatch)
