@@ -51,6 +51,7 @@ import { categoryColor } from '@/lib/transactions/category-color';
 import {
   draftToForm,
   formToRaw,
+  groupCategories,
   itemCategoryHints,
   liveCheck,
   type ReceiptFormValues,
@@ -767,19 +768,6 @@ export function ReceiptReview({ variant, draft, fixedTransactionId, onClose }: P
 function defaultTarget(c: ReceiptCandidatesResult | null): string | null {
   if (c === null || c.candidates.length === 0) return NEW;
   return c.defaultId;
-}
-
-// `一级 / 二级` → 按一级分组，保持原来的顺序
-function groupCategories(categories: readonly { id: string; label: string }[]) {
-  const groups: { top: string; items: { id: string; name: string }[] }[] = [];
-  for (const c of categories) {
-    const [top, ...rest] = c.label.split(' / ');
-    const name = rest.join(' / ') || top;
-    const last = groups.at(-1);
-    if (last && last.top === top) last.items.push({ id: c.id, name });
-    else groups.push({ top, items: [{ id: c.id, name }] });
-  }
-  return groups;
 }
 
 // 空着的字段先不标红（手动填刚打开时全是空的）；填了但格式不对才显示。空的照样不能保存

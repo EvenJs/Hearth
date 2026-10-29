@@ -10,6 +10,7 @@ import {
   centsToReceiptInput,
   draftToForm,
   formToRaw,
+  groupCategories,
   itemCategoryHints,
   liveCheck,
 } from './receipt-form';
@@ -155,5 +156,41 @@ describe('itemCategoryHints（R20.3 第 1 步）', () => {
         { key: 'b', name: 'Y', amount: '2.00', categoryId: null },
       ]),
     ).toEqual(['main', 'main']);
+  });
+});
+
+describe('groupCategories（分类下拉）', () => {
+  it('the same top in several runs becomes one group (unique keys), first-seen order kept', () => {
+    const groups = groupCategories([
+      { id: 'a', label: 'Entertainment & eat-out / Restaurants' },
+      { id: 'b', label: 'Groceries / Supermarket' },
+      { id: 'c', label: 'Entertainment & eat-out / Bubble tea' },
+      { id: 'd', label: 'Groceries / Asian grocery' },
+    ]);
+    expect(groups).toEqual([
+      {
+        top: 'Entertainment & eat-out',
+        items: [
+          { id: 'a', name: 'Restaurants' },
+          { id: 'c', name: 'Bubble tea' },
+        ],
+      },
+      {
+        top: 'Groceries',
+        items: [
+          { id: 'b', name: 'Supermarket' },
+          { id: 'd', name: 'Asian grocery' },
+        ],
+      },
+    ]);
+  });
+
+  it('the test household: every top appears once and no category is lost', () => {
+    const groups = groupCategories(CATEGORIES);
+    const tops = groups.map((g) => g.top);
+    expect(new Set(tops).size).toBe(tops.length);
+    expect(groups.flatMap((g) => g.items.map((i) => i.id)).sort()).toEqual(
+      CATEGORIES.map((c) => c.id).sort(),
+    );
   });
 });

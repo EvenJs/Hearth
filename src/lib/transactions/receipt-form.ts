@@ -128,3 +128,19 @@ export function itemCategoryHints(items: readonly ReceiptItemValue[]): ItemCateg
     return negative && index > 0 ? 'previous' : 'main';
   });
 }
+
+// 分类下拉（设计图 14）：`一级 / 二级` 按一级分组，选项只写二级
+// 同一个一级不管在列表里出现几段都合成一组；组按一级第一次出现的顺序，组里按原来的顺序
+export type CategoryGroup = { top: string; items: { id: string; name: string }[] };
+
+export function groupCategories(categories: readonly ReceiptCategoryOption[]): CategoryGroup[] {
+  const groups = new Map<string, CategoryGroup>();
+  for (const c of categories) {
+    const [top, ...rest] = c.label.split(' / ');
+    const name = rest.join(' / ') || top;
+    const group = groups.get(top) ?? { top, items: [] };
+    group.items.push({ id: c.id, name });
+    groups.set(top, group);
+  }
+  return [...groups.values()];
+}
