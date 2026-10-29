@@ -71,16 +71,16 @@ const updateSchema = z
     message: '没有要改的字段',
   });
 
-type StoredSplit = SplitRow & { id: string };
+export type StoredSplit = SplitRow & { id: string };
 
-type LoadedTx = Omit<SplitTx, 'splits'> & {
+export type LoadedTx = Omit<SplitTx, 'splits'> & {
   id: string;
   transferStatus: TransferStatus;
   splits: StoredSplit[];
 };
 
-// 锁住交易和它所有的拆分，读出 R15 和 R5 要用的字段
-async function lockTransaction(
+// 锁住交易和它所有的拆分，读出 R15 和 R5 要用的字段（小票挂交易也用，R20.3）
+export async function lockTransaction(
   tx: DbTx,
   ctx: HouseholdContext,
   transactionId: string,
@@ -155,8 +155,8 @@ function assertInvariant(t: LoadedTx, splits: readonly SplitRow[]): void {
 }
 
 // 把新的拆分列表写回：id 为 null 的新建，列表里没有的删除，其他的有变化才更新
-// 返回新建拆分的 id（没有新建时为 null）
-async function writeSplits(
+// 返回新建拆分的 id（没有新建时为 null）。小票拆分也用它写（R20.3），写之前同样检查 R15.1
+export async function writeSplits(
   tx: DbTx,
   ctx: HouseholdContext,
   t: LoadedTx,

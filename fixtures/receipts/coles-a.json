@@ -1,0 +1,30 @@
+{
+  "merchant": "COLES",
+  "date": "31/08/2026",
+  "total": "$58.40",
+  "items": [
+    { "name": "MILK 3L", "amount": "4.50", "category": null },
+    { "name": "BANANAS PERKG", "amount": "3.20", "category": null },
+    { "name": "KIWIFRUIT GOLD", "amount": "6.80", "category": null },
+    { "name": "KIWIFRUIT 4 FOR $6", "amount": "-$0.80", "category": null },
+    {
+      "name": "PAPER TOWEL 2PK",
+      "amount": "$6.00",
+      "category": "Home & utilities / Household supplies"
+    },
+    {
+      "name": "DISHWASHING LIQUID",
+      "amount": "9.00",
+      "category": "Home & utilities / Household supplies"
+    },
+    {
+      "name": "SHAMPOO 400ML",
+      "amount": "12.00",
+      "category": "Personal & medical / Cosmetics & toiletries"
+    },
+    { "name": "WHITE BREAD", "amount": "4.70", "category": null },
+    { "name": "TASTY CHEESE", "amount": "13.00", "category": null }
+  ],
+  "discounts": [],
+  "payment": { "method": "card", "cardLast4": "1111" }
+}

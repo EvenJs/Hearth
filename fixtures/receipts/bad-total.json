@@ -1,0 +1,11 @@
+{
+  "merchant": "TEST MART",
+  "date": "15/09/2026",
+  "total": "31.00",
+  "items": [
+    { "name": "ITEM A", "amount": "10.00", "category": null },
+    { "name": "ITEM B", "amount": "20.00", "category": null }
+  ],
+  "discounts": [],
+  "payment": { "method": "cash", "cardLast4": null }
+}

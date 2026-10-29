@@ -4,18 +4,28 @@ import { fileURLToPath } from 'node:url';
 
 const FIXTURES_DIR = fileURLToPath(new URL('../../fixtures/', import.meta.url));
 
-// 只允许 anz/*.csv、cba/*.csv、anz-statement/*.txt，防止测试误读别的文件
-const FIXTURE_PATH = /^((anz|cba)\/[a-z0-9-]+\.csv|anz-statement\/[a-z0-9-]+\.txt)$/;
+// 只允许 anz/*.csv、cba/*.csv、anz-statement/*.txt、receipts/*.json，防止测试误读别的文件
+const FIXTURE_PATH =
+  /^((anz|cba)\/[a-z0-9-]+\.csv|anz-statement\/[a-z0-9-]+\.txt|receipts\/[a-z0-9-]+\.json)$/;
 
-export type FixturePath = `anz/${string}.csv` | `cba/${string}.csv` | `anz-statement/${string}.txt`;
+export type FixturePath =
+  | `anz/${string}.csv`
+  | `cba/${string}.csv`
+  | `anz-statement/${string}.txt`
+  | `receipts/${string}.json`;
 
 export function readFixture(path: FixturePath): string {
   if (!FIXTURE_PATH.test(path)) {
     throw new Error(
-      `fixture 路径不对: ${path}（只能是 anz/*.csv、cba/*.csv 或 anz-statement/*.txt）`,
+      `fixture 路径不对: ${path}（只能是 anz/*.csv、cba/*.csv、anz-statement/*.txt 或 receipts/*.json）`,
     );
   }
   return readFileSync(FIXTURES_DIR + path, 'utf8');
+}
+
+// R20.1 小票 fixture：假 reader 的原始结果，JSON.parse 后原样返回，没经过 Zod
+export function readReceiptFixture(name: `${string}.json`): unknown {
+  return JSON.parse(readFixture(`receipts/${name}`));
 }
 
 // R1C 第一层的输出格式：一行一个 { page, text }，页码从 1 开始

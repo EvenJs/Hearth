@@ -15,12 +15,16 @@ import { listAccounts } from '@/server/accounts';
 import { listCategoryTree } from '@/server/categories';
 import { getHouseholdContext } from '@/server/context';
 import { listMembers } from '@/server/members';
+import { getReceiptReader } from '@/server/receipt-readers';
+import { getTransactionReceipt } from '@/server/receipts';
 import { getTransaction, type TransactionDetail } from '@/server/transactions';
 import { formatTxDate } from '../format';
 import type { EditOptions } from '../inline-edit';
 import { TxBadges } from '../tx-badges';
 import { ManualActions } from './manual-actions';
+import { ReceiptSection } from './receipt-section';
 import { SplitSection } from './split-section';
+import { UploadReceiptButton } from './upload-receipt-button';
 
 // F8 交易详情和拆分（设计图 04，M4-10）
 // 手动录入、还没被导入确认的交易能编辑、删除整笔（R17.5，M6-5）；可能重复的对方列在下面（R17.6）
@@ -53,11 +57,12 @@ async function DetailSection({
   const ctx = await getHouseholdContext();
   await connection(); // "今天"每次请求重新算
   const today = todayInMelbourne();
-  const [tx, members, categories, accounts] = await Promise.all([
+  const [tx, members, categories, accounts, receipt] = await Promise.all([
     getTransaction(ctx, id),
     listMembers(ctx),
     listCategoryTree(ctx),
     listAccounts(ctx), // 编辑整笔时选账户（没归档的）
+    getTransactionReceipt(ctx, id), // R20.7：挂了小票的显示明细
   ]);
   if (!tx) notFound();
 
@@ -86,17 +91,27 @@ async function DetailSection({
         tx={tx}
         today={today}
         actions={
-          <ManualActions
-            tx={tx}
-            accounts={accounts.map(({ id, name, bank }) => ({ id, name, bank }))}
-            today={today}
-            listHref={listHref}
-          />
+          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+            {/* R20.4：支出、不是转账、还没挂小票 */}
+            {tx.amountCents < 0 && tx.transferStatus === 'none' && !receipt && (
+              <UploadReceiptButton
+                transactionId={tx.id}
+                inputMode={getReceiptReader()?.input === 'image' ? 'image' : null}
+              />
+            )}
+            <ManualActions
+              tx={tx}
+              accounts={accounts.map(({ id, name, bank }) => ({ id, name, bank }))}
+              today={today}
+              listHref={listHref}
+            />
+          </div>
         }
       />
       <DuplicatesCard tx={tx} today={today} detailHref={detailHref} />
       <InfoCard tx={tx} today={today} pairHref={tx.pair ? detailHref(tx.pair.id) : null} />
       <SplitSection tx={tx} options={options} />
+      {receipt && <ReceiptSection receipt={receipt} today={today} />}
     </>
   );
 }

@@ -105,7 +105,12 @@ describe('planUndo（R12.1）', () => {
         reset('ANZ Joint#7', member('Home'), 'account', 'suggested'),
         { id: 'ANZ Joint#17', case: 'auto_still_detected', action: 'unpair' },
       ],
-      prompt: { manualEditedCount: 0, confirmedPendingCount: 0, needsConfirm: false },
+      prompt: {
+        manualEditedCount: 0,
+        confirmedPendingCount: 0,
+        receiptCount: 0,
+        needsConfirm: false,
+      },
     });
   });
 
@@ -128,7 +133,12 @@ describe('planUndo（R12.1）', () => {
 
     expect(planUndo({ batchTxs: cbaTxs, counterparts: all, ...config })).toEqual({
       counterparts: [{ id: 'ANZ Joint#11', case: 'auto_still_detected', action: 'unpair' }],
-      prompt: { manualEditedCount: 2, confirmedPendingCount: 0, needsConfirm: true },
+      prompt: {
+        manualEditedCount: 2,
+        confirmedPendingCount: 0,
+        receiptCount: 0,
+        needsConfirm: true,
+      },
     });
   });
 
@@ -142,7 +152,12 @@ describe('planUndo（R12.1）', () => {
 
     expect(planUndo({ batchTxs: jointTxs, counterparts: cbaTxs, ...config })).toEqual({
       counterparts: [reset('CBA Female#10', member('Female'), 'account', 'auto_not_detected')],
-      prompt: { manualEditedCount: 0, confirmedPendingCount: 0, needsConfirm: false },
+      prompt: {
+        manualEditedCount: 0,
+        confirmedPendingCount: 0,
+        receiptCount: 0,
+        needsConfirm: false,
+      },
     });
   });
 
@@ -158,7 +173,12 @@ describe('planUndo（R12.1）', () => {
         reset('ANZ Joint#7', member('Home'), 'account', 'confirmed'),
         { id: 'ANZ Joint#17', case: 'auto_still_detected', action: 'unpair' },
       ],
-      prompt: { manualEditedCount: 1, confirmedPendingCount: 0, needsConfirm: true },
+      prompt: {
+        manualEditedCount: 1,
+        confirmedPendingCount: 0,
+        receiptCount: 0,
+        needsConfirm: true,
+      },
     });
   });
 
@@ -197,6 +217,7 @@ describe('planUndo（R12.1）', () => {
     expect(planUndo({ batchTxs: jointTxs, counterparts: [], ...config }).prompt).toEqual({
       manualEditedCount: 0,
       confirmedPendingCount: 2,
+      receiptCount: 0,
       needsConfirm: true,
     });
   });
@@ -212,6 +233,7 @@ describe('planUndo（R12.1）', () => {
     expect(planUndo({ batchTxs: meTxs, counterparts: [], ...config }).prompt).toEqual({
       manualEditedCount: 4,
       confirmedPendingCount: 0,
+      receiptCount: 0,
       needsConfirm: true,
     });
   });
@@ -233,6 +255,30 @@ describe('planUndo（R12.1）', () => {
     ).toBe(0);
   });
 
+  it('R12.1 R-U: #19 with a receipt attached (otherwise untouched) → prompt "挂了小票 1 笔", counted as a manual edit too', () => {
+    const jointTxs = load('anz/joint-2026-09.csv', joint);
+    find(jointTxs, 'ANZ Joint#19').hasReceipt = true;
+    expect(planUndo({ batchTxs: jointTxs, counterparts: [], ...config }).prompt).toEqual({
+      manualEditedCount: 1,
+      confirmedPendingCount: 0,
+      receiptCount: 1,
+      needsConfirm: true,
+    });
+  });
+
+  it('R12.1 + R20.7: a restored pending keeps its receipt → not counted in "挂了小票"', () => {
+    const jointTxs = load('anz/joint-2026-09.csv', joint);
+    const p = find(jointTxs, 'ANZ Joint#19');
+    p.wasPending = true;
+    p.hasReceipt = true;
+    expect(planUndo({ batchTxs: jointTxs, counterparts: [], ...config }).prompt).toEqual({
+      manualEditedCount: 0,
+      confirmedPendingCount: 1,
+      receiptCount: 0,
+      needsConfirm: true,
+    });
+  });
+
   it('R12.1 + R8.3: a restored pending (P10) paired with CBA #10 → CBA #10 is handled too', () => {
     const jointTxs = load('anz/joint-2026-09.csv', joint);
     const cbaTxs = load('cba/female-2026-09.csv', female);
@@ -246,7 +292,12 @@ describe('planUndo（R12.1）', () => {
 
     expect(planUndo({ batchTxs: jointTxs, counterparts: cbaTxs, ...config })).toEqual({
       counterparts: [reset('CBA Female#10', member('Female'), 'account', 'auto_not_detected')],
-      prompt: { manualEditedCount: 0, confirmedPendingCount: 1, needsConfirm: true },
+      prompt: {
+        manualEditedCount: 0,
+        confirmedPendingCount: 1,
+        receiptCount: 0,
+        needsConfirm: true,
+      },
     });
   });
 

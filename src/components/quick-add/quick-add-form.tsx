@@ -4,7 +4,7 @@
 // variant = dialog：电脑弹窗；sheet：手机全屏（05-quick-add-mobile），保存按钮在顶栏右上角，键盘弹出也看得到
 // 字段顺序：金额和支出 / 收入、描述、分类（常用 chips + "更多…"）、账户 / 日期 / 归属人
 // 表单状态怎么变见 src/lib/transactions/quick-add.ts；保存时的校验全部在服务端（buildManualTransaction）
-import { Check, ChevronDown, CircleCheck, Clock, Sparkles, X } from 'lucide-react';
+import { Camera, Check, ChevronDown, CircleCheck, Clock, Sparkles, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
@@ -57,9 +57,11 @@ type Props = {
   data: QuickAddData | null; // null = 还在加载，金额已经能输
   loadError: string | null;
   onClose: () => void;
+  // 有就显示"拍小票"（M6.7-7）：关掉这个表单，开始拍小票的流程
+  onReceipt?: () => void;
 };
 
-export function QuickAddForm({ variant, data, loadError, onClose }: Props) {
+export function QuickAddForm({ variant, data, loadError, onClose, onReceipt }: Props) {
   const sheet = variant === 'sheet';
   const amountRef = useRef<HTMLInputElement>(null);
   const [errors, setErrors] = useState<FieldErrors>({});
@@ -226,30 +228,43 @@ export function QuickAddForm({ variant, data, loadError, onClose }: Props) {
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between gap-3">
             <Label htmlFor="quick-add-amount">金额</Label>
-            <div
-              role="radiogroup"
-              aria-label="支出或收入"
-              className="flex rounded-md bg-muted p-0.5"
-            >
-              {KINDS.map((k) => (
-                <button
-                  key={k.value}
+            <div className="flex items-center gap-2">
+              {onReceipt && (
+                <Button
                   type="button"
-                  role="radio"
-                  aria-checked={kind === k.value}
-                  onClick={() => setKind(k.value)}
-                  className={cn(
-                    'rounded-sm px-3 py-1 text-sm transition-colors',
-                    kind === k.value
-                      ? k.value === 'income'
-                        ? 'bg-emerald-600 text-white shadow-xs'
-                        : 'bg-primary text-primary-foreground shadow-xs'
-                      : 'text-muted-foreground hover:text-foreground',
-                  )}
+                  variant="outline"
+                  size={sheet ? 'default' : 'sm'}
+                  onClick={onReceipt}
                 >
-                  {k.label}
-                </button>
-              ))}
+                  <Camera className="size-4" />
+                  拍小票
+                </Button>
+              )}
+              <div
+                role="radiogroup"
+                aria-label="支出或收入"
+                className="flex rounded-md bg-muted p-0.5"
+              >
+                {KINDS.map((k) => (
+                  <button
+                    key={k.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={kind === k.value}
+                    onClick={() => setKind(k.value)}
+                    className={cn(
+                      'rounded-sm px-3 py-1 text-sm transition-colors',
+                      kind === k.value
+                        ? k.value === 'income'
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : 'bg-primary text-primary-foreground shadow-xs'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    {k.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
           <div className="relative">
