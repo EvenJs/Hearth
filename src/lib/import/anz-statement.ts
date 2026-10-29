@@ -4,6 +4,7 @@
 // 纯函数，不 import 数据库和 Next.js
 import { parseAuDate } from '@/lib/rules/date';
 import { formatAud, parseAmountToCents, parseBalanceToCents } from '@/lib/rules/money';
+import { addDays } from '@/lib/rules/periods';
 import type { ParsedRow } from '@/lib/rules/types';
 
 export type StatementLine = { page: number; text: string };
@@ -450,3 +451,8 @@ function pad(n: number): string {
 
 // 错误信息里的金额
 const cents = formatAud;
+
+// R1C：批次存 date_from = periodFrom 的第二天、date_to = periodTo。页面上显示纸面对账单印的账期
+export function statementPeriod(dateFrom: string, dateTo: string): { from: string; to: string } {
+  return { from: addDays(dateFrom, -1), to: dateTo };
+}

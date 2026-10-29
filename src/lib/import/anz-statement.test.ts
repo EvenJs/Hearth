@@ -6,7 +6,7 @@ import {
 } from '../../../tests/helpers/fixtures';
 import { normalizeDescription } from '@/lib/rules/dedupe';
 import type { ParsedRow } from '@/lib/rules/types';
-import { parseAnzStatement } from './anz-statement';
+import { parseAnzStatement, statementPeriod } from './anz-statement';
 import { parseBankCsv } from './index';
 
 // 期望值来自 business-rules.md R1C、R1C.1 和 fixtures/README.md "ANZ 对账单用例"
@@ -348,6 +348,23 @@ describe('parseAnzStatement（R1C）', () => {
       const text = JOINT_TEXT.replace(pattern, '');
       expect(text).not.toBe(JOINT_TEXT);
       expectFailure(parseAnzStatement(toStatementLines(text), SUFFIX));
+    });
+  });
+});
+
+// M6.6-6：页面显示纸面账期。批次存的是 (periodFrom, periodTo]，date_from = periodFrom 的第二天
+describe('statementPeriod（R1C）', () => {
+  it('R1C: date_from 2026-09-01 → statement period 2026-08-31 to 2026-09-30', () => {
+    expect(statementPeriod('2026-09-01', '2026-09-30')).toEqual({
+      from: '2026-08-31',
+      to: '2026-09-30',
+    });
+  });
+
+  it('R1C: crosses a year', () => {
+    expect(statementPeriod('2026-12-16', '2027-01-15')).toEqual({
+      from: '2026-12-15',
+      to: '2027-01-15',
     });
   });
 });

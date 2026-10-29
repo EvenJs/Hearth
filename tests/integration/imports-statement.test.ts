@@ -8,7 +8,9 @@ import * as schema from '@/db/schema';
 import {
   importCsv,
   importStatement,
+  getImportResult,
   importStatementLines,
+  listImportHistory,
   undoImport,
   type ImportResult,
   type ImportSuccess,
@@ -417,5 +419,42 @@ describeDb('M6.6-4 importStatement', () => {
       }),
     );
     expect(sepAgain.warnings.statementContinuity).toBeNull();
+  });
+
+  // ---------- M6.6-6：结果页、历史页要的字段 ----------
+
+  it('M6.6-6: result view of S4 / S5 carries source and continuity', async () => {
+    expectOk(await importStatementFixture('joint-2026-09.txt'));
+    const s4 = expectOk(await importStatementFixture('joint-2026-10.txt'));
+    const s5 = expectOk(await importStatementFixture('joint-2026-11-gap.txt'));
+
+    expect(await getImportResult(t.ctx, s4.batchId)).toMatchObject({
+      source: 'pdf',
+      dateFrom: '2026-10-01',
+      dateTo: '2026-10-31',
+      statementContinuity: { status: 'connected' },
+      importGap: null,
+    });
+    expect(await getImportResult(t.ctx, s5.batchId)).toMatchObject({
+      source: 'pdf',
+      statementContinuity: { status: 'mismatch', differenceCents: 10000 },
+      importGap: null,
+    });
+  });
+
+  it('M6.6-6: result view of a CSV has no continuity; history marks CSV and PDF', async () => {
+    const csv = await importCsvFixture('anz/joint-2026-09.csv');
+    const pdf = expectOk(await importStatementFixture('joint-2026-10.txt'));
+
+    expect(await getImportResult(t.ctx, csv.batchId)).toMatchObject({
+      source: 'csv',
+      statementContinuity: null,
+      importGap: null,
+    });
+    const history = await listImportHistory(t.ctx);
+    expect(history.map((r) => [r.batchId, r.source])).toEqual([
+      [pdf.batchId, 'pdf'],
+      [csv.batchId, 'csv'],
+    ]);
   });
 });

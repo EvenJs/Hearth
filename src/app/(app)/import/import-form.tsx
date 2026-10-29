@@ -1,7 +1,7 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { AlertCircle, FileText, Info } from 'lucide-react';
+import { AlertCircle, CalendarClock, FileText, Info } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
 import { Badge } from '@/components/ui/badge';
@@ -18,14 +18,15 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { BANK_LABELS, type Bank } from '@/lib/accounts/account-input';
+import type { ImportCoverage } from '@/lib/import/coverage';
 import {
-  checkCsvFile,
+  checkImportFile,
   importFormSchema,
   type ImportFormInput,
   type ImportFormValues,
 } from '@/lib/import/import-input';
 import { cn } from '@/lib/utils';
-import { importCsvAction, type ImportField } from './actions';
+import { importFileAction, type ImportField } from './actions';
 
 export type ImportAccount = {
   id: string;
@@ -33,6 +34,7 @@ export type ImportAccount = {
   bank: Bank;
   numberSuffix: string | null;
   defaultMemberName: string;
+  coverage: ImportCoverage; // R12.2
 };
 
 function formatSize(bytes: number): string {
@@ -90,29 +92,46 @@ function ImportFormInner({
   const accountId = useWatch({ control: form.control, name: 'accountId' });
   const selected = accounts.find((a) => a.id === accountId);
   const isAnz = selected?.bank === 'anz';
+  // R1C：ANZ 账户选了 .pdf 就是对账单，期初期末从汇总页读，不用填
+  const isPdf = selected && file ? checkImportFile(file, selected.bank).kind === 'pdf' : false;
+  const balanceInputs = isAnz && !isPdf;
+
+  // 余额框藏起来时清掉，免得藏起来的输入框挡住提交
+  function clearBalances() {
+    form.setValue('openingBalance', '');
+    form.setValue('closingBalance', '');
+    form.clearErrors(['openingBalance', 'closingBalance']);
+  }
 
   function selectAccount(id: string) {
     form.setValue('accountId', id, { shouldValidate: form.formState.isSubmitted });
-    // CBA 不填余额（R1B.2 自动算），切过去时清掉，免得隐藏的输入框挡住提交
-    if (accounts.find((a) => a.id === id)?.bank !== 'anz') {
-      form.setValue('openingBalance', '');
-      form.setValue('closingBalance', '');
-      form.clearErrors(['openingBalance', 'closingBalance']);
-    }
+    const bank = accounts.find((a) => a.id === id)?.bank;
+    if (!bank) return;
+    // CBA 不填余额（R1B.2 自动算）；已经选的文件按新账户的银行重新检查（CBA 不收 PDF）
+    const kind = file ? checkImportFile(file, bank).kind : null;
+    if (bank !== 'anz' || kind === 'pdf') clearBalances();
+    setFileError(file ? checkImportFile(file, bank).error : null);
   }
 
   function onFileChange(f: File | null) {
     setFile(f);
-    setFileError(f ? checkCsvFile(f) : null);
+    if (!f || !selected) {
+      setFileError(null);
+      return;
+    }
+    const checked = checkImportFile(f, selected.bank);
+    setFileError(checked.error);
+    if (checked.kind === 'pdf') clearBalances();
   }
 
   async function onSubmit() {
     setFormError(null);
+    if (!selected) return;
     if (!file) {
       setFileError('请选择文件');
       return;
     }
-    const err = checkCsvFile(file);
+    const err = checkImportFile(file, selected.bank).error;
     if (err) {
       setFileError(err);
       return;
@@ -121,13 +140,13 @@ function ImportFormInner({
     const values = form.getValues();
     const data = new FormData();
     data.set('accountId', values.accountId);
-    data.set('openingBalance', isAnz ? values.openingBalance : '');
-    data.set('closingBalance', isAnz ? values.closingBalance : '');
+    data.set('openingBalance', balanceInputs ? values.openingBalance : '');
+    data.set('closingBalance', balanceInputs ? values.closingBalance : '');
     data.set('file', file);
 
     // 成功时服务端直接跳到 /import/[batchId]，只有失败才会返回
     onSubmitStart();
-    const result = await importCsvAction(data);
+    const result = await importFileAction(data);
     onSubmitFailed();
     const { file: fileFieldError, ...fieldErrors } = result.fieldErrors ?? {};
     if (fileFieldError) setFileError(fileFieldError);
@@ -190,6 +209,7 @@ function ImportFormInner({
                 </FormItem>
               )}
             />
+            {selected && <CoverageNotice coverage={selected.coverage} />}
             <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
               <Info className="mt-px size-3.5 shrink-0" />
               ANZ Plus 和现金账户不能导入 CSV，用“记一笔”手动录入。
@@ -197,18 +217,22 @@ function ImportFormInner({
           </CardContent>
         </Card>
 
-        {/* 2. 上传 CSV ，选了账户才显示 */}
+        {/* 2. 上传文件，选了账户才显示。ANZ 收 CSV 和 PDF 对账单（R1C），CBA 只收 CSV */}
         {selected && (
           <Card>
             <CardHeader>
-              <CardTitle>2. 上传 CSV</CardTitle>
-              <CardDescription>网银导出的原始 CSV，不超过 1 MB。文件本身不会保存</CardDescription>
+              <CardTitle>{isAnz ? '2. 上传 CSV 或 PDF 对账单' : '2. 上传 CSV'}</CardTitle>
+              <CardDescription>
+                {isAnz
+                  ? '网银导出的原始 CSV（不超过 1 MB），或者网银下载的 PDF 对账单（不超过 1.5 MB）。文件本身不会保存'
+                  : '网银导出的原始 CSV，不超过 1 MB。文件本身不会保存'}
+              </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-2">
               <Input
                 type="file"
-                accept=".csv,text/csv"
-                aria-label="CSV 文件"
+                accept={isAnz ? '.csv,text/csv,.pdf,application/pdf' : '.csv,text/csv'}
+                aria-label={isAnz ? 'CSV 或 PDF 文件' : 'CSV 文件'}
                 aria-invalid={fileError ? true : undefined}
                 onChange={(e) => onFileChange(e.target.files?.[0] ?? null)}
                 className="cursor-pointer"
@@ -225,20 +249,25 @@ function ImportFormInner({
           </Card>
         )}
 
-        {/* 3. 对账（ANZ 可选；CBA 从余额列自动算） */}
+        {/* 3. 对账（ANZ CSV 可选手填；ANZ 对账单从汇总页读；CBA 从余额列自动算） */}
         {selected && (
           <Card>
             <CardHeader>
               <CardTitle>
-                3. 对账 <span className="text-sm font-normal text-muted-foreground">（可选）</span>
+                3. 对账{' '}
+                {balanceInputs && (
+                  <span className="text-sm font-normal text-muted-foreground">（可选）</span>
+                )}
               </CardTitle>
               <CardDescription>
-                {isAnz
-                  ? '可以参考 PDF 对账单填期初和期末余额，检查有没有漏导或重复。不填也能导入'
-                  : 'CBA 的 CSV 带余额列，期初期末会自动算出来，不用填'}
+                {isPdf
+                  ? '对账单的期初和期末余额会从汇总页自动读出来，不用填。还会和上一份对账单检查首尾接不接得上'
+                  : isAnz
+                    ? '可以参考 PDF 对账单填期初和期末余额，检查有没有漏导或重复。不填也能导入；也可以直接导入 PDF 对账单'
+                    : 'CBA 的 CSV 带余额列，期初期末会自动算出来，不用填'}
               </CardDescription>
             </CardHeader>
-            {isAnz && (
+            {balanceInputs && (
               <CardContent className="grid gap-4 sm:grid-cols-2">
                 {(
                   [
@@ -289,5 +318,31 @@ function ImportFormInner({
         )}
       </form>
     </Form>
+  );
+}
+
+// R12.2 导入前：上次导到哪天、建议导出范围、对账单导到哪天。没导入过不显示
+function CoverageNotice({ coverage }: { coverage: ImportCoverage }) {
+  if (coverage.lastDateTo === null) return null;
+  return (
+    <div className="flex items-start gap-2 rounded-md bg-muted px-3 py-2.5 text-sm">
+      <CalendarClock className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <span>
+          上次导入到 <strong className="tabular-nums">{coverage.lastDateTo}</strong>，建议导出{' '}
+          <strong className="tabular-nums">{coverage.suggestedFrom}</strong> 到今天（
+          <span className="tabular-nums">{coverage.suggestedTo}</span>）
+        </span>
+        <span className="text-xs text-muted-foreground">
+          故意往前多选一周，晚入账的会补上，重复的自动跳过。
+        </span>
+        {coverage.statementDateTo && (
+          <span className="text-muted-foreground">
+            对账单已经导到 <span className="tabular-nums">{coverage.statementDateTo}</span>
+            ，下一份从这天开始
+          </span>
+        )}
+      </div>
+    </div>
   );
 }

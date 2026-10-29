@@ -1,15 +1,16 @@
 'use server';
 
-// F2 CSV 导入的 Server Action（M3-7）。输入用 Zod 再校验一次，前端校验可以被绕过
+// F2 导入的 Server Action（M3-7；M6.6-6 加 ANZ PDF 对账单）。输入用 Zod 再校验一次，前端校验可以被绕过
 // 不保存上传的原文件；日志里不打印文件内容和数据库错误详情（参数里可能有交易描述）
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
-import { checkCsvFile, importFormSchema } from '@/lib/import/import-input';
+import { checkImportFile, importFormSchema } from '@/lib/import/import-input';
 import { getHouseholdContext } from '@/server/context';
 import {
   getUndoPreview,
   importCsv,
+  importStatement,
   undoImport,
   type ImportResult,
   type UndoPreview,
@@ -26,7 +27,9 @@ export type ImportActionFailure = {
 const text = (v: FormDataEntryValue | null) => (typeof v === 'string' ? v : '');
 
 // 成功时 redirect 到 /import/[batchId]，不返回
-export async function importCsvAction(formData: FormData): Promise<ImportActionFailure> {
+// 按扩展名分：.pdf 走 ANZ 对账单（R1C，期初期末从汇总页读，忽略填的余额），.csv 照旧
+// 不是 ANZ 账户传了 PDF：importStatement 会拒绝（R1C 只有 ANZ 有解析器），页面上本来也选不了
+export async function importFileAction(formData: FormData): Promise<ImportActionFailure> {
   const ctx = await getHouseholdContext();
 
   const fieldErrors: Partial<Record<ImportField, string>> = {};
@@ -42,25 +45,34 @@ export async function importCsvAction(formData: FormData): Promise<ImportActionF
     }
   }
   const file = formData.get('file');
+  let kind: 'csv' | 'pdf' | null = null;
   if (!(file instanceof File)) {
     fieldErrors.file = '请选择文件';
   } else {
-    const fileError = checkCsvFile(file);
-    if (fileError) fieldErrors.file = fileError;
+    const checked = checkImportFile(file, 'anz');
+    kind = checked.kind;
+    if (checked.error) fieldErrors.file = checked.error;
   }
-  if (!parsed.success || !(file instanceof File) || fieldErrors.file) {
+  if (!parsed.success || !(file instanceof File) || fieldErrors.file || kind === null) {
     return { ok: false, message: '请检查表单', fieldErrors };
   }
 
   let result: ImportResult;
   try {
-    result = await importCsv(ctx, {
-      accountId: parsed.data.accountId,
-      fileName: file.name,
-      text: await file.text(),
-      openingBalanceCents: parsed.data.openingBalanceCents,
-      closingBalanceCents: parsed.data.closingBalanceCents,
-    });
+    result =
+      kind === 'pdf'
+        ? await importStatement(ctx, {
+            accountId: parsed.data.accountId,
+            fileName: file.name,
+            buffer: new Uint8Array(await file.arrayBuffer()),
+          })
+        : await importCsv(ctx, {
+            accountId: parsed.data.accountId,
+            fileName: file.name,
+            text: await file.text(),
+            openingBalanceCents: parsed.data.openingBalanceCents,
+            closingBalanceCents: parsed.data.closingBalanceCents,
+          });
   } catch (err) {
     // 事务已经回滚，什么都没写入
     console.error('[import] 导入失败', err instanceof Error ? err.name : typeof err);
@@ -68,7 +80,11 @@ export async function importCsvAction(formData: FormData): Promise<ImportActionF
   }
 
   if (!result.ok) {
-    // 解析失败的 message 已经带"第 N 行："
+    // 对账单不是 .pdf、太大、是空的
+    if (result.reason === 'invalid_file') {
+      return { ok: false, message: result.message, fieldErrors: { file: result.message } };
+    }
+    // 解析失败的 message 已经带"第 N 行："（CSV）或"第 N 页第 M 笔："（对账单）
     if (result.reason === 'invalid_balance') {
       return {
         ok: false,

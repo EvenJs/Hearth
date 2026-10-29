@@ -742,6 +742,7 @@ export type ImportResultView = {
   fileName: string;
   createdAt: Date;
   account: { id: string; name: string; bank: Bank; numberSuffix: string | null };
+  source: 'csv' | 'pdf'; // pdf = ANZ 对账单（R1C）
   dateFrom: string;
   dateTo: string;
   rowCount: number;
@@ -753,6 +754,8 @@ export type ImportResultView = {
   // 导入时存下来的（差额只有导入时算得准）
   reconciliation: Reconciliation;
   balanceWarnings: BalanceWarning[];
+  statementContinuity: StatementContinuity; // R12.2 首尾衔接，CSV 是 null
+  importGap: ImportGap | null; // R12.2 CSV 和上次之间可能有空档
   // 现在的状态：用户之后分了类、确认了 pending，数字会跟着变
   uncategorizedCount: number;
   pendingToCheck: ResultPending[];
@@ -774,6 +777,7 @@ export async function getImportResult(
       id: importBatch.id,
       fileName: importBatch.fileName,
       createdAt: importBatch.createdAt,
+      source: importBatch.source,
       dateFrom: importBatch.dateFrom,
       dateTo: importBatch.dateTo,
       rowCount: importBatch.rowCount,
@@ -878,6 +882,7 @@ export async function getImportResult(
       bank: batch.bank,
       numberSuffix: batch.numberSuffix,
     },
+    source: batch.source as 'csv' | 'pdf',
     dateFrom: batch.dateFrom,
     dateTo: batch.dateTo,
     rowCount: batch.rowCount,
@@ -888,6 +893,8 @@ export async function getImportResult(
     closingBalanceCents: batch.closingBalanceCents,
     reconciliation: warnings.reconciliation ?? NO_RECONCILIATION,
     balanceWarnings: warnings.balance ?? [],
+    statementContinuity: warnings.statementContinuity ?? null,
+    importGap: warnings.importGap ?? null,
     uncategorizedCount,
     pendingToCheck: pendingsToCheck(stillPending, batch.dateTo).map(
       ({ id, date, amountCents, merchant, memberName, note }) => ({
@@ -911,6 +918,7 @@ export type ImportHistoryRow = {
   createdAt: Date;
   fileName: string;
   account: { id: string; name: string; bank: Bank; numberSuffix: string | null };
+  source: 'csv' | 'pdf'; // pdf = ANZ 对账单（R1C）
   dateFrom: string;
   dateTo: string;
   insertedCount: number;
@@ -928,6 +936,7 @@ export async function listImportHistory(ctx: HouseholdContext): Promise<ImportHi
       id: importBatch.id,
       createdAt: importBatch.createdAt,
       fileName: importBatch.fileName,
+      source: importBatch.source,
       dateFrom: importBatch.dateFrom,
       dateTo: importBatch.dateTo,
       insertedCount: importBatch.insertedCount,
@@ -957,6 +966,7 @@ export async function listImportHistory(ctx: HouseholdContext): Promise<ImportHi
       createdAt: r.createdAt,
       fileName: r.fileName,
       account: { id: r.accountId, name: r.accountName, bank: r.bank, numberSuffix: r.numberSuffix },
+      source: r.source as 'csv' | 'pdf',
       dateFrom: r.dateFrom,
       dateTo: r.dateTo,
       insertedCount: r.insertedCount,

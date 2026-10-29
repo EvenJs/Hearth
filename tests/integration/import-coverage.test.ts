@@ -3,6 +3,7 @@
 import { beforeEach, expect, it } from 'vitest';
 import {
   getImportCoverage,
+  getImportResult,
   importCsv,
   importStatementLines,
   undoImport,
@@ -86,6 +87,11 @@ describeDb('M6.6-5 import coverage', () => {
     expect(result.warnings.importGap).toEqual({
       dateFrom: '2026-10-05',
       previousDateTo: '2026-09-30',
+    });
+    // M6.6-6 结果页
+    expect(await getImportResult(t.ctx, result.batchId)).toMatchObject({
+      source: 'csv',
+      importGap: { dateFrom: '2026-10-05', previousDateTo: '2026-09-30' },
     });
   });
 
