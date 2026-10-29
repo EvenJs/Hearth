@@ -168,6 +168,7 @@ describe('parseAnzStatement（R1C）', () => {
       const result = expectSuccess(
         parseAnzStatement(readStatementFixture('year-rollover.txt'), SUFFIX),
       );
+      expect(result.rows.map((r) => r.amountCents)).toEqual([-4500, -1250, 20000, -3000]);
       expect(result.periodFrom).toBe('2026-12-15');
       expect(result.periodTo).toBe('2027-01-15');
       expect(result.rows.map((r) => r.date)).toEqual([
@@ -178,9 +179,20 @@ describe('parseAnzStatement（R1C）', () => {
       ]);
     });
 
-    it('R1C: a year-only line sets the year (and does not add another year on the next month drop)', () => {
+    it('R1C: without the year-only line, the month drop alone still gives 2027', () => {
       const text = readFixture('anz-statement/year-rollover.txt');
-      const result = expectSuccess(parseEdited('03 JAN  ', '2027  blank  blank\n03 JAN  ', text));
+      const result = expectSuccess(parseEdited('2027  blank\n', '', text));
+      expect(result.rows.map((r) => r.date)).toEqual([
+        '2026-12-20',
+        '2026-12-28',
+        '2027-01-03',
+        '2027-01-10',
+      ]);
+    });
+
+    it('R1C: the year-only line sets the year and does not add another year on the month drop after it', () => {
+      const text = readFixture('anz-statement/year-rollover.txt');
+      const result = expectSuccess(parseEdited('2027  blank\n', '2027  blank  blank\n', text));
       expect(result.rows.map((r) => r.date)).toEqual([
         '2026-12-20',
         '2026-12-28',
@@ -223,26 +235,19 @@ describe('parseAnzStatement（R1C）', () => {
     });
 
     it('R1C: closing balance one cent off from the last row fails', () => {
-      expectFailure(parseEdited('Closing Balance  $6,385.10', 'Closing Balance  $6,385.11'));
+      expectFailure(parseEdited('$\n6,385.10\nNeed', '$\n6,385.11\nNeed'));
     });
 
     it('R1C: summary Total Withdrawals one cent off fails', () => {
-      expectFailure(
-        parseEdited('Total Withdrawals  $\n1,047.20', 'Total Withdrawals  $\n1,047.21'),
-      );
+      expectFailure(parseEdited('$\n1,047.20\nClosing', '$\n1,047.21\nClosing'));
     });
 
     it('R1C: summary Total Deposits one cent off fails', () => {
-      expectFailure(parseEdited('Total Deposits  $2,432.30', 'Total Deposits  $2,432.31'));
+      expectFailure(parseEdited('012-345  $\n2,432.30', '012-345  $\n2,432.31'));
     });
 
     it('R1C: OPENING BALANCE row not equal to the summary opening balance fails', () => {
-      expectFailure(
-        parseEdited(
-          'OPENING BALANCE  blank  blank  5,000.00',
-          'OPENING BALANCE  blank  blank  5,000.01',
-        ),
-      );
+      expectFailure(parseEdited('OPENING BALANCE  5,000.00', 'OPENING BALANCE  5,000.01'));
     });
   });
 
@@ -275,15 +280,70 @@ describe('parseAnzStatement（R1C）', () => {
     });
   });
 
+  describe('真实对账单的格式（R1C，2026-10-29）', () => {
+    it('R1C: summary amount on the same line as the label also works', () => {
+      const result = expectSuccess(
+        parseEdited(
+          'Opening Balance:\nTEST HOUSEHOLD\n$\nJOINT ACCOUNT  5,000.00',
+          'Opening Balance  $5,000.00',
+        ),
+      );
+      expect(result.openingCents).toBe(500000);
+    });
+
+    it('R1C: summary amount more than 4 lines after the label fails', () => {
+      expectFailure(parseEdited('$\n6,385.10\nNeed', '$\nA\nB\nC\n6,385.10\nNeed'));
+    });
+
+    it('R1C: account number on the same line as the label also works', () => {
+      expectSuccess(
+        parseEdited(
+          'Account Number\nTotal Withdrawals:\n1234-50001',
+          'Account Number  1234-50001\nTotal Withdrawals:',
+        ),
+      );
+    });
+
+    it('R1C: OPENING BALANCE with blank blank before the balance also works', () => {
+      expectSuccess(
+        parseEdited('OPENING BALANCE  5,000.00', 'OPENING BALANCE  blank  blank  5,000.00'),
+      );
+    });
+
+    it('R1C: a row ending in only amount and balance is a withdrawal when the balance goes down', () => {
+      const original = expectSuccess(parseAnzStatement(toStatementLines(JOINT_TEXT), SUFFIX));
+      const result = expectSuccess(parseEdited('58.40  blank  4,941.60', '58.40  4,941.60'));
+      expect(result.rows).toEqual(original.rows);
+    });
+
+    it('R1C: a row ending in only amount and balance is a deposit when the balance goes up', () => {
+      const original = expectSuccess(parseAnzStatement(toStatementLines(JOINT_TEXT), SUFFIX));
+      const result = expectSuccess(parseEdited('blank  300.00  5,241.60', '300.00  5,241.60'));
+      expect(result.rows).toEqual(original.rows);
+    });
+
+    it('R1C: a row ending in only amount and balance fails when neither direction gives the balance', () => {
+      const failure = expectFailure(parseEdited('58.40  blank  4,941.60', '58.40  4,941.61'));
+      expect(failure.page).toBe(1);
+      expect(failure.index).toBe(1);
+    });
+
+    it('R1C: blank before TOTALS AT END OF PAGE is skipped, not joined to the last description', () => {
+      expect(JOINT_TEXT).toContain('blank  TOTALS AT END OF PAGE');
+      const result = expectSuccess(parseAnzStatement(toStatementLines(JOINT_TEXT), SUFFIX));
+      expect(result.rows[9].description).toBe('EFTPOS MEDICARE BENEFIT');
+    });
+  });
+
   describe('表头', () => {
     it.each([
       ['the ANZ ... STATEMENT title', /^ANZ ACCESS ADVANTAGE STATEMENT$/gm],
-      ['the period', /^Statement Period .*$/gm],
-      ['the account number', /^Account Number .*$/gm],
-      ['Opening Balance', /^Opening Balance .*\n.*$/gm],
-      ['Closing Balance', /^Closing Balance .*$/gm],
-      ['Total Deposits', /^Total Deposits .*$/gm],
-      ['Total Withdrawals', /^Total Withdrawals .*\n.*$/gm],
+      ['the period', /^\d{2} [A-Z]+ \d{4} TO .*$/gm],
+      ['the account number', /^Account Number.*$/gm],
+      ['Opening Balance', /^Opening Balance:$/gm],
+      ['Closing Balance', /^Closing Balance:$/gm],
+      ['Total Deposits', /Total Deposits:/g],
+      ['Total Withdrawals', /^Total Withdrawals:$/gm],
     ])('R1C: fails when %s is missing', (_label, pattern) => {
       const text = JOINT_TEXT.replace(pattern, '');
       expect(text).not.toBe(JOINT_TEXT);
