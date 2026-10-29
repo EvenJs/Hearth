@@ -381,6 +381,36 @@ export const transactionSplit = pgTable(
   ],
 );
 
+// 小票识别结果（R20）。不存图片
+export const receipt = pgTable(
+  'receipt',
+  {
+    id: id(),
+    householdId: householdId(),
+    // 为空 = 没挂上（撤销导入、删了交易以后，R20.7）
+    transactionId: uuid('transaction_id').references(() => transaction.id, {
+      onDelete: 'set null',
+    }),
+    merchant: text('merchant').notNull(), // R20.2 整理后（脱敏，最长 100）
+    receiptDate: date('receipt_date', { mode: 'string' }).notNull(),
+    totalCents: integer('total_cents').notNull(),
+    // { items, discounts, payment }，用户核对后的版本。不含卡号、人名
+    parsedJson: jsonb('parsed_json').notNull(),
+    reader: text('reader').notNull(), // llm:<模型名> | text | manual（R20.1）
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => user.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('receipt_transaction_id_unique')
+      .on(t.transactionId)
+      .where(sql`${t.transactionId} is not null`),
+    index('receipt_household_id_receipt_date_idx').on(t.householdId, t.receiptDate),
+    check('receipt_total_cents_positive', sql`${t.totalCents} > 0`),
+  ],
+);
+
 export const budget = pgTable(
   'budget',
   {
