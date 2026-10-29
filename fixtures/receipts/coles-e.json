@@ -1,0 +1,13 @@
+{
+  "merchant": "COLES",
+  "date": "28/09/2026",
+  "total": "$23.45",
+  "items": [
+    { "name": "CARROTS 1KG", "amount": "2.50", "category": null },
+    { "name": "RICE 2KG", "amount": "6.00", "category": null },
+    { "name": "EGGS 12PK", "amount": "7.20", "category": null },
+    { "name": "YOGHURT 1KG", "amount": "7.75", "category": null }
+  ],
+  "discounts": [],
+  "payment": { "method": "card", "cardLast4": "2222" }
+}

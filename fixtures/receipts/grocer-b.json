@@ -1,0 +1,20 @@
+{
+  "merchant": "SUNNY GROCER",
+  "date": "25/09/2026",
+  "total": "$32.33",
+  "items": [
+    { "name": "RICE 5KG", "amount": "20.00", "category": null },
+    {
+      "name": "LAUNDRY POWDER",
+      "amount": "10.00",
+      "category": "Home & utilities / Household supplies"
+    },
+    {
+      "name": "TOOTHPASTE",
+      "amount": "3.33",
+      "category": "Personal & medical / Cosmetics & toiletries"
+    }
+  ],
+  "discounts": [{ "label": "DISCOUNT", "amount": "-$1.00" }],
+  "payment": { "method": "card", "cardLast4": null }
+}

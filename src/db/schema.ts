@@ -278,28 +278,34 @@ export const categoryRule = pgTable(
 );
 
 // 不保存上传的原始文件
-export const importBatch = pgTable('import_batch', {
-  id: id(),
-  householdId: householdId(),
-  accountId: uuid('account_id')
-    .notNull()
-    .references(() => financialAccount.id),
-  fileName: text('file_name').notNull(),
-  dateFrom: date('date_from', { mode: 'string' }).notNull(),
-  dateTo: date('date_to', { mode: 'string' }).notNull(),
-  rowCount: integer('row_count').notNull(),
-  insertedCount: integer('inserted_count').notNull(),
-  duplicateCount: integer('duplicate_count').notNull(),
-  matchedPendingCount: integer('matched_pending_count').notNull(),
-  openingBalanceCents: integer('opening_balance_cents'),
-  closingBalanceCents: integer('closing_balance_cents'),
-  reconciled: boolean('reconciled'),
-  warnings: jsonb('warnings'),
-  createdBy: text('created_by')
-    .notNull()
-    .references(() => user.id),
-  createdAt: createdAt(),
-});
+export const importBatch = pgTable(
+  'import_batch',
+  {
+    id: id(),
+    householdId: householdId(),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => financialAccount.id),
+    fileName: text('file_name').notNull(),
+    // csv / pdf（ANZ 对账单，R1C）。R12.2 找上一份对账单用
+    source: text('source').notNull().default('csv'),
+    dateFrom: date('date_from', { mode: 'string' }).notNull(),
+    dateTo: date('date_to', { mode: 'string' }).notNull(),
+    rowCount: integer('row_count').notNull(),
+    insertedCount: integer('inserted_count').notNull(),
+    duplicateCount: integer('duplicate_count').notNull(),
+    matchedPendingCount: integer('matched_pending_count').notNull(),
+    openingBalanceCents: integer('opening_balance_cents'),
+    closingBalanceCents: integer('closing_balance_cents'),
+    reconciled: boolean('reconciled'),
+    warnings: jsonb('warnings'),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => user.id),
+    createdAt: createdAt(),
+  },
+  (t) => [check('import_batch_source_check', sql`${t.source} in ('csv', 'pdf')`)],
+);
 
 export const transaction = pgTable(
   'transaction',
@@ -372,6 +378,36 @@ export const transactionSplit = pgTable(
       .on(t.transactionId)
       .where(sql`${t.isPrimary}`),
     check('transaction_split_amount_cents_nonzero', sql`${t.amountCents} <> 0`),
+  ],
+);
+
+// 小票识别结果（R20）。不存图片
+export const receipt = pgTable(
+  'receipt',
+  {
+    id: id(),
+    householdId: householdId(),
+    // 为空 = 没挂上（撤销导入、删了交易以后，R20.7）
+    transactionId: uuid('transaction_id').references(() => transaction.id, {
+      onDelete: 'set null',
+    }),
+    merchant: text('merchant').notNull(), // R20.2 整理后（脱敏，最长 100）
+    receiptDate: date('receipt_date', { mode: 'string' }).notNull(),
+    totalCents: integer('total_cents').notNull(),
+    // { items, discounts, payment }，用户核对后的版本。不含卡号、人名
+    parsedJson: jsonb('parsed_json').notNull(),
+    reader: text('reader').notNull(), // llm:<模型名> | text | manual（R20.1）
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => user.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('receipt_transaction_id_unique')
+      .on(t.transactionId)
+      .where(sql`${t.transactionId} is not null`),
+    index('receipt_household_id_receipt_date_idx').on(t.householdId, t.receiptDate),
+    check('receipt_total_cents_positive', sql`${t.totalCents} > 0`),
   ],
 );
 

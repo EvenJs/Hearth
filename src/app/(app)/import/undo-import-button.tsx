@@ -2,7 +2,15 @@
 
 // R12.1 撤销导入的按钮和弹窗（M3-9）。导入历史页和导入结果页共用
 // 点击时现查 getUndoPreview：有手动改过的或确认的 pending → 弹窗列出笔数，确认后才撤销；都没有 → 直接撤销
-import { Loader2, PencilLine, RotateCcw, Trash2, TriangleAlert, Undo2 } from 'lucide-react';
+import {
+  Loader2,
+  PencilLine,
+  Receipt,
+  RotateCcw,
+  Trash2,
+  TriangleAlert,
+  Undo2,
+} from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition, type ReactNode } from 'react';
 import { toast } from 'sonner';
@@ -24,6 +32,7 @@ type Prompt = {
   deleteCount: number;
   manualEditedCount: number;
   confirmedPendingCount: number;
+  receiptCount: number;
 };
 
 export function UndoImportButton({
@@ -79,6 +88,7 @@ export function UndoImportButton({
         deleteCount: p.deleteCount,
         manualEditedCount: p.prompt.manualEditedCount,
         confirmedPendingCount: p.prompt.confirmedPendingCount,
+        receiptCount: p.prompt.receiptCount,
       });
     });
   }
@@ -127,6 +137,14 @@ export function UndoImportButton({
                   其中手动改过 <strong>{prompt.manualEditedCount}</strong> 笔
                   <span className="block text-xs text-muted-foreground">
                     改过的分类、归属人、拆分和备注会一起删掉
+                  </span>
+                </PromptItem>
+              )}
+              {prompt.receiptCount > 0 && (
+                <PromptItem icon={Receipt} warn>
+                  挂了小票 <strong>{prompt.receiptCount}</strong> 笔
+                  <span className="block text-xs text-muted-foreground">
+                    小票不会删，会变成没挂上，之后可以重新挂
                   </span>
                 </PromptItem>
               )}

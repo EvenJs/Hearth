@@ -1,0 +1,18 @@
+{
+  "merchant": "  NOISY MART  ",
+  "date": "24/10/2026",
+  "total": "$14.00",
+  "customer": "TEST CUSTOMER",
+  "cashier": "TEST CASHIER",
+  "items": [
+    {
+      "name": "GIFT CARD 12345678",
+      "amount": "10.00",
+      "category": null,
+      "barcode": "9300000000001"
+    },
+    { "name": "  WHITE BREAD  ", "amount": "4.00", "category": "Made Up / Category" }
+  ],
+  "discounts": [],
+  "payment": { "method": "card", "cardLast4": "1111", "cardNumber": "4000000000001111" }
+}

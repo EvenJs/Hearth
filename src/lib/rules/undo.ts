@@ -19,6 +19,7 @@ export type UndoBatchTx = {
   transferPairId: string | null;
   wasPending: boolean; // true = 被本批次确认的 pending
   note?: string | null; // transaction.note（交易本身的备注，和拆分的备注分开存）
+  hasReceipt?: boolean; // 挂了小票（R20.7）。被删的会脱开，恢复成 pending 的照样挂着
   splits: readonly {
     categorySource: CategorySource;
     memberSource: MemberSource;
@@ -73,6 +74,7 @@ export type UndoPlan = {
   prompt: {
     manualEditedCount: number; // 要删除的交易里手动改过的
     confirmedPendingCount: number; // 要恢复成 pending 的
+    receiptCount: number; // 要删除的交易里挂了小票的（R20.7："挂了小票 N 笔"，也算进手动改过）
     needsConfirm: boolean; // 两个都是 0 时直接撤销
   };
 };
@@ -85,10 +87,11 @@ export type UndoInput = {
   cards: readonly Card[];
 };
 
-// R12.1 弹窗：category_source 或 member_source 是 manual、有多个拆分、有备注（交易或拆分上）
+// R12.1 弹窗：category_source 或 member_source 是 manual、有多个拆分、有备注（交易或拆分上）、挂了小票
 function manuallyEdited(tx: UndoBatchTx): boolean {
   return (
     Boolean(tx.note) ||
+    Boolean(tx.hasReceipt) ||
     tx.splits.length > 1 ||
     tx.splits.some(
       (s) => s.categorySource === 'manual' || s.memberSource === 'manual' || Boolean(s.note),
@@ -152,11 +155,13 @@ export function planUndo(input: UndoInput): UndoPlan {
 
   const manualEditedCount = batchTxs.filter((t) => !t.wasPending && manuallyEdited(t)).length;
   const confirmedPendingCount = batchTxs.filter((t) => t.wasPending).length;
+  const receiptCount = batchTxs.filter((t) => !t.wasPending && t.hasReceipt).length;
   return {
     counterparts: plans,
     prompt: {
       manualEditedCount,
       confirmedPendingCount,
+      receiptCount,
       needsConfirm: manualEditedCount > 0 || confirmedPendingCount > 0,
     },
   };

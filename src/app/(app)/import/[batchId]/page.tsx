@@ -7,6 +7,8 @@ import {
   Clock,
   Copy,
   History,
+  Link2,
+  Unlink,
   XCircle,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -23,6 +25,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { BANK_LABELS } from '@/lib/accounts/account-input';
+import { statementPeriod } from '@/lib/import/anz-statement';
 import { formatAud } from '@/lib/rules/money';
 import { cn } from '@/lib/utils';
 import { getHouseholdContext } from '@/server/context';
@@ -30,6 +33,7 @@ import { getImportResult, type ImportResultView, type ResultTx } from '@/server/
 import { UndoImportButton } from '../undo-import-button';
 
 // F2 导入结果（设计图 07）：R12 第 10 步的结果。撤销用导入历史页同一个按钮和弹窗
+// M6.6-6：ANZ 对账单显示账期、首尾衔接（R12.2）；CSV 和上次之间可能有空档时提醒
 export default function ImportResultPage(props: PageProps<'/import/[batchId]'>) {
   return (
     <>
@@ -78,7 +82,13 @@ const createdAtFormat = new Intl.DateTimeFormat('zh-CN', {
 
 function ImportResult({ r }: { r: ImportResultView }) {
   const hasNotices =
-    r.balanceWarnings.length > 0 || r.possibleDuplicates.length > 0 || r.pendingToCheck.length > 0;
+    r.balanceWarnings.length > 0 ||
+    r.possibleDuplicates.length > 0 ||
+    r.pendingToCheck.length > 0 ||
+    r.statementContinuity?.status === 'mismatch' ||
+    r.importGap !== null;
+  const isPdf = r.source === 'pdf';
+  const period = isPdf ? statementPeriod(r.dateFrom, r.dateTo) : null;
 
   return (
     <>
@@ -90,9 +100,11 @@ function ImportResult({ r }: { r: ImportResultView }) {
               {BANK_LABELS[r.account.bank]} · {r.account.name}
               {r.account.numberSuffix && ` ••${r.account.numberSuffix}`}
             </Badge>
+            <Badge variant="outline">{isPdf ? '对账单' : 'CSV'}</Badge>
             <span className="break-all">{r.fileName}</span>
-            <span>
-              {r.dateFrom} 至 {r.dateTo}
+            {/* R1C：对账单显示纸面上的账期，和手里的对账单对得上 */}
+            <span className="tabular-nums">
+              {period ? `账期 ${period.from} 至 ${period.to}` : `${r.dateFrom} 至 ${r.dateTo}`}
             </span>
             <span>导入于 {createdAtFormat.format(r.createdAt)}</span>
           </div>
@@ -131,6 +143,25 @@ function ImportResult({ r }: { r: ImportResultView }) {
       </div>
 
       <ReconciliationCard r={r} />
+
+      {isPdf && r.statementContinuity && <ContinuityCard continuity={r.statementContinuity} />}
+
+      {r.importGap && (
+        <Card className="border-amber-300">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <AlertTriangle className="size-5 text-amber-600" />
+              和上次之间可能漏了
+            </CardTitle>
+            <CardDescription>
+              这次最早是 <span className="tabular-nums">{r.importGap.dateFrom}</span>，上次导到{' '}
+              <span className="tabular-nums">{r.importGap.previousDateTo}</span>
+              ，中间可能漏了，下次导出往前多选几天。中间几天正好没有交易也会这样提醒；确定有没有漏，等
+              PDF 对账单出来导进来对一下。
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      )}
 
       {r.balanceWarnings.length > 0 && (
         <Card>
@@ -299,7 +330,8 @@ function ReconciliationCard({ r }: { r: ImportResultView }) {
             没有对账
           </CardTitle>
           <CardDescription>
-            这次没填期初和期末余额。下次导入时可以参考 PDF 对账单填上，检查有没有漏导或重复。
+            这次没填期初和期末余额。下次导入时可以参考 PDF 对账单填上，或者直接导入 PDF
+            对账单，检查有没有漏导或重复。
           </CardDescription>
         </CardHeader>
       </Card>
@@ -327,6 +359,7 @@ function ReconciliationCard({ r }: { r: ImportResultView }) {
         </CardTitle>
         <CardDescription>
           {r.account.bank === 'cba' ? 'CBA 的期初期末从余额列自动算出。' : ''}
+          {r.source === 'pdf' ? '期初期末从对账单汇总页读出。' : ''}
           按数据库里这个账户 {r.dateFrom} 至 {r.dateTo} 的已确认交易计算，待确认的不算。
         </CardDescription>
       </CardHeader>
@@ -357,6 +390,56 @@ function ReconciliationCard({ r }: { r: ImportResultView }) {
           </p>
         )}
       </CardContent>
+    </Card>
+  );
+}
+
+// R12.2 首尾衔接：上一份对账单的期末和这一份的期初比。"没有上一份"不显示，调用方已经过滤
+function ContinuityCard({
+  continuity,
+}: {
+  continuity: NonNullable<ImportResultView['statementContinuity']>;
+}) {
+  const prev = statementPeriod(continuity.previous.dateFrom, continuity.previous.dateTo);
+  const prevLabel = `${prev.from} 至 ${prev.to}`;
+  const prevLink = (
+    <Link
+      href={`/import/${continuity.previous.batchId}`}
+      className="tabular-nums underline-offset-4 hover:underline"
+    >
+      {prevLabel}
+    </Link>
+  );
+
+  if (continuity.status === 'connected') {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Link2 className="size-5 text-green-600" />
+            和上一份对账单接上了
+          </CardTitle>
+          <CardDescription>上一份（{prevLink}）的期末余额等于这一份的期初余额。</CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="border-amber-300">
+      <CardHeader>
+        <CardTitle className="flex flex-wrap items-center gap-2">
+          <Unlink className="size-5 text-amber-600" />
+          和上一份对账单之间余额对不上
+          <span className="text-amber-700 tabular-nums">
+            差 {formatAud(Math.abs(continuity.differenceCents))}
+          </span>
+        </CardTitle>
+        <CardDescription>
+          上一份（{prevLink}
+          ）的期末余额和这一份的期初余额不一样，可能中间少了一份对账单。导入照常完成了。
+        </CardDescription>
+      </CardHeader>
     </Card>
   );
 }

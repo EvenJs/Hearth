@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { checkCsvFile, importFormSchema, MAX_CSV_BYTES, parseBalanceInput } from './import-input';
+import {
+  checkCsvFile,
+  checkImportFile,
+  checkPdfFile,
+  importFormSchema,
+  MAX_CSV_BYTES,
+  MAX_PDF_BYTES,
+  parseBalanceInput,
+} from './import-input';
 
 // 期望值来自 docs/tasks/m3.md M3-7 和 business-rules.md R9（ANZ 期初期末可选，要么都填要么都不填）
 
@@ -86,5 +94,67 @@ describe('checkCsvFile', () => {
     expect(MAX_CSV_BYTES).toBe(1024 * 1024);
     expect(checkCsvFile({ name: 'a.csv', size: MAX_CSV_BYTES + 1 })).toBe('文件不能超过 1 MB');
     expect(checkCsvFile({ name: 'a.csv', size: 0 })).toBe('文件是空的');
+  });
+});
+
+// M6.6-4：ANZ 对账单。Server Action 上限 2 MB，留余量
+describe('checkPdfFile', () => {
+  it('a normal .pdf up to 1.5 MB is fine (extension case-insensitive)', () => {
+    expect(checkPdfFile({ name: 'statement.pdf', size: 1234 })).toBeNull();
+    expect(checkPdfFile({ name: 'ANZ.PDF', size: MAX_PDF_BYTES })).toBeNull();
+  });
+
+  it('only .pdf', () => {
+    expect(checkPdfFile({ name: 'joint.csv', size: 1234 })).toBe('只支持 .pdf 文件');
+    expect(checkPdfFile({ name: 'pdf', size: 1234 })).toBe('只支持 .pdf 文件');
+  });
+
+  it('max 1.5 MB, not empty', () => {
+    expect(MAX_PDF_BYTES).toBe(1.5 * 1024 * 1024);
+    expect(checkPdfFile({ name: 'a.pdf', size: MAX_PDF_BYTES + 1 })).toBe('文件不能超过 1.5 MB');
+    expect(checkPdfFile({ name: 'a.pdf', size: 0 })).toBe('文件是空的');
+  });
+});
+
+// M6.6-6：导入页按账户的银行和扩展名选 CSV 还是对账单（R1、R1C）
+describe('checkImportFile', () => {
+  it('ANZ: .csv → csv, .pdf → pdf (extension case-insensitive)', () => {
+    expect(checkImportFile({ name: 'joint.csv', size: 1234 }, 'anz')).toEqual({
+      kind: 'csv',
+      error: null,
+    });
+    expect(checkImportFile({ name: 'Statement.PDF', size: 1234 }, 'anz')).toEqual({
+      kind: 'pdf',
+      error: null,
+    });
+  });
+
+  it('ANZ: other extensions are rejected', () => {
+    expect(checkImportFile({ name: 'joint.xlsx', size: 1234 }, 'anz')).toEqual({
+      kind: null,
+      error: '只支持 .csv 或 .pdf 文件',
+    });
+  });
+
+  it('ANZ: each kind keeps its own size limit', () => {
+    expect(checkImportFile({ name: 'a.csv', size: MAX_CSV_BYTES + 1 }, 'anz').error).toBe(
+      '文件不能超过 1 MB',
+    );
+    expect(checkImportFile({ name: 'a.pdf', size: MAX_CSV_BYTES + 1 }, 'anz').error).toBeNull();
+    expect(checkImportFile({ name: 'a.pdf', size: MAX_PDF_BYTES + 1 }, 'anz').error).toBe(
+      '文件不能超过 1.5 MB',
+    );
+    expect(checkImportFile({ name: 'a.pdf', size: 0 }, 'anz').error).toBe('文件是空的');
+  });
+
+  it('R1C: CBA only takes CSV', () => {
+    expect(checkImportFile({ name: 'female.csv', size: 1234 }, 'cba')).toEqual({
+      kind: 'csv',
+      error: null,
+    });
+    expect(checkImportFile({ name: 'statement.pdf', size: 1234 }, 'cba')).toEqual({
+      kind: null,
+      error: '只支持 .csv 文件',
+    });
   });
 });

@@ -333,10 +333,10 @@ export type EditPermission = {
   reason: string | null; // 有一样不能时给出原因
 };
 
-// R17.5：只有 source = manual 且 import_batch_id 为空的能编辑、删除整笔
+// R17.5：只有 source = manual（或小票建的 receipt，R20.7）且 import_batch_id 为空的能编辑、删除整笔
 // 有 transfer_pair_id 的能编辑、不能删除（R6.3 建议先在 F8 拒绝）
 export function canEditManual(tx: ManualEditableTx): EditPermission {
-  if (tx.source !== 'manual') {
+  if (tx.source === 'csv') {
     return {
       canEdit: false,
       canDelete: false,

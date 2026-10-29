@@ -347,3 +347,65 @@ Also show a small warning dialog state: "有 3 条规则指向这个分类，先
 ```
 Mobile category settings of Hearth, 375px. Title "分类" and a "新建" text button. Segmented control "支出 / 收入". A simple collapsible list of top-level categories with their colour tag and "⋯"; tapping expands subcategories below. System categories listed at the bottom in grey. No horizontal scrolling.
 ```
+
+---
+
+## 14 小票核对
+
+> 规则见 R20。数据用 `fixtures/receipts/coles-a.json`（R-A）的假数据。电脑上是弹窗，手机上是全屏；从 + 按钮"拍小票"或交易详情"上传小票"进来。
+
+### `14-receipt-review`（Desktop，弹窗）
+```
+Hearth transactions page dimmed in the background with a wide centered dialog 880px titled "核对小票". A small grey line under the title: "从照片识别 · 分类是建议，可以改". A dismissible amber banner at the top: "可能已经上传过：COLES 2026年8月31日 $58.40".
+
+Two columns inside the dialog.
+
+Left column (wider), the receipt:
+- A compact row of fields: "店名" input "COLES", "日期" input "31/08/2026", "总额" input "$58.40", "付款" select "刷卡 · 尾号 1111".
+- An editable items table with columns "商品", "金额" (right-aligned, tabular), "分类", and a small "×" delete button per row:
+  "MILK 3L  4.50  跟主分类"
+  "BANANAS PERKG  3.20  跟主分类"
+  "KIWIFRUIT GOLD  6.80  跟主分类"
+  "KIWIFRUIT 4 FOR $6  -0.80  跟上一件" (indented slightly, muted, it is a per-item discount)
+  "PAPER TOWEL 2PK  6.00  Household supplies"
+  "DISHWASHING LIQUID  9.00  Household supplies"
+  "SHAMPOO 400ML  12.00  Cosmetics & toiletries"
+  "WHITE BREAD  4.70  跟主分类"
+  "TASTY CHEESE  13.00  跟主分类"
+  The category cell is a small select; "跟主分类" is muted grey text, real categories are coloured tags.
+- Under the table: text buttons "+ 加一件" and "+ 整单折扣".
+- A totals row: "商品合计 $58.40 = 总额 $58.40" with a green check and the text "合计对上了".
+
+Right column, where it goes:
+- Card "挂到哪笔交易" with radio options:
+  (selected) "2026年9月1日 · -$58.40 · ANZ Joint · COLES 0559 MELBOURNE" with a small "卡号相同" badge
+  "都不是，新建一笔"
+- Card "保存后的拆分" previewing the result as 3 compact rows (amount, category tag, member dot):
+  "-$31.40  Groceries / Supermarket  Home  主"
+  "-$15.00  Home & utilities / Household supplies  Home"
+  "-$12.00  Personal & medical / Cosmetics & toiletries  Male"
+  Footer "合计 -$58.40 = 交易金额".
+
+Dialog footer: "取消" and terracotta "保存".
+
+Also show two small alternate states below the dialog as separate mini examples:
+1. Totals row in red: "商品合计 $57.40，总额 $58.40，差 $1.00", with the "保存" button disabled.
+2. An empty items table with a muted message "暂时识别不了，可以手动填" and a "+ 加一件" button.
+```
+
+### `14-receipt-review-mobile`（Mobile，全屏）
+```
+Full-screen mobile receipt review for Hearth, 375px. Top bar: "×" on the left, title "核对小票", "保存" text button on the right. Small grey line "从照片识别 · 分类是建议，可以改".
+
+Section 1, receipt fields stacked: "店名" "COLES", a row of two pills "31/08/2026 ▾" and "刷卡 · 1111 ▾", and "总额" "$58.40" in large tabular numbers.
+
+Section 2, items as a vertical list of compact cards (no table, no horizontal scrolling). Each card: item name on the left, amount on the right, and below it a full-width tappable category pill ("跟主分类" in muted grey, or a coloured tag like "Household supplies"). Show 5 cards: "MILK 3L 4.50", "KIWIFRUIT GOLD 6.80", "KIWIFRUIT 4 FOR $6 -0.80 · 跟上一件" (muted, slightly indented), "PAPER TOWEL 2PK 6.00 · Household supplies", "SHAMPOO 400ML 12.00 · Cosmetics & toiletries", then a muted "还有 4 件 ▾". Swipe left on a card reveals a red "删除". Below the list: outline buttons "+ 加一件" and "+ 整单折扣".
+
+A sticky totals bar above the bottom: "合计对上了 $58.40" with a green check.
+
+Section 3 "挂到哪笔交易": one selected radio card "9月1日 · -$58.40 · ANZ Joint · COLES 0559" with a "卡号相同" badge, and a second option "都不是，新建一笔".
+
+Section 4 "保存后的拆分": 3 short rows (amount, category, member dot), main split marked "主".
+
+Full-width terracotta "保存" button at the bottom, thumb-friendly 48px tall.
+```

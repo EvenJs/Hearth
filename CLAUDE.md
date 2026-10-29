@@ -24,7 +24,7 @@ Hearth 是一个家庭记账 web app，给我和老婆两个人用。核心流�
 
 ## 技术栈
 
-Next.js 16（App Router）· TypeScript strict · Neon Postgres · Drizzle ORM · Better Auth · Tailwind + shadcn/ui · Recharts · Zod + react-hook-form · Papa Parse · Vitest · pnpm · Vercel
+Next.js 16（App Router）· TypeScript strict · Neon Postgres · Drizzle ORM · Better Auth · Tailwind + shadcn/ui · Recharts · Zod + react-hook-form · Papa Parse · unpdf（M6.6 起，只用来读 ANZ 对账单）· Vitest · pnpm · Vercel
 
 不要引入文档里没有的库。真的需要时先问我。
 
@@ -44,7 +44,7 @@ pnpm db:seed        种子数据
 ### 数据和隐私
 - **金额一律用整数分**（`integer`），不用浮点数。字符串转金额不能用 `parseFloat(x) * 100`
 - **不存完整账号和卡号**。描述里 8 位以上连续数字入库前必须脱敏（R2.3）
-- 不保存上传的 CSV 原文件
+- 不保存上传的原文件：CSV、PDF 对账单、小票图片都不存（R1C、R20.1）
 - 真实银行数据不进 git，不写进测试，不贴进代码注释。测试只用 `fixtures/` 里的假数据
 - 所有业务查询必须带 `household_id`，经过 `src/server/` 的数据访问层，页面和组件里不直接写查询
 

@@ -496,6 +496,20 @@ describe('canEditManual (R17.5)', () => {
     expect(r.reason).toBeTruthy();
   });
 
+  it('R17.5: receipt-created (source receipt), not imported → can edit and delete like manual (R20.7)', () => {
+    expect(canEditManual({ ...base, source: 'receipt' })).toEqual({
+      canEdit: true,
+      canDelete: true,
+      reason: null,
+    });
+  });
+
+  it('R17.5: receipt-created but confirmed by an import → no edit, no delete', () => {
+    const r = canEditManual({ ...base, source: 'receipt', importBatchId: 'batch:1' });
+    expect(r).toMatchObject({ canEdit: false, canDelete: false });
+    expect(r.reason).toBeTruthy();
+  });
+
   it('R17.5: has transfer_pair_id → can edit, cannot delete', () => {
     const r = canEditManual({ ...base, transferPairId: 'tx:9' });
     expect(r).toMatchObject({ canEdit: true, canDelete: false });
