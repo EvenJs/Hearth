@@ -94,6 +94,10 @@ export function ArchiveCategoryDialog({
             {top === null && '下面所有二级（包括 Other）会一起归档。'}
             归档以后改分类、拆分、快速录入、规则里都不能再选它。已有交易不动，看板照常统计。随时可以取消归档。
           </AlertDialogDescription>
+          {/* R19.4：一级的 budgetCount 已经合计了二级。确认后预算硬删除，取消归档也不会恢复 */}
+          {item.budgetCount > 0 && (
+            <p className="text-sm text-amber-700">这个分类有预算，会一起删除。</p>
+          )}
         </AlertDialogHeader>
         {error && (
           <p role="alert" className="text-sm text-destructive">
