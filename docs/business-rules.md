@@ -61,6 +61,8 @@ ANZ 账户除了 CSV，还能导入 PDF 对账单。对账单的账期是固定�
 
 2026-10-29 换成 `unpdf` 读，又试了 Joint、Progress Saver 各一份：格式有 5 处和最初写的不一样（汇总、账号、`OPENING BALANCE`、换年少一个 `blank`、合计行前面的 `blank`），下面已经改过来。改完以后三份都解析成功、三项检查通过，Access Advantage 50 笔还是和 CSV 全部一致。
 
+2026-10-29 更正：上面那次其实没测到 Progress Saver。真实的 Progress Saver 对账单标题是 `PROGRESS SAVER ACCOUNT STATEMENT`，**标题行里没有 `ANZ`**，按原来的标题规则直接失败"找不到对账单标题"。标题规则已经改成下面的样子；只改标题后，一份真实的 Progress Saver 半年对账单（32 笔）三项检查都通过。
+
 **两层**：
 
 1. 读文字（`src/server/pdf/`，用 `unpdf`）：把每一页的文字按坐标拼成行，同一行里隔得远的两段之间放两个空格，返回 `{ page, text }[]`。读不出文字（扫描件）→ 报错"读不出文字"
@@ -68,7 +70,9 @@ ANZ 账户除了 CSV，还能导入 PDF 对账单。对账单的账期是固定�
 
 **表头**（找不到任何一项 → 整份失败）：
 
-- 有一行含 `ANZ` 和 `STATEMENT`
+- 标题：有一行**整行**是大写单词加空格、以 ` STATEMENT` 结尾，如 `ANZ ACCESS ADVANTAGE STATEMENT`、`PROGRESS SAVER ACCOUNT STATEMENT`（2026-10-29 改：Progress Saver 的标题没有 `ANZ`）。`STATEMENT NUMBER 17`、`... ON THIS STATEMENT.` 不算标题
+- 而且全文有一行含单独的词 `ANZ`（大小写不限，如 `Welcome to your ANZ account at a glance`、页脚的 `Australia and New Zealand Banking Group Limited (ANZ)`）
+- 两条缺一条 → 整份失败"找不到对账单标题，这不像 ANZ 对账单"
 - 账期：`DD MONTH YYYY TO DD MONTH YYYY`（如 `04 MARCH 2026 TO 04 SEPTEMBER 2026`）→ `periodFrom`、`periodTo`
 - **账期是 `(periodFrom, periodTo]`**（2026-10-28 定）：`OPENING BALANCE` 那行的日期是 `periodFrom`，是那天结束时的余额，`periodFrom` 当天的交易在上一份对账单里。上一份的 `periodTo` = 这一份的 `periodFrom`
 - 账号：`Account Number` 后面的 `dddd-ddddd`，可能在同一行，也可能在后面 3 行里（汇总页左右两栏拼在一起，号码常常在下面几行）。去掉 `-` 后要以账户的 `number_suffix` 结尾，不然整份失败"这份对账单不是这个账户的"。账户没填尾号也失败，提示先去账户设置填。**账号不存、不进日志，错误信息里最多带后 4 位**

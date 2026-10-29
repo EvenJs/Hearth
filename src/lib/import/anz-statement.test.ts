@@ -335,6 +335,56 @@ describe('parseAnzStatement（R1C）', () => {
     });
   });
 
+  describe('标题（R1C，2026-10-29 改）', () => {
+    // 真实的 Progress Saver 对账单标题里没有 ANZ，ANZ 只在别的行里出现
+    const PROGRESS_SAVER_TEXT = JOINT_TEXT.replaceAll(
+      'ANZ ACCESS ADVANTAGE STATEMENT',
+      'PROGRESS SAVER ACCOUNT STATEMENT',
+    );
+
+    it('R1C: title without ANZ (PROGRESS SAVER ACCOUNT STATEMENT) parses the same rows', () => {
+      expect(PROGRESS_SAVER_TEXT).not.toBe(JOINT_TEXT);
+      const original = expectSuccess(parseAnzStatement(toStatementLines(JOINT_TEXT), SUFFIX));
+      const result = expectSuccess(
+        parseAnzStatement(toStatementLines(PROGRESS_SAVER_TEXT), SUFFIX),
+      );
+      expect(result.rows).toEqual(original.rows);
+    });
+
+    it('R1C: the title line on later pages is skipped, not joined to a description', () => {
+      const original = expectSuccess(parseAnzStatement(toStatementLines(JOINT_TEXT), SUFFIX));
+      const result = expectSuccess(
+        parseAnzStatement(toStatementLines(PROGRESS_SAVER_TEXT), SUFFIX),
+      );
+      expect(result.rows.map((r) => r.description)).toEqual(
+        original.rows.map((r) => r.description),
+      );
+    });
+
+    it('R1C: fails when a STATEMENT title exists but no line mentions ANZ', () => {
+      const text = PROGRESS_SAVER_TEXT.replace(/\bANZ\b/gi, 'XYZ');
+      const failure = expectFailure(parseAnzStatement(toStatementLines(text), SUFFIX));
+      expect(failure.message).toBe('找不到对账单标题，这不像 ANZ 对账单');
+    });
+
+    it('R1C: STATEMENT NUMBER and sentences ending in STATEMENT. are not titles', () => {
+      const text = JOINT_TEXT.replace(/^ANZ ACCESS ADVANTAGE STATEMENT$/gm, '').concat(
+        '\nPLEASE CHECK THE ENTRIES REGARDING ANY ERRORS ON THIS STATEMENT.\n',
+      );
+      expect(text).toContain('STATEMENT NUMBER 9');
+      const failure = expectFailure(parseAnzStatement(toStatementLines(text), SUFFIX));
+      expect(failure.message).toBe('找不到对账单标题，这不像 ANZ 对账单');
+    });
+
+    it('R1C: identifyStatementAccount accepts the Progress Saver title', () => {
+      expect(
+        identifyStatementAccount(toStatementLines(PROGRESS_SAVER_TEXT), [
+          { id: 'saver', numberSuffix: SUFFIX },
+        ]),
+      ).toEqual({ ok: true, accountId: 'saver' });
+    });
+  });
+
   describe('表头', () => {
     it.each([
       ['the ANZ ... STATEMENT title', /^ANZ ACCESS ADVANTAGE STATEMENT$/gm],

@@ -206,10 +206,8 @@ function sum(transactions: Transaction[]): number {
 // ---------- 表头 ----------
 
 function readHeader(lines: StatementLine[], accountSuffix: string | null) {
-  // R1C：有一行含 ANZ 和 STATEMENT
-  if (!lines.some((l) => isTitle(l.text))) {
-    throw new StatementError('找不到对账单标题，这不像 ANZ 对账单');
-  }
+  // R1C：有标题行，而且全文提到 ANZ
+  if (!looksLikeAnzStatement(lines)) throw new StatementError(NOT_ANZ_MESSAGE);
 
   // R1C：账期 DD MONTH YYYY TO DD MONTH YYYY
   const periodMatch = lines.map((l) => PERIOD.exec(l.text)).find((m) => m !== null);
@@ -238,9 +236,7 @@ export function identifyStatementAccount(
   accounts: readonly { id: string; numberSuffix: string | null }[],
 ): { ok: true; accountId: string } | { ok: false; message: string } {
   const trimmed = lines.map((l) => ({ page: l.page, text: l.text.trim() }));
-  if (!trimmed.some((l) => isTitle(l.text))) {
-    return { ok: false, message: '找不到对账单标题，这不像 ANZ 对账单' };
-  }
+  if (!looksLikeAnzStatement(trimmed)) return { ok: false, message: NOT_ANZ_MESSAGE };
   const accountNumber = findAfterLabel(trimmed, ACCOUNT_LABEL, ACCOUNT_LOOKAHEAD, ACCOUNT_NUMBER);
   if (accountNumber === null) return { ok: false, message: '找不到账号' };
   const digits = accountNumber.replace(/-/g, '');
@@ -259,8 +255,20 @@ export function identifyStatementAccount(
   };
 }
 
+// R1C 标题（2026-10-29 改）：整行是大写单词加空格、以 STATEMENT 结尾
+// ANZ ACCESS ADVANTAGE STATEMENT、PROGRESS SAVER ACCOUNT STATEMENT（这个标题里没有 ANZ）
+// STATEMENT NUMBER 17、... ON THIS STATEMENT. 不算
+const TITLE = /^[A-Z]+(?: [A-Z]+)* STATEMENT$/;
+const MENTIONS_ANZ = /\bANZ\b/i;
+const NOT_ANZ_MESSAGE = '找不到对账单标题，这不像 ANZ 对账单';
+
 function isTitle(text: string): boolean {
-  return /\bANZ\b/.test(text) && /\bSTATEMENT\b/.test(text);
+  return TITLE.test(text);
+}
+
+// R1C：标题行 + 全文有一行提到 ANZ，缺一条就不是 ANZ 对账单
+function looksLikeAnzStatement(lines: readonly StatementLine[]): boolean {
+  return lines.some((l) => isTitle(l.text)) && lines.some((l) => MENTIONS_ANZ.test(l.text));
 }
 
 // R1C 汇总：标签后面的第一个金额，在同一行或后面 4 行里
