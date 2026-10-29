@@ -7,15 +7,23 @@ import { revalidatePath } from 'next/cache';
 import { getHouseholdContext } from '@/server/context';
 import { getReceiptReader } from '@/server/receipt-readers';
 import {
+  attachReceipt,
+  deleteReceipt,
+  getReceiptAttachOptions,
   getReceiptCandidates,
+  previewAttachReceipt,
   previewReceipt,
   saveReceipt,
   scanReceipt,
+  type AttachReceiptResult,
+  type DeleteReceiptResult,
   type PreviewReceiptInput,
+  type ReceiptAttachOptionsResult,
   type ReceiptCandidatesInput,
   type ReceiptCandidatesResult,
   type ReceiptDraft,
   type ReceiptPreview,
+  type ReceiptTarget,
   type SaveReceiptInput,
   type SaveReceiptResult,
 } from '@/server/receipts';
@@ -96,5 +104,62 @@ export async function saveReceiptAction(input: SaveReceiptInput): Promise<SaveRe
     // 事务已经回滚，什么都没写
     logError('保存', err);
     return { ok: false, code: 'invalid', message: '保存失败，请稍后再试' };
+  }
+}
+
+// R20.7 交易详情"删除小票"：只删小票，拆分不动
+export async function deleteReceiptAction(receiptId: string): Promise<DeleteReceiptResult> {
+  const ctx = await getHouseholdContext();
+  try {
+    const r = await deleteReceipt(ctx, receiptId);
+    if (r.ok) revalidatePath('/', 'layout');
+    return r;
+  } catch (err) {
+    logError('删除', err);
+    return { ok: false, code: 'not_found', message: '删除失败，请稍后再试' };
+  }
+}
+
+// R20.7 没挂上的小票：打开"挂到哪笔交易"那一步
+export async function receiptAttachOptionsAction(
+  receiptId: string,
+): Promise<ReceiptAttachOptionsResult> {
+  const ctx = await getHouseholdContext();
+  try {
+    return await getReceiptAttachOptions(ctx, receiptId);
+  } catch (err) {
+    logError('查候选', err);
+    return { ok: false, code: 'not_found', message: '加载失败，请稍后再试' };
+  }
+}
+
+// 重新挂之前的"保存后的拆分"，和 attachReceiptAction 走同一个计划，不写库
+export async function previewAttachReceiptAction(
+  receiptId: string,
+  target: ReceiptTarget,
+): Promise<ReceiptPreview> {
+  const ctx = await getHouseholdContext();
+  try {
+    return await previewAttachReceipt(ctx, receiptId, target);
+  } catch (err) {
+    logError('预览', err);
+    return { ok: false, code: 'invalid', message: '预览失败，请稍后再试' };
+  }
+}
+
+// R20.7：把没挂上的小票挂到选中的交易（R20.4）或新建一笔（R20.5）。R20.6 要确认时返回 needs_confirm
+export async function attachReceiptAction(
+  receiptId: string,
+  target: ReceiptTarget,
+  confirmOverwrite: boolean,
+): Promise<AttachReceiptResult> {
+  const ctx = await getHouseholdContext();
+  try {
+    const r = await attachReceipt(ctx, receiptId, target, confirmOverwrite);
+    if (r.ok) revalidatePath('/', 'layout');
+    return r;
+  } catch (err) {
+    logError('挂上', err);
+    return { ok: false, code: 'invalid', message: '挂上失败，请稍后再试' };
   }
 }

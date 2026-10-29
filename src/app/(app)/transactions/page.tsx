@@ -14,6 +14,7 @@ import { listAccounts } from '@/server/accounts';
 import { listCategoryTree } from '@/server/categories';
 import { getHouseholdContext } from '@/server/context';
 import { listMembers } from '@/server/members';
+import { listUnattachedReceipts } from '@/server/receipts';
 import { countQuickFilters, listTransactions } from '@/server/transactions';
 import { FilterBar, type FilterOptions } from './filter-bar';
 import type { EditOptions } from './inline-edit';
@@ -22,6 +23,7 @@ import { DuplicatesBanner } from './duplicates-banner';
 import { Pagination } from './pagination';
 import { QuickFilters } from './quick-filters';
 import { TransactionList } from './transaction-list';
+import { UnattachedReceiptsBanner } from './unattached-receipts-banner';
 
 // F8 流水查询（设计图 03，M4-7）：筛选条件全在 URL 参数里（src/lib/transactions/filters.ts）
 // 没有参数 = 全部时间、全部交易
@@ -51,14 +53,16 @@ async function TransactionsSection({
   // "今天"每次请求都要重新算，不能被预渲染（cacheComponents 不允许直接用 new Date()）
   await connection();
   const today = todayInMelbourne();
-  const [list, counts, accounts, members, categories, allCategories] = await Promise.all([
-    listTransactions(ctx, filters, { page, today }),
-    countQuickFilters(ctx),
-    listAccounts(ctx, { includeArchived: true }), // 老交易可能在已归档的账户上
-    listMembers(ctx),
-    listCategoryTree(ctx), // 改分类用，没有归档的（R16.3）
-    listCategoryTree(ctx, { includeArchived: true }), // 筛选用，归档的放最后、灰色（R19.4）
-  ]);
+  const [list, counts, accounts, members, categories, allCategories, unattached] =
+    await Promise.all([
+      listTransactions(ctx, filters, { page, today }),
+      countQuickFilters(ctx),
+      listAccounts(ctx, { includeArchived: true }), // 老交易可能在已归档的账户上
+      listMembers(ctx),
+      listCategoryTree(ctx), // 改分类用，没有归档的（R16.3）
+      listCategoryTree(ctx, { includeArchived: true }), // 筛选用，归档的放最后、灰色（R19.4）
+      listUnattachedReceipts(ctx), // R20.7 顶部提示条
+    ]);
   const options: FilterOptions = {
     accounts: accounts.map(({ id, name, isArchived }) => ({ id, name, isArchived })),
     members: members.map(({ id, name }) => ({ id, name })),
@@ -81,6 +85,7 @@ async function TransactionsSection({
       <FilterBar filters={filters} options={options} />
       <QuickFilters filters={filters} counts={counts} />
       <DuplicatesBanner filters={filters} pendingCount={list.duplicatePendingCount} />
+      <UnattachedReceiptsBanner receipts={unattached} />
 
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span className="text-sm text-muted-foreground">

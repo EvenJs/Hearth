@@ -551,7 +551,7 @@ export function ReceiptReview({ variant, draft, fixedTransactionId, onClose }: P
   );
 
   const targetBlock = fixedTransactionId ? (
-    <Card title="挂到这笔交易" icon={Link2}>
+    <ReviewCard title="挂到这笔交易" icon={Link2}>
       {preview?.ok && preview.transaction ? (
         <div className="text-sm">
           <p className="font-medium tabular-nums">
@@ -570,9 +570,9 @@ export function ReceiptReview({ variant, draft, fixedTransactionId, onClose }: P
       ) : (
         <p className="text-sm text-muted-foreground">填好小票后显示这笔交易和差额</p>
       )}
-    </Card>
+    </ReviewCard>
   ) : (
-    <Card title="挂到哪笔交易" icon={Link2}>
+    <ReviewCard title="挂到哪笔交易" icon={Link2}>
       <div role="radiogroup" aria-label="挂到哪笔交易" className="flex flex-col gap-2">
         {(candidates?.candidates ?? []).map((c) => (
           <RadioCard
@@ -649,18 +649,18 @@ export function ReceiptReview({ variant, draft, fixedTransactionId, onClose }: P
           </Field>
         )}
       </div>
-    </Card>
+    </ReviewCard>
   );
 
   const previewBlock = (
-    <Card title="保存后的拆分" icon={null} aside="按分类合计">
+    <ReviewCard title="保存后的拆分" icon={null} aside="按分类合计">
       <PreviewBody
         preview={preview}
         loading={previewing}
         ready={previewKey !== null}
         wide={sheet}
       />
-    </Card>
+    </ReviewCard>
   );
 
   const confirmDialog = (
@@ -821,19 +821,21 @@ function TotalsPill({ live }: { live: ReturnType<typeof liveCheck> }) {
   );
 }
 
-function PreviewBody({
+export function PreviewBody({
   preview,
   loading,
   ready,
   wide,
+  notReadyText = '合计对上、选好挂到哪笔后显示',
 }: {
   preview: ReceiptPreview | null;
   loading: boolean;
   ready: boolean;
   wide: boolean; // 手机上一行够宽，写全路径；电脑右栏窄，只写二级，鼠标悬停看全路径
+  notReadyText?: string;
 }) {
   if (!ready) {
-    return <p className="text-sm text-muted-foreground">合计对上、选好挂到哪笔后显示</p>;
+    return <p className="text-sm text-muted-foreground">{notReadyText}</p>;
   }
   if (loading || preview === null) {
     return (
@@ -928,7 +930,7 @@ function Banner({
   );
 }
 
-function Card({
+export function ReviewCard({
   title,
   icon: Icon,
   aside,
@@ -951,7 +953,7 @@ function Card({
   );
 }
 
-function Field({
+export function Field({
   label,
   id,
   error,
@@ -975,7 +977,7 @@ function Field({
   );
 }
 
-function RadioCard({
+export function RadioCard({
   checked,
   large,
   onSelect,

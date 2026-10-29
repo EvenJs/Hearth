@@ -6,7 +6,7 @@
 import { and, desc, eq, gte, isNull, lte } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/db';
-import { financialAccount, member, receipt, transaction } from '@/db/schema';
+import { category, financialAccount, member, receipt, transaction } from '@/db/schema';
 import { cleanMerchant } from '@/lib/rules/merchant';
 import { addDays, todayInMelbourne } from '@/lib/rules/periods';
 import {
@@ -18,6 +18,7 @@ import {
   type ReceiptCategoryOption,
   type ReceiptCheck,
   type ReceiptFieldErrors,
+  type ReceiptPaymentMethod,
 } from '@/lib/rules/receipt';
 import {
   buildReceiptTransaction,
@@ -341,6 +342,7 @@ export type DeleteReceiptResult = { ok: true } | { ok: false; code: 'not_found';
 const INVALID = { ok: false, code: 'invalid', message: '参数不合法' } as const;
 const TX_NOT_FOUND = { ok: false, code: 'not_found', message: '找不到这笔交易' } as const;
 const RECEIPT_NOT_FOUND = { ok: false, code: 'not_found', message: '找不到这张小票' } as const;
+const ATTACHED = { ok: false, code: 'attached', message: '这张小票已经挂在一笔交易上了' } as const;
 
 // R20.2：校验没过 → check_failed
 function checkFailure(
@@ -609,56 +611,90 @@ export async function previewReceipt(
     const failed = checkFailure(r, errors);
     if (failed) return failed;
 
-    const plan = await planAttach(tx, ctx, r, parsed.data.target, today);
-    if (!plan.ok) return plan;
-
-    const byId = new Map(m.categories.map((c) => [c.id, c]));
-    const label = (id: string) => {
-      const c = byId.get(id);
-      if (!c) return '?';
-      const parent = c.parentId ? byId.get(c.parentId) : undefined;
-      return parent ? `${parent.nameEn} / ${c.nameEn}` : c.nameEn;
-    };
-    // 归档的归属人也要能显示名字，所以不用 m.members
-    const members = new Map(
-      (
-        await tx
-          .select({ id: member.id, name: member.name })
-          .from(member)
-          .where(eq(member.householdId, ctx.householdId))
-      ).map((x) => [x.id, x.name]),
-    );
-    const rows = plan.rows.map((x): ReceiptPreviewRow => ({
-      isPrimary: x.isPrimary,
-      amountCents: x.amountCents,
-      categoryId: x.categoryId,
-      categoryLabel: label(x.categoryId),
-      categorySource: x.categorySource,
-      memberName: members.get(x.memberId) ?? '?',
-      memberSource: x.memberSource,
-    }));
-
-    if (plan.kind === 'new') {
-      return { ok: true, rows, transaction: null, extraCents: 0, overwrite: null };
-    }
-    const [info] = await tx
-      .select({
-        date: transaction.date,
-        amountCents: transaction.amountCents,
-        merchant: transaction.merchant,
-        accountName: financialAccount.name,
-      })
-      .from(transaction)
-      .innerJoin(financialAccount, eq(financialAccount.id, transaction.accountId))
-      .where(and(eq(transaction.id, plan.loaded.id), eq(transaction.householdId, ctx.householdId)));
-    return {
-      ok: true,
-      rows,
-      transaction: info,
-      extraCents: Math.abs(info.amountCents) - r.totalCents!,
-      overwrite: plan.overwrite,
-    };
+    return previewPlan(tx, ctx, m.categories, r, parsed.data.target, today);
   });
+}
+
+// 预览的公共部分：核对界面（previewReceipt）和重新挂（previewAttachReceipt）共用，计划和保存一样
+async function previewPlan(
+  tx: DbTx,
+  ctx: HouseholdContext,
+  categories: readonly QuickAddCategory[],
+  r: NormalizedReceipt,
+  target: z.output<typeof targetSchema>,
+  today: string,
+): Promise<ReceiptPreview> {
+  const plan = await planAttach(tx, ctx, r, target, today);
+  if (!plan.ok) return plan;
+
+  const byId = new Map(categories.map((c) => [c.id, c]));
+  const label = (id: string) => {
+    const c = byId.get(id);
+    if (!c) return '?';
+    const parent = c.parentId ? byId.get(c.parentId) : undefined;
+    return parent ? `${parent.nameEn} / ${c.nameEn}` : c.nameEn;
+  };
+  // 归档的归属人也要能显示名字，所以不用 m.members
+  const members = new Map(
+    (
+      await tx
+        .select({ id: member.id, name: member.name })
+        .from(member)
+        .where(eq(member.householdId, ctx.householdId))
+    ).map((x) => [x.id, x.name]),
+  );
+  const rows = plan.rows.map((x): ReceiptPreviewRow => ({
+    isPrimary: x.isPrimary,
+    amountCents: x.amountCents,
+    categoryId: x.categoryId,
+    categoryLabel: label(x.categoryId),
+    categorySource: x.categorySource,
+    memberName: members.get(x.memberId) ?? '?',
+    memberSource: x.memberSource,
+  }));
+
+  if (plan.kind === 'new') {
+    return { ok: true, rows, transaction: null, extraCents: 0, overwrite: null };
+  }
+  const [info] = await tx
+    .select({
+      date: transaction.date,
+      amountCents: transaction.amountCents,
+      merchant: transaction.merchant,
+      accountName: financialAccount.name,
+    })
+    .from(transaction)
+    .innerJoin(financialAccount, eq(financialAccount.id, transaction.accountId))
+    .where(and(eq(transaction.id, plan.loaded.id), eq(transaction.householdId, ctx.householdId)));
+  return {
+    ok: true,
+    rows,
+    transaction: info,
+    extraCents: Math.abs(info.amountCents) - r.totalCents!,
+    overwrite: plan.overwrite,
+  };
+}
+
+// 存着的核对结果（parsed_json）→ 整理好的小票，给重新挂、预览用
+// 存的分类现在不能选了（归档）→ 当作 null（R20.2）。存的里面没有卡号
+function storedReceipt(
+  row: typeof receipt.$inferSelect,
+  categories: readonly QuickAddCategory[],
+): NormalizedReceipt {
+  const stored = parsedJsonSchema.parse(row.parsedJson);
+  const selectable = new Set(receiptCategoryOptions(categories).map((c) => c.id));
+  return {
+    merchant: row.merchant,
+    date: row.receiptDate,
+    totalCents: row.totalCents,
+    items: stored.items.map((i) => ({
+      name: i.name,
+      amountCents: i.amountCents,
+      categoryId: i.category !== null && selectable.has(i.category) ? i.category : null,
+    })),
+    discounts: stored.discounts,
+    payment: { method: stored.payment, cardLast4: null },
+  };
 }
 
 // R20.7：给没挂上的小票重新挂（R20.4 选的交易，或 R20.5 新建）。用存着的核对结果，规则和 saveReceipt 一样
@@ -681,25 +717,10 @@ export async function attachReceipt(
       .where(and(eq(receipt.id, receiptId), eq(receipt.householdId, ctx.householdId)))
       .for('update');
     if (!row) return RECEIPT_NOT_FOUND;
-    if (row.transactionId !== null) {
-      return { ok: false, code: 'attached', message: '这张小票已经挂在一笔交易上了' };
-    }
+    if (row.transactionId !== null) return ATTACHED;
 
-    const stored = parsedJsonSchema.parse(row.parsedJson);
     const m = await loadManualContext(tx, ctx, today);
-    const selectable = new Set(receiptCategoryOptions(m.categories).map((c) => c.id));
-    const r: NormalizedReceipt = {
-      merchant: row.merchant,
-      date: row.receiptDate,
-      totalCents: row.totalCents,
-      items: stored.items.map((i) => ({
-        name: i.name,
-        amountCents: i.amountCents,
-        categoryId: i.category !== null && selectable.has(i.category) ? i.category : null,
-      })),
-      discounts: stored.discounts,
-      payment: { method: stored.payment, cardLast4: null },
-    };
+    const r = storedReceipt(row, m.categories);
     const failed = checkFailure(r, { items: {}, discounts: {} });
     if (failed) return failed;
 
@@ -750,15 +771,157 @@ export async function listUnattachedReceipts(ctx: HouseholdContext): Promise<Una
     .orderBy(desc(receipt.receiptDate), desc(receipt.createdAt), desc(receipt.id));
 }
 
-// 交易详情"上传小票"按钮（R20.4）：这笔还没挂小票才显示
-export async function transactionHasReceipt(
+// ---------- 交易详情的小票明细（M6.7-8，R20.7） ----------
+
+export type TransactionReceiptItem = {
+  name: string;
+  amountCents: number; // 正数是商品，负数是单件折扣（R20.1）
+  // 存的分类 `一级 / 二级`（归档了的也照样显示）；null 时 follow 说明保存时跟了谁（R20.3 第 1 步）
+  categoryLabel: string | null;
+  follow: 'main' | 'previous' | null;
+};
+
+export type TransactionReceipt = {
+  id: string;
+  merchant: string;
+  receiptDate: string;
+  totalCents: number;
+  payment: ReceiptPaymentMethod;
+  items: TransactionReceiptItem[];
+  discounts: { label: string; amountCents: number }[]; // 整单折扣，负数
+};
+
+// 交易详情的"小票"一块：这笔挂着的小票，没挂就是 null。显示的是保存时核对后的版本，改拆分不改它（R20.7）
+export async function getTransactionReceipt(
   ctx: HouseholdContext,
   transactionId: string,
-): Promise<boolean> {
-  if (!z.uuid().safeParse(transactionId).success) return false;
-  const n = await db.$count(
-    receipt,
-    and(eq(receipt.householdId, ctx.householdId), eq(receipt.transactionId, transactionId)),
+): Promise<TransactionReceipt | null> {
+  if (!z.uuid().safeParse(transactionId).success) return null;
+  const hh = ctx.householdId;
+  const [row] = await db
+    .select()
+    .from(receipt)
+    .where(and(eq(receipt.householdId, hh), eq(receipt.transactionId, transactionId)));
+  if (!row) return null;
+
+  const stored = parsedJsonSchema.parse(row.parsedJson);
+  const cats = await db
+    .select({ id: category.id, parentId: category.parentId, nameEn: category.nameEn })
+    .from(category)
+    .where(eq(category.householdId, hh));
+  const byId = new Map(cats.map((c) => [c.id, c]));
+  const label = (id: string) => {
+    const c = byId.get(id);
+    if (!c) return null;
+    const parent = c.parentId ? byId.get(c.parentId) : undefined;
+    return parent ? `${parent.nameEn} / ${c.nameEn}` : c.nameEn;
+  };
+
+  return {
+    id: row.id,
+    merchant: row.merchant,
+    receiptDate: row.receiptDate,
+    totalCents: row.totalCents,
+    payment: stored.payment,
+    items: stored.items.map((i, index) => {
+      const categoryLabel = i.category !== null ? label(i.category) : null;
+      return {
+        name: i.name,
+        amountCents: i.amountCents,
+        categoryLabel,
+        // R20.3 第 1 步：负数跟上一件，第一行是负数跟主分类
+        follow:
+          categoryLabel !== null ? null : i.amountCents < 0 && index > 0 ? 'previous' : 'main',
+      };
+    }),
+    discounts: stored.discounts,
+  };
+}
+
+// ---------- 没挂上的小票重新挂（M6.7-8，R20.4、R20.5、R20.7） ----------
+
+export type ReceiptAttachOptions = {
+  ok: true;
+  receipt: { id: string; merchant: string; receiptDate: string; totalCents: number };
+  candidates: ReceiptCandidate[]; // R20.4 排好序；存的里面没有卡号，不按卡号过滤
+  defaultId: string | null; // 只有 1 个时默认选中
+  account: ReceiptAccountDefault; // R20.5 新建时的默认账户（没有卡号）
+  accounts: { id: string; name: string; bank: string; type: string }[]; // 没归档的
+};
+
+export type ReceiptAttachOptionsResult =
+  ReceiptAttachOptions | { ok: false; code: 'not_found' | 'attached'; message: string };
+
+// 列表里点一张没挂上的小票：核对界面"挂到哪笔交易"那一步要的东西
+export async function getReceiptAttachOptions(
+  ctx: HouseholdContext,
+  receiptId: string,
+): Promise<ReceiptAttachOptionsResult> {
+  if (!z.uuid().safeParse(receiptId).success) return RECEIPT_NOT_FOUND;
+  const [row] = await db
+    .select()
+    .from(receipt)
+    .where(and(eq(receipt.id, receiptId), eq(receipt.householdId, ctx.householdId)));
+  if (!row) return RECEIPT_NOT_FOUND;
+  if (row.transactionId !== null) return ATTACHED;
+
+  const m = await loadManualContext(db, ctx, todayInMelbourne());
+  const stored = parsedJsonSchema.parse(row.parsedJson);
+  // possibleDuplicate 不用：这张自己就会算进去
+  const found = await findCandidates(
+    db,
+    ctx,
+    { merchant: row.merchant, date: row.receiptDate, totalCents: row.totalCents },
+    null,
+    m.cards,
   );
-  return n > 0;
+  const account = defaultReceiptAccount(
+    stored.payment,
+    null,
+    m.cards,
+    m.accounts,
+    await lastManualAccountId(ctx, m.accounts),
+  );
+  return {
+    ok: true,
+    receipt: {
+      id: row.id,
+      merchant: row.merchant,
+      receiptDate: row.receiptDate,
+      totalCents: row.totalCents,
+    },
+    candidates: found.candidates,
+    defaultId: found.defaultId,
+    account,
+    accounts: m.accounts
+      .filter((a) => !a.isArchived)
+      .map((a) => ({ id: a.id, name: a.name, bank: a.bank, type: a.type })),
+  };
+}
+
+// 重新挂之前的"保存后的拆分"：和 attachReceipt 走同一个计划。不写库
+export async function previewAttachReceipt(
+  ctx: HouseholdContext,
+  receiptId: string,
+  target: ReceiptTarget,
+): Promise<ReceiptPreview> {
+  if (!z.uuid().safeParse(receiptId).success) return INVALID;
+  const t = targetSchema.safeParse(target);
+  if (!t.success) return INVALID;
+  const today = todayInMelbourne();
+
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select()
+      .from(receipt)
+      .where(and(eq(receipt.id, receiptId), eq(receipt.householdId, ctx.householdId)));
+    if (!row) return RECEIPT_NOT_FOUND;
+    if (row.transactionId !== null) return ATTACHED;
+
+    const m = await loadManualContext(tx, ctx, today);
+    const r = storedReceipt(row, m.categories);
+    const failed = checkFailure(r, { items: {}, discounts: {} });
+    if (failed) return failed;
+    return previewPlan(tx, ctx, m.categories, r, t.data, today);
+  });
 }

@@ -12,8 +12,11 @@ import type { ReceiptInput, ReceiptReader } from '@/server/receipt-readers';
 import {
   attachReceipt,
   deleteReceipt,
+  getReceiptAttachOptions,
   getReceiptCandidates,
+  getTransactionReceipt,
   listUnattachedReceipts,
+  previewAttachReceipt,
   previewReceipt,
   saveReceipt,
   scanReceipt,
@@ -920,5 +923,137 @@ describeDb('previewReceipt（核对界面"保存后的拆分"）', () => {
       ok: false,
       code: 'check_failed',
     });
+  });
+});
+
+describeDb('交易详情的小票、没挂上的小票重新挂（M6.7-8，R20.7）', () => {
+  beforeEach(async () => {
+    await resetBusinessTables();
+    t = await createTestHousehold();
+  });
+
+  it('R20.7: getTransactionReceipt shows the stored items with labels and follow hints; null without a receipt', async () => {
+    await importFixture(t, 'ANZ Joint', 'anz/joint-2026-09.csv');
+    const n19 = await joint19();
+    expect(await getTransactionReceipt(t.ctx, n19.id)).toBeNull();
+    const r = await saveOk({ target: { kind: 'transaction', transactionId: n19.id } });
+
+    const shown = await getTransactionReceipt(t.ctx, n19.id);
+    expect(shown).toMatchObject({
+      id: r.receiptId,
+      merchant: 'COLES',
+      receiptDate: '2026-08-31',
+      totalCents: 5840,
+      payment: 'card',
+      discounts: [],
+    });
+    expect(shown!.items.map((i) => [i.name, i.amountCents, i.categoryLabel, i.follow])).toEqual([
+      ['MILK 3L', 450, null, 'main'],
+      ['BANANAS PERKG', 320, null, 'main'],
+      ['KIWIFRUIT GOLD', 680, null, 'main'],
+      ['KIWIFRUIT 4 FOR $6', -80, null, 'previous'],
+      ['PAPER TOWEL 2PK', 600, 'Home & utilities / Household supplies', null],
+      ['DISHWASHING LIQUID', 900, 'Home & utilities / Household supplies', null],
+      ['SHAMPOO 400ML', 1200, 'Personal & medical / Cosmetics & toiletries', null],
+      ['WHITE BREAD', 470, null, 'main'],
+      ['TASTY CHEESE', 1300, null, 'main'],
+    ]);
+    expect(JSON.stringify(shown)).not.toContain('1111');
+  });
+
+  it('R20.7: after deleteReceipt the detail has no receipt again and the splits are unchanged', async () => {
+    await importFixture(t, 'ANZ Joint', 'anz/joint-2026-09.csv');
+    const n19 = await joint19();
+    const r = await saveOk({ target: { kind: 'transaction', transactionId: n19.id } });
+
+    expect(await deleteReceipt(t.ctx, r.receiptId)).toEqual({ ok: true });
+    expect(await getTransactionReceipt(t.ctx, n19.id)).toBeNull();
+    expect(await splitShape(n19.id)).toEqual(R_A_SPLITS);
+  });
+
+  it('R-U: after undo and re-import the attach options list only the new #19 (default); the preview equals what attachReceipt writes and writes nothing', async () => {
+    const batch = await importFixture(t, 'ANZ Joint', 'anz/joint-2026-09.csv');
+    const r = await saveOk({
+      target: { kind: 'transaction', transactionId: (await joint19()).id },
+    });
+    await undoImport(t.ctx, batch.batchId);
+
+    // 还没重新导入：没有候选，新建默认上次账户（R20.5，存的里面没有卡号）
+    const before = await getReceiptAttachOptions(t.ctx, r.receiptId);
+    if (!before.ok) throw new Error(before.message);
+    expect(before.receipt).toEqual({
+      id: r.receiptId,
+      merchant: 'COLES',
+      receiptDate: '2026-08-31',
+      totalCents: 5840,
+    });
+    expect(before.candidates).toEqual([]);
+    expect(before.defaultId).toBeNull();
+    expect(before.account.cardAccountIds).toEqual([]);
+
+    await importFixture(t, 'ANZ Joint', 'anz/joint-2026-09.csv');
+    const new19 = await joint19();
+    const options = await getReceiptAttachOptions(t.ctx, r.receiptId);
+    if (!options.ok) throw new Error(options.message);
+    expect(options.candidates.map((c) => [c.id, c.accountName])).toEqual([[new19.id, 'ANZ Joint']]);
+    expect(options.defaultId).toBe(new19.id);
+
+    const splitsBefore = await getSplits(new19.id);
+    const preview = await previewAttachReceipt(t.ctx, r.receiptId, {
+      kind: 'transaction',
+      transactionId: new19.id,
+    });
+    if (!preview.ok) throw new Error(preview.message);
+    expect(await getSplits(new19.id)).toEqual(splitsBefore);
+    expect(preview.extraCents).toBe(0);
+    expect(preview.transaction).toMatchObject({ amountCents: -5840, accountName: 'ANZ Joint' });
+
+    expect(
+      await attachReceipt(t.ctx, r.receiptId, { kind: 'transaction', transactionId: new19.id }),
+    ).toEqual({ ok: true, transactionId: new19.id });
+    expect(preview.rows.map((x) => [x.amountCents, x.categoryLabel, x.isPrimary])).toEqual(
+      R_A_SPLITS.map((x) => [x.amountCents, x.category, x.primary]),
+    );
+    expect(await splitShape(new19.id)).toEqual(R_A_SPLITS);
+    expect(await listUnattachedReceipts(t.ctx)).toEqual([]);
+    expect((await getTransactionReceipt(t.ctx, new19.id))?.id).toBe(r.receiptId);
+
+    // 挂上以后：选项和预览都说已经挂上了
+    expect(await getReceiptAttachOptions(t.ctx, r.receiptId)).toMatchObject({
+      ok: false,
+      code: 'attached',
+    });
+    expect(
+      await previewAttachReceipt(t.ctx, r.receiptId, {
+        kind: 'new',
+        accountId: t.h.account('ANZ Joint').id,
+      }),
+    ).toMatchObject({ ok: false, code: 'attached' });
+  });
+
+  it("another household's receipt: attach options, preview and detail are not visible", async () => {
+    await db.delete(schema.householdUser).where(eq(schema.householdUser.userId, TEST_USER.id));
+    const other = await createTestHousehold();
+    await importFixture(other, 'ANZ Joint', 'anz/joint-2026-09.csv');
+    const other19 = await joint19(other);
+    const saved = await saveReceipt(other.ctx, {
+      reader: 'manual',
+      receipt: raw('coles-a.json'),
+      target: { kind: 'transaction', transactionId: other19.id },
+    });
+    if (!saved.ok) throw new Error(saved.message);
+
+    expect(await getTransactionReceipt(t.ctx, other19.id)).toBeNull();
+    await db.update(schema.receipt).set({ transactionId: null });
+    expect(await getReceiptAttachOptions(t.ctx, saved.receiptId)).toMatchObject({
+      ok: false,
+      code: 'not_found',
+    });
+    expect(
+      await previewAttachReceipt(t.ctx, saved.receiptId, {
+        kind: 'new',
+        accountId: t.h.account('ANZ Joint').id,
+      }),
+    ).toMatchObject({ ok: false, code: 'not_found' });
   });
 });
