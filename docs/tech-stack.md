@@ -166,7 +166,7 @@ BETTER_AUTH_URL        # 本地 http://localhost:5000，线上用正在用的域
 LLM_BASE_URL           # OpenAI 兼容接口地址，如 https://api.groq.com/openai/v1（M6.7 起）
 LLM_API_KEY            # 服务商的 key
 LLM_VISION_MODEL       # 看图的模型，如 qwen/qwen3.8-27b（小票识别，R20.1a）
-RECEIPT_READER         # 小票用哪个 reader：llm | text | none，不填当作 none（R20.1）
+RECEIPT_READER         # 小票用哪个 reader：llm | none，不填或不认识的值当作 none（R20.1）
 ```
 
 - `RECEIPT_READER=llm` 但没配 `LLM_*`：启动不报错，识别时显示"暂时识别不了"，可以手动填商品，其他功能照常
@@ -289,8 +289,8 @@ Groq 另一个看图模型 `muse-spark-open` 在限量预览，要申请，不�
 
   - Server Action 调 `scanReceipt(ctx, input, reader = getReceiptReader())`，测试传假的 reader，不碰网络
   - `llm` reader 里再注入一层 `LlmClient`（`src/server/llm/client.ts`，现在只有 OpenAI 兼容这一种实现）。换 Groq、Cloudflare、GitHub Models 只改 `LLM_*`；以后要接不兼容 OpenAI 格式的服务商，加一个 `LlmClient` 实现就行，reader 不改
-  - `text` reader 只是把纯函数 `parseReceiptText`（`src/lib/rules/receipt-text.ts`，R20.1b）包一层
-  - 想关掉 AI：`RECEIPT_READER` 改成 `text` 或 `none`，Vercel 上 Redeploy
+  - `text` reader 不做（R20.1b，2026-10-29 实验结果）。接口的 `id`、`input` 里留着 `text`，给以后的本地 OCR 用；现在 `RECEIPT_READER=text` 当作不认识的值，打警告、当作 `none`
+  - 想关掉 AI：`RECEIPT_READER` 改成 `none`，Vercel 上 Redeploy
 - `llm` reader 的模型用 `LLM_VISION_MODEL`
 - 图片在浏览器里用 canvas 压缩成 JPEG（长边 ≤ 1600px，≤ 1MB），不加库。iPhone 的 HEIC 照片 Safari 选图时会转成 JPEG；电脑上的 Chrome 解不了 HEIC，提示"换成 JPG 再传"
 - 用 FormData 传给 Server Action（`bodySizeLimit` 已经是 2MB），服务器端转成 base64 data URL 放进 `image_url`
