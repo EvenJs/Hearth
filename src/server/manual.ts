@@ -87,7 +87,7 @@ async function loadCategories(
   }));
 }
 
-async function loadManualContext(
+export async function loadManualContext(
   tx: DbTx | typeof db,
   ctx: HouseholdContext,
   today: string,
@@ -142,7 +142,8 @@ async function loadManualContext(
 // ---------- 快速录入的上下文 ----------
 
 // R17.2 上次账户：当前用户最近一笔 source = manual 的交易（按 created_at）的账户
-async function lastManualAccountId(
+// 小票新建交易的默认账户也用它（R20.5）
+export async function lastManualAccountId(
   ctx: HouseholdContext,
   accounts: readonly ManualAccount[],
 ): Promise<string | null> {
