@@ -1,8 +1,8 @@
-// CSV 导入（business-rules.md R12），第 1 到 10 步；导入结果页（M3-8）；撤销导入（R12.1）
+// CSV 和 ANZ PDF 对账单导入（business-rules.md R12、R1C），第 1 到 10 步；导入结果页（M3-8）；撤销导入（R12.1）
 // 业务判断全部用 src/lib/ 的纯函数，这里只负责读写数据库和串流程
 // 不保存上传的原文件；日志和报错里不打印原始描述
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, gt, gte, inArray, lte, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, gte, inArray, lt, lte, ne, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import {
   card,
@@ -16,8 +16,11 @@ import {
 } from '@/db/schema';
 import type { Bank } from '@/lib/accounts/account-input';
 import { canImportCsv } from '@/lib/import/banks';
+import { parseAnzStatement, type StatementLine } from '@/lib/import/anz-statement';
 import { checkBalanceContinuity, deriveBalances, type BalanceWarning } from '@/lib/import/cba';
-import { processFile, type HouseholdConfig } from '@/lib/import/process';
+import { checkPdfFile } from '@/lib/import/import-input';
+import { processFile, processRows, type HouseholdConfig } from '@/lib/import/process';
+import { addDays } from '@/lib/rules/periods';
 import { bySystemKey } from '@/lib/rules/classify';
 import { confirmPendingTransfer, findPendingMatches } from '@/lib/rules/pending';
 import { pendingsToCheck, reconcile, type Reconciliation } from '@/lib/rules/reconcile';
@@ -37,6 +40,7 @@ import {
   type UndoPlan,
 } from '@/lib/rules/undo';
 import type { HouseholdContext } from './context';
+import { extractPdfLines } from './pdf/text';
 import { pairHouseholdTransfers, primarySplitJoin, splitCountSql } from './transfers';
 
 export type ImportInput = {
@@ -48,12 +52,34 @@ export type ImportInput = {
   closingBalanceCents?: number | null;
 };
 
+// ANZ 对账单（R1C）：buffer 是上传的 PDF，只在内存里读，不保存
+export type ImportStatementInput = {
+  accountId: string;
+  fileName: string;
+  buffer: ArrayBuffer | Uint8Array;
+};
+
+// 读出文字以后的那一步，测试直接用 fixture 的行
+export type ImportStatementLinesInput = {
+  accountId: string;
+  fileName: string;
+  lines: readonly StatementLine[];
+};
+
+// R12.2 首尾衔接：上一份对账单（同账户、source = pdf、date_to 比本次早的里面最大的）
+export type PreviousStatement = { batchId: string; dateFrom: string; dateTo: string };
+export type StatementContinuity =
+  | { status: 'connected'; previous: PreviousStatement } // 上一份的期末 = 本次的期初
+  | { status: 'mismatch'; previous: PreviousStatement; differenceCents: number } // 本次期初 − 上一份期末
+  | null; // 没有上一份，不提示
+
 // import_batch.warnings（jsonb，不改表）
 export type ImportWarnings = {
   balance: BalanceWarning[]; // R1B.1
   possibleDuplicates: { transactionId: string; pendingIds: string[] }[]; // R8.2 ≥ 2 个候选
   pendingTransferSplits: string[]; // R8.3 例外：pending 有多个拆分，没改，F8 提示
   reconciliation: Reconciliation; // R9，差额只能在导入时算准，存下来给结果页
+  statementContinuity?: StatementContinuity; // R12.2，只有 PDF 批次有
 };
 
 // 本次新插入的交易和被确认的 pending
@@ -85,9 +111,13 @@ export type ImportSuccess = {
 
 export type ImportFailure = {
   ok: false;
-  reason: 'not_importable' | 'invalid_balance' | 'parse';
+  // invalid_file：对账单不是 .pdf、太大、是空的
+  reason: 'not_importable' | 'invalid_balance' | 'invalid_file' | 'parse';
   message: string;
   line: number | null;
+  // R1C：对账单出错的交易在第几页第几笔
+  page?: number | null;
+  index?: number | null;
 };
 
 export type ImportResult = ImportSuccess | ImportFailure;
@@ -163,26 +193,56 @@ async function loadHouseholdConfig(ctx: HouseholdContext): Promise<HouseholdConf
   return { accounts, cards, categories, rules };
 }
 
-// R12：一次导入。解析失败、账户不能导入返回 ok: false，什么都不写；事务里出错直接抛，全部回滚
-export async function importCsv(ctx: HouseholdContext, input: ImportInput): Promise<ImportResult> {
+type ImportTarget = {
+  config: HouseholdConfig;
+  account: HouseholdConfig['accounts'][number];
+};
+
+// R1 表格（P9）：按账户的银行判断能不能导入。不存在、已归档的账户同样拒绝
+async function loadImportTarget(
+  ctx: HouseholdContext,
+  accountId: string,
+  kind: 'csv' | 'pdf',
+): Promise<ImportTarget | ImportFailure> {
   const [target] = await db
     .select({ bank: financialAccount.bank, isArchived: financialAccount.isArchived })
     .from(financialAccount)
     .where(
-      and(
-        eq(financialAccount.id, input.accountId),
-        eq(financialAccount.householdId, ctx.householdId),
-      ),
+      and(eq(financialAccount.id, accountId), eq(financialAccount.householdId, ctx.householdId)),
     );
-  // R1 表格（P9）：anz_plus、cash、other 不能导入。不存在、已归档的账户同样拒绝
   if (!target) return fail('not_importable', '账户不存在');
   if (target.isArchived) return fail('not_importable', '这个账户已经归档了，不能导入');
-  if (!canImportCsv(target.bank)) return fail('not_importable', '这个账户不能导入 CSV');
+  if (kind === 'csv' && !canImportCsv(target.bank)) {
+    return fail('not_importable', '这个账户不能导入 CSV');
+  }
+  // R1C：只有 ANZ 有对账单解析器
+  if (kind === 'pdf' && target.bank !== 'anz') {
+    return fail('not_importable', '只有 ANZ 账户能导入 PDF 对账单');
+  }
 
   const config = await loadHouseholdConfig(ctx);
-  const account = config.accounts.find((a) => a.id === input.accountId);
+  const account = config.accounts.find((a) => a.id === accountId);
   if (!account) return fail('not_importable', '账户不存在');
-  const uncategorized = bySystemKey(config.categories, 'uncategorized');
+  return { config, account };
+}
+
+// R12 第 1、2 步做完以后，交给事务的东西
+type PreparedImport = ImportTarget & {
+  fileName: string;
+  source: 'csv' | 'pdf';
+  rows: ProcessedRow[];
+  dateFrom: string;
+  dateTo: string;
+  openingBalanceCents: number | null;
+  closingBalanceCents: number | null;
+  balanceWarnings: BalanceWarning[];
+};
+
+// R12：一次导入。解析失败、账户不能导入返回 ok: false，什么都不写；事务里出错直接抛，全部回滚
+export async function importCsv(ctx: HouseholdContext, input: ImportInput): Promise<ImportResult> {
+  const target = await loadImportTarget(ctx, input.accountId, 'csv');
+  if ('ok' in target) return target;
+  const { config, account } = target;
 
   // ---------- R12 第 1、2 步：事务外 ----------
 
@@ -221,17 +281,130 @@ export async function importCsv(ctx: HouseholdContext, input: ImportInput): Prom
     closingBalanceCents = closing;
   }
 
-  // schema.md：文件里最早和最晚日期（YYYY-MM-DD 字符串可以直接比较）
+  // schema.md：文件里最早和最晚日期（YYYY-MM-DD 字符串可以直接比较）。CSV 至少有一行（R1）
   const dates = rows.map((r) => r.date).sort();
-  const dateFrom = dates[0];
-  const dateTo = dates[dates.length - 1];
 
-  // ---------- R12 第 3 到 9 步：一个事务 ----------
+  return runImport(ctx, {
+    config,
+    account,
+    fileName: input.fileName,
+    source: 'csv',
+    rows,
+    dateFrom: dates[0],
+    dateTo: dates[dates.length - 1],
+    openingBalanceCents,
+    closingBalanceCents,
+    balanceWarnings,
+  });
+}
+
+// R1C：ANZ PDF 对账单。文件检查 → 读文字 → 和 CSV 一样的处理和事务
+export async function importStatement(
+  ctx: HouseholdContext,
+  input: ImportStatementInput,
+): Promise<ImportResult> {
+  const fileError = checkPdfFile({ name: input.fileName, size: input.buffer.byteLength });
+  if (fileError) return fail('invalid_file', fileError);
+
+  // 先看账户，不是 ANZ 就不用读 PDF
+  const target = await loadImportTarget(ctx, input.accountId, 'pdf');
+  if ('ok' in target) return target;
+
+  // R1C 第一层：读不出文字（扫描件、加密的、不是 PDF）
+  const extracted = await extractPdfLines(input.buffer);
+  if (!extracted.ok) return fail('parse', extracted.message);
+
+  return importStatementLines(ctx, {
+    accountId: input.accountId,
+    fileName: input.fileName,
+    lines: extracted.lines,
+  });
+}
+
+// R1C 第二层以后：解析 → R2 到 R5（processRows）→ R12 第 3 到 9 步
+export async function importStatementLines(
+  ctx: HouseholdContext,
+  input: ImportStatementLinesInput,
+): Promise<ImportResult> {
+  const target = await loadImportTarget(ctx, input.accountId, 'pdf');
+  if ('ok' in target) return target;
+  const { config, account } = target;
+
+  // R1C：表头、账号尾号、三项检查，任何一条不过整份失败。账号尾号核对在解析里做，不存
+  const parsed = parseAnzStatement(input.lines, account.numberSuffix);
+  if (!parsed.ok) {
+    // 信息里已经写了第几页第几笔
+    return { ...fail('parse', parsed.message), page: parsed.page, index: parsed.index };
+  }
+
+  return runImport(ctx, {
+    config,
+    account,
+    fileName: input.fileName,
+    source: 'pdf',
+    rows: processRows(parsed.rows, account, config),
+    // R1C：账期是 (periodFrom, periodTo]，R9 照旧按 [date_from, date_to] 算
+    dateFrom: addDays(parsed.periodFrom, 1),
+    dateTo: parsed.periodTo,
+    // R9：期初期末从汇总页来
+    openingBalanceCents: parsed.openingCents,
+    closingBalanceCents: parsed.closingCents,
+    balanceWarnings: [],
+  });
+}
+
+// R12.2 首尾衔接：同账户上一份对账单（source = pdf，date_to 比本次早的里面最大的）
+async function findStatementContinuity(
+  tx: Tx,
+  ctx: HouseholdContext,
+  accountId: string,
+  dateTo: string,
+  openingBalanceCents: number | null,
+): Promise<StatementContinuity> {
+  const [previous] = await tx
+    .select({
+      batchId: importBatch.id,
+      dateFrom: importBatch.dateFrom,
+      dateTo: importBatch.dateTo,
+      closingBalanceCents: importBatch.closingBalanceCents,
+    })
+    .from(importBatch)
+    .where(
+      and(
+        eq(importBatch.householdId, ctx.householdId),
+        eq(importBatch.accountId, accountId),
+        eq(importBatch.source, 'pdf'),
+        lt(importBatch.dateTo, dateTo),
+      ),
+    )
+    .orderBy(desc(importBatch.dateTo), desc(importBatch.createdAt))
+    .limit(1);
+  // 对账单批次都有期初期末（R1C），防御一下
+  if (!previous || previous.closingBalanceCents === null || openingBalanceCents === null) {
+    return null;
+  }
+  const prev = { batchId: previous.batchId, dateFrom: previous.dateFrom, dateTo: previous.dateTo };
+  const differenceCents = openingBalanceCents - previous.closingBalanceCents;
+  return differenceCents === 0
+    ? { status: 'connected', previous: prev }
+    : { status: 'mismatch', previous: prev, differenceCents };
+}
+
+// ---------- R12 第 3 到 9 步：一个事务。CSV 和对账单共用 ----------
+async function runImport(ctx: HouseholdContext, p: PreparedImport): Promise<ImportSuccess> {
+  const { config, account, rows, dateFrom, dateTo, openingBalanceCents, closingBalanceCents } = p;
+  const uncategorized = bySystemKey(config.categories, 'uncategorized');
 
   return db.transaction(async (tx) => {
     const hh = ctx.householdId;
     const possibleDuplicates: ImportWarnings['possibleDuplicates'] = [];
     const pendingTransferSplits: string[] = [];
+
+    // R12.2：在创建本次批次之前找上一份，免得找到自己
+    const statementContinuity =
+      p.source === 'pdf'
+        ? await findStatementContinuity(tx, ctx, account.id, dateTo, openingBalanceCents)
+        : undefined;
 
     // 4. 创建 import_batch，计数最后再更新
     const [batch] = await tx
@@ -239,7 +412,8 @@ export async function importCsv(ctx: HouseholdContext, input: ImportInput): Prom
       .values({
         householdId: hh,
         accountId: account.id,
-        fileName: input.fileName,
+        fileName: p.fileName,
+        source: p.source,
         dateFrom,
         dateTo,
         rowCount: rows.length,
@@ -254,7 +428,7 @@ export async function importCsv(ctx: HouseholdContext, input: ImportInput): Prom
 
     // ---------- 5. 逐行：去重、pending 匹配、插入 ----------
 
-    // R4.2：(account_id, dedupe_key) 已存在的跳过
+    // R4.2：(account_id, dedupe_key) 已存在的跳过。对账单一笔都没有时 rows 是空的（R1C）
     const existing = new Set<string>();
     for (const keys of chunks(rows.map((r) => r.dedupeKey))) {
       const found = await tx
@@ -367,7 +541,8 @@ export async function importCsv(ctx: HouseholdContext, input: ImportInput): Prom
       }
     }
 
-    // 新交易：transaction（CBA 带 balance_cents）+ 一行主拆分
+    // 新交易：transaction（CBA 带 balance_cents，对账单的余额 R1C 不存，解析出来就是 null）+ 一行主拆分
+    // source：CSV 和对账单进来的都是 csv（银行导入），批次的来源看 import_batch.source（M6.6-4 定）
     for (const part of chunks(toInsert)) {
       await tx.insert(transaction).values(
         part.map(({ id, row }) => ({
@@ -443,10 +618,12 @@ export async function importCsv(ctx: HouseholdContext, input: ImportInput): Prom
     // ---------- 8. 更新 import_batch ----------
 
     const warnings: ImportWarnings = {
-      balance: balanceWarnings,
+      balance: p.balanceWarnings,
       possibleDuplicates,
       pendingTransferSplits,
       reconciliation,
+      // CSV 批次不带这个字段
+      ...(statementContinuity === undefined ? {} : { statementContinuity }),
     };
     await tx
       .update(importBatch)
@@ -832,7 +1009,7 @@ async function loadUndoState(
     };
   }
 
-  // 本批次的交易：source = csv 的是插入的（要删除），其余是被确认的 pending（要恢复）
+  // 本批次的交易：source = csv 的是插入的（要删除，对账单插入的也是 csv），其余是被确认的 pending（要恢复）
   const txs = await tx
     .select({
       id: transaction.id,
