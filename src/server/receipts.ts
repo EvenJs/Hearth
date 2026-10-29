@@ -749,3 +749,16 @@ export async function listUnattachedReceipts(ctx: HouseholdContext): Promise<Una
     .where(and(eq(receipt.householdId, ctx.householdId), isNull(receipt.transactionId)))
     .orderBy(desc(receipt.receiptDate), desc(receipt.createdAt), desc(receipt.id));
 }
+
+// 交易详情"上传小票"按钮（R20.4）：这笔还没挂小票才显示
+export async function transactionHasReceipt(
+  ctx: HouseholdContext,
+  transactionId: string,
+): Promise<boolean> {
+  if (!z.uuid().safeParse(transactionId).success) return false;
+  const n = await db.$count(
+    receipt,
+    and(eq(receipt.householdId, ctx.householdId), eq(receipt.transactionId, transactionId)),
+  );
+  return n > 0;
+}

@@ -5,6 +5,7 @@ import { SidebarNav, SidebarNavFallback } from '@/components/app-shell/sidebar-n
 import { SignOutButton } from '@/components/app-shell/sign-out-button';
 import { QuickAddButton } from '@/components/quick-add/quick-add-button';
 import { getCurrentUser } from '@/server/auth';
+import { getReceiptReader } from '@/server/receipt-readers';
 
 // 登录后的页面共用：左侧边栏 + 顶栏（docs/design/README.md 第 3 节、02-dashboard.png）
 // 电脑（lg 以上）侧边栏常驻；窄屏收进 Sheet（MobileNav）
@@ -29,7 +30,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
           <div className="ml-auto flex items-center gap-2 sm:gap-3">
             {/* F3 快速录入：电脑是顶栏按钮，手机是右下角悬浮 + 按钮（M6-3、M6-4） */}
-            <QuickAddButton />
+            {/* 拍小票的入口按 RECEIPT_READER 显示（M6.7-7）：image → 选图；none → 直接手动填 */}
+            <QuickAddButton receiptInput={receiptInputMode()} />
             {/* 读 session 的部分必须放在 Suspense 里（cacheComponents） */}
             <Suspense fallback={<div className="h-8 w-16" />}>
               <CurrentUser />
@@ -44,6 +46,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       </div>
     </div>
   );
+}
+
+// text reader 不做（R20.1b），这里只会是 image 或 null
+function receiptInputMode(): 'image' | null {
+  return getReceiptReader()?.input === 'image' ? 'image' : null;
 }
 
 async function CurrentUser() {

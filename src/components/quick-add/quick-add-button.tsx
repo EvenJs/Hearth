@@ -18,6 +18,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetDescription } from '@/components/ui/sheet';
+import { useReceiptFlow, type ReceiptInputMode } from '@/components/receipt/receipt-flow';
 import { getQuickAddDataAction, type QuickAddData } from './actions';
 import { QuickAddForm, type QuickAddVariant } from './quick-add-form';
 
@@ -28,7 +29,8 @@ function focusAmount(e: Event) {
   document.getElementById('quick-add-amount')?.focus();
 }
 
-export function QuickAddButton() {
+// receiptInput：当前 reader 收什么（服务器端按 RECEIPT_READER 传进来，M6.7-7）
+export function QuickAddButton({ receiptInput }: { receiptInput: ReceiptInputMode }) {
   const [open, setOpen] = useState(false);
   const [variant, setVariant] = useState<QuickAddVariant>('dialog');
   const [session, setSession] = useState(0);
@@ -38,6 +40,7 @@ export function QuickAddButton() {
   const keyboardProxy = useRef<HTMLInputElement>(null);
   const mounted = useMounted();
   const viewport = useVisualViewport(open && variant === 'sheet');
+  const receipt = useReceiptFlow({ inputMode: receiptInput });
 
   async function load(id: number) {
     const r = await getQuickAddDataAction();
@@ -77,6 +80,11 @@ export function QuickAddButton() {
       data={data}
       loadError={loadError}
       onClose={() => onOpenChange(false)}
+      onReceipt={() => {
+        // 同一次点击里关掉快速录入、打开选图（手机上才能直接调相机）
+        onOpenChange(false);
+        receipt.start();
+      }}
     />
   );
 
@@ -123,6 +131,8 @@ export function QuickAddButton() {
           {variant === 'dialog' && form}
         </DialogContent>
       </Dialog>
+
+      {receipt.node}
 
       <Sheet open={open && variant === 'sheet'} onOpenChange={onOpenChange}>
         <SheetContent
