@@ -2,13 +2,23 @@
 // 期望值来自 business-rules.md R20.4、R20.5、R20.7、R20.8 和 fixtures/README.md "小票用例"
 // 假 reader 直接返回 fixtures/receipts 的 JSON，不碰网络
 import { eq } from 'drizzle-orm';
-import { beforeEach, expect, it } from 'vitest';
+import { beforeEach, expect, it, vi } from 'vitest';
 import { db } from '@/db';
 import * as schema from '@/db/schema';
 import { rawReceiptSchema } from '@/lib/rules/receipt';
-import { importCsv } from '@/server/imports';
+import { getUndoPreview, importCsv, undoImport } from '@/server/imports';
+import { deleteManualTransaction, updateManualTransaction } from '@/server/manual';
 import type { ReceiptInput, ReceiptReader } from '@/server/receipt-readers';
-import { getReceiptCandidates, scanReceipt } from '@/server/receipts';
+import {
+  attachReceipt,
+  deleteReceipt,
+  getReceiptCandidates,
+  listUnattachedReceipts,
+  saveReceipt,
+  scanReceipt,
+  type SaveReceiptInput,
+} from '@/server/receipts';
+import { addSplit, updateSplit } from '@/server/splits';
 import { readFixture, readReceiptFixture, type FixturePath } from '../helpers/fixtures';
 import {
   createTestHousehold,
@@ -17,7 +27,7 @@ import {
   TEST_USER,
   type DbTestHousehold,
 } from './helpers/db';
-import { listTransactions } from './helpers/transactions';
+import { getSplits, getTransaction, insertPending, listTransactions } from './helpers/transactions';
 
 let t: DbTestHousehold;
 
@@ -268,5 +278,541 @@ describeDb('getReceiptCandidates（R20.4）', () => {
 
     const draft = await scanReceipt(t.ctx, IMAGE, fakeReader('coles-a.json').reader);
     expect(draft.candidates).toEqual({ candidates: [], defaultId: null, possibleDuplicate: false });
+  });
+});
+
+// ==================== 保存、挂上、删除（R20.3 到 R20.7） ====================
+
+// 核对后的小票：和 reader 原始结果一样的字符串格式，这里直接用 fixture
+const raw = (name: `${string}.json`) => readReceiptFixture(name) as SaveReceiptInput['receipt'];
+
+async function save(input: Partial<SaveReceiptInput> & Pick<SaveReceiptInput, 'target'>) {
+  return saveReceipt(t.ctx, { reader: FAKE_READER_ID, receipt: raw('coles-a.json'), ...input });
+}
+
+async function saveOk(input: Partial<SaveReceiptInput> & Pick<SaveReceiptInput, 'target'>) {
+  const r = await save(input);
+  if (!r.ok) throw new Error(`保存失败: ${r.code} ${r.message}`);
+  return r;
+}
+
+async function receiptRows() {
+  return db.select().from(schema.receipt).orderBy(schema.receipt.createdAt);
+}
+
+// 拆分的样子：金额、分类、归属人（来源）、category_source、备注
+async function splitShape(transactionId: string, target: DbTestHousehold = t) {
+  const name = (id: string) => target.h.categories.find((c) => c.id === id)!;
+  const member = (id: string) => target.h.members.find((m) => m.id === id)!.name;
+  return (await getSplits(transactionId)).map((x) => ({
+    primary: x.isPrimary,
+    amountCents: x.amountCents,
+    category: name(x.categoryId).id === x.categoryId ? path(target, x.categoryId) : '?',
+    member: `${member(x.memberId)} (${x.memberSource})`,
+    categorySource: x.categorySource,
+    note: x.note,
+  }));
+}
+
+function path(target: DbTestHousehold, id: string): string {
+  const c = target.h.categories.find((x) => x.id === id)!;
+  const parent = c.parentId ? target.h.categories.find((x) => x.id === c.parentId)! : null;
+  return parent ? `${parent.nameEn} / ${c.nameEn}` : c.nameEn;
+}
+
+// R-A 的结果（R20.8）
+const R_A_SPLITS = [
+  {
+    primary: true,
+    amountCents: -3140,
+    category: 'Groceries / Supermarket',
+    member: 'Home (category)',
+    categorySource: 'rule',
+    note: null,
+  },
+  {
+    primary: false,
+    amountCents: -1500,
+    category: 'Home & utilities / Household supplies',
+    member: 'Home (category)',
+    categorySource: 'manual',
+    note: null,
+  },
+  {
+    primary: false,
+    amountCents: -1200,
+    category: 'Personal & medical / Cosmetics & toiletries',
+    member: 'Male (card)',
+    categorySource: 'manual',
+    note: null,
+  },
+];
+
+describeDb('saveReceipt（R20.3、R20.4、R20.6、R20.7）', () => {
+  beforeEach(async () => {
+    await resetBusinessTables();
+    t = await createTestHousehold();
+  });
+
+  it('R-A: coles-a on #19 → three splits as in R20.8, receipt stored with the fake reader id', async () => {
+    await importFixture(t, 'ANZ Joint', 'anz/joint-2026-09.csv');
+    const n19 = await joint19();
+
+    const r = await saveOk({ target: { kind: 'transaction', transactionId: n19.id } });
+
+    expect(r.transactionId).toBe(n19.id);
+    expect(await splitShape(n19.id)).toEqual(R_A_SPLITS);
+    const [row] = await receiptRows();
+    expect(row).toMatchObject({
+      id: r.receiptId,
+      transactionId: n19.id,
+      merchant: 'COLES',
+      receiptDate: '2026-08-31',
+      totalCents: 5840,
+      reader: FAKE_READER_ID,
+      createdBy: TEST_USER.id,
+    });
+    expect(row.parsedJson).toEqual({
+      items: expect.arrayContaining([
+        { name: 'KIWIFRUIT 4 FOR $6', amountCents: -80, category: null },
+        {
+          name: 'SHAMPOO 400ML',
+          amountCents: 1200,
+          category: t.h.category('Personal & medical / Cosmetics & toiletries').id,
+        },
+      ]),
+      discounts: [],
+      payment: 'card',
+    });
+    // 交易本身不变（挂到已有交易上的小票不改 source）
+    expect((await getTransaction(n19.id)).source).toBe('csv');
+  });
+
+  it("R-A': coles-a again after R-A → possibly uploaded already; #19 is no longer a candidate", async () => {
+    await importFixture(t, 'ANZ Joint', 'anz/joint-2026-09.csv');
+    await saveOk({ target: { kind: 'transaction', transactionId: (await joint19()).id } });
+
+    const draft = await scanReceipt(t.ctx, IMAGE, fakeReader('coles-a.json').reader);
+    expect(draft.candidates).toEqual({ candidates: [], defaultId: null, possibleDuplicate: true });
+  });
+
+  it('R20.1: filled in by hand (reader none or failed) → reader manual', async () => {
+    await importFixture(t, 'ANZ Joint', 'anz/joint-2026-09.csv');
+    await saveOk({
+      reader: 'manual',
+      target: { kind: 'transaction', transactionId: (await joint19()).id },
+    });
+    expect((await receiptRows())[0].reader).toBe('manual');
+  });
+
+  it('R-E: coles-e, no match → new ANZ Joint pending (source receipt); importing the bank row confirms it and keeps the receipt', async () => {
+    const r = await saveOk({
+      receipt: raw('coles-e.json'),
+      target: { kind: 'new', accountId: t.h.account('ANZ Joint').id },
+    });
+
+    const tx = await getTransaction(r.transactionId);
+    expect(tx).toMatchObject({
+      accountId: t.h.account('ANZ Joint').id,
+      status: 'pending',
+      source: 'receipt',
+      date: '2026-09-28',
+      amountCents: -2345,
+      cardLast4: null,
+      merchant: 'COLES',
+      importBatchId: null,
+    });
+    expect(await splitShape(r.transactionId)).toEqual([
+      {
+        primary: true,
+        amountCents: -2345,
+        category: 'Groceries / Supermarket',
+        member: 'Home (category)',
+        categorySource: 'rule',
+        note: null,
+      },
+    ]);
+
+    const imported = await importCsv(t.ctx, {
+      accountId: t.h.account('ANZ Joint').id,
+      fileName: 'coles-e.csv',
+      text: '29/09/2026,"-23.45",VISA DEBIT PURCHASE CARD 2222 COLES 0559 MELBOURNE\n',
+    });
+    if (!imported.ok) throw new Error(imported.message);
+
+    const after = await getTransaction(r.transactionId);
+    expect(after).toMatchObject({ status: 'confirmed', source: 'receipt', cardLast4: '2222' });
+    expect(after.importBatchId).toBe(imported.batchId);
+    expect(await db.$count(schema.transaction)).toBe(1);
+    expect((await receiptRows())[0].transactionId).toBe(r.transactionId);
+  });
+
+  it('R17.5 + R20.7: the receipt-created pending can be edited and deleted like manual; deleting detaches the receipt', async () => {
+    const r = await saveOk({
+      receipt: raw('coles-e.json'),
+      target: { kind: 'new', accountId: t.h.account('ANZ Joint').id },
+    });
+    const edited = await updateManualTransaction(
+      t.ctx,
+      r.transactionId,
+      { description: 'COLES CENTRAL' },
+      '2026-10-29',
+    );
+    expect(edited).toEqual({ ok: true, changed: true });
+
+    expect(await deleteManualTransaction(t.ctx, r.transactionId)).toEqual({ ok: true });
+    const rows = await receiptRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].transactionId).toBeNull();
+  });
+
+  it('R20.6: #19 already split, no confirm → needs_confirm and nothing changes; with confirm → old extra split gone, primary note kept', async () => {
+    await importFixture(t, 'ANZ Joint', 'anz/joint-2026-09.csv');
+    const n19 = await joint19();
+    const added = await addSplit(t.ctx, n19.id, {
+      amountCents: 800,
+      categoryId: t.h.category('Personal & medical / Cosmetics & toiletries').id,
+    });
+    if (!added.ok) throw new Error(added.message);
+    const primary = (await getSplits(n19.id)).find((x) => x.isPrimary)!;
+    expect((await updateSplit(t.ctx, primary.id, { note: '周末采购' })).ok).toBe(true);
+    const before = await getSplits(n19.id);
+
+    const refused = await save({ target: { kind: 'transaction', transactionId: n19.id } });
+    expect(refused).toMatchObject({
+      ok: false,
+      code: 'needs_confirm',
+      splitCount: 2,
+      manualCategory: false,
+    });
+    expect(await getSplits(n19.id)).toEqual(before);
+    expect(await db.$count(schema.receipt)).toBe(0);
+
+    await saveOk({
+      target: { kind: 'transaction', transactionId: n19.id },
+      confirmOverwrite: true,
+    });
+    const after = await getSplits(n19.id);
+    expect(after.map((x) => x.id)).not.toContain(added.splitId);
+    expect(after.find((x) => x.isPrimary)).toMatchObject({ id: primary.id, note: '周末采购' });
+    expect(await splitShape(n19.id)).toEqual([
+      { ...R_A_SPLITS[0], note: '周末采购' },
+      R_A_SPLITS[1],
+      R_A_SPLITS[2],
+    ]);
+  });
+
+  it('R20.6: primary with a manual category also needs confirm', async () => {
+    const id = await insertPending(t, {
+      account: 'ANZ Joint',
+      date: '2026-08-31',
+      amountCents: -5840,
+      category: 'Groceries / Supermarket',
+      member: 'Home',
+    });
+    expect(await save({ target: { kind: 'transaction', transactionId: id } })).toMatchObject({
+      ok: false,
+      code: 'needs_confirm',
+      splitCount: 1,
+      manualCategory: true,
+    });
+  });
+
+  it('R-C: coles-a on a -50.00 transaction → split_failed "小票合计比这笔交易多 $8.40", nothing written', async () => {
+    const id = await insertPending(t, {
+      account: 'ANZ Joint',
+      date: '2026-08-31',
+      amountCents: -5000,
+      category: 'Groceries / Supermarket',
+      member: 'Home',
+    });
+    const before = await getSplits(id);
+    const r = await save({
+      target: { kind: 'transaction', transactionId: id },
+      confirmOverwrite: true,
+    });
+    expect(r).toEqual({
+      ok: false,
+      code: 'split_failed',
+      message: '小票合计比这笔交易多 $8.40，不支持',
+    });
+    expect(await getSplits(id)).toEqual(before);
+    expect(await db.$count(schema.receipt)).toBe(0);
+  });
+
+  it('R-D: bad-total → check_failed with the difference, nothing written', async () => {
+    await importFixture(t, 'ANZ Joint', 'anz/joint-2026-09.csv');
+    const r = await save({
+      receipt: raw('bad-total.json'),
+      target: { kind: 'transaction', transactionId: (await joint19()).id },
+    });
+    expect(r).toMatchObject({ ok: false, code: 'check_failed' });
+    if (r.ok || r.code !== 'check_failed') return;
+    expect(r.issues).toContainEqual(
+      expect.objectContaining({ code: 'sum_mismatch', diffCents: 100 }),
+    );
+    expect(await db.$count(schema.receipt)).toBe(0);
+  });
+
+  it('R20.7: a transaction that already has a receipt → has_receipt', async () => {
+    await importFixture(t, 'ANZ Joint', 'anz/joint-2026-09.csv');
+    const target = { kind: 'transaction', transactionId: (await joint19()).id } as const;
+    await saveOk({ target });
+    expect(await save({ target, confirmOverwrite: true })).toMatchObject({
+      ok: false,
+      code: 'has_receipt',
+    });
+    expect(await db.$count(schema.receipt)).toBe(1);
+  });
+
+  it('R15.2 + R20.4: internal transfer → refused, nothing written', async () => {
+    await importFixture(t, 'ANZ Joint', 'anz/joint-2026-09.csv');
+    // #11 TRANSFER TO ****0003 -500.00，auto
+    const n11 = (await listTransactions(t, 'ANZ Joint')).find((x) => x.amountCents === -50000)!;
+    expect(n11.transferStatus).toBe('auto');
+    const r = await save({ target: { kind: 'transaction', transactionId: n11.id } });
+    expect(r).toMatchObject({ ok: false, code: 'transfer' });
+    expect(await db.$count(schema.receipt)).toBe(0);
+  });
+
+  it('R20.5: new transaction on an archived account → account error, nothing written', async () => {
+    await db
+      .update(schema.financialAccount)
+      .set({ isArchived: true })
+      .where(eq(schema.financialAccount.id, t.h.account('ANZ Joint').id));
+    const r = await save({
+      receipt: raw('coles-e.json'),
+      target: { kind: 'new', accountId: t.h.account('ANZ Joint').id },
+    });
+    expect(r).toMatchObject({ ok: false, code: 'account' });
+    expect(await db.$count(schema.transaction)).toBe(0);
+    expect(await db.$count(schema.receipt)).toBe(0);
+  });
+
+  it('R20.3: an error halfway through (after the splits are written) rolls back transaction, splits and receipt', async () => {
+    await importFixture(t, 'ANZ Joint', 'anz/joint-2026-09.csv');
+    const n19 = await joint19();
+    const txBefore = await getTransaction(n19.id);
+    const splitsBefore = await getSplits(n19.id);
+
+    // 拆分写完以后，写 receipt 时抛错（同 imports.test.ts R12 的做法）
+    const original = db.transaction.bind(db);
+    type Tx = Parameters<Parameters<typeof original>[0]>[0];
+    vi.spyOn(db, 'transaction').mockImplementation((fn, config) =>
+      original((tx) => {
+        const failing = new Proxy(tx, {
+          get(target, prop, receiver) {
+            if (prop === 'insert') {
+              return (table: Parameters<Tx['insert']>[0]) => {
+                if (table === schema.receipt) throw new Error('故意抛错');
+                return target.insert(table);
+              };
+            }
+            const value = Reflect.get(target, prop, receiver);
+            return typeof value === 'function' ? value.bind(target) : value;
+          },
+        });
+        return fn(failing);
+      }, config),
+    );
+
+    await expect(save({ target: { kind: 'transaction', transactionId: n19.id } })).rejects.toThrow(
+      '故意抛错',
+    );
+    vi.restoreAllMocks();
+
+    expect(await getTransaction(n19.id)).toEqual(txBefore);
+    expect(await getSplits(n19.id)).toEqual(splitsBefore);
+    expect(await db.$count(schema.receipt)).toBe(0);
+  });
+
+  it('R20.7: deleteReceipt only removes the receipt row; splits stay', async () => {
+    await importFixture(t, 'ANZ Joint', 'anz/joint-2026-09.csv');
+    const n19 = await joint19();
+    const r = await saveOk({ target: { kind: 'transaction', transactionId: n19.id } });
+
+    expect(await deleteReceipt(t.ctx, r.receiptId)).toEqual({ ok: true });
+    expect(await db.$count(schema.receipt)).toBe(0);
+    expect(await splitShape(n19.id)).toEqual(R_A_SPLITS);
+    expect(await deleteReceipt(t.ctx, r.receiptId)).toMatchObject({ ok: false, code: 'not_found' });
+  });
+});
+
+describeDb('R-U 撤销导入和重新挂（R12.1、R20.7）', () => {
+  beforeEach(async () => {
+    await resetBusinessTables();
+    t = await createTestHousehold();
+  });
+
+  it('R-U: undo joint after R-A → prompt "挂了小票 1 笔"; receipt detached and listed; re-import joint and re-attach to the new #19', async () => {
+    const batch = await importFixture(t, 'ANZ Joint', 'anz/joint-2026-09.csv');
+    const r = await saveOk({
+      target: { kind: 'transaction', transactionId: (await joint19()).id },
+    });
+
+    const preview = await getUndoPreview(t.ctx, batch.batchId);
+    if (!preview.ok) throw new Error(preview.message);
+    expect(preview.prompt).toMatchObject({
+      receiptCount: 1,
+      manualEditedCount: 1,
+      needsConfirm: true,
+    });
+
+    const undone = await undoImport(t.ctx, batch.batchId);
+    expect(undone.ok).toBe(true);
+    const [detached] = await receiptRows();
+    expect(detached).toMatchObject({ id: r.receiptId, transactionId: null });
+    expect(await listUnattachedReceipts(t.ctx)).toEqual([
+      expect.objectContaining({
+        id: r.receiptId,
+        merchant: 'COLES',
+        receiptDate: '2026-08-31',
+        totalCents: 5840,
+      }),
+    ]);
+
+    await importFixture(t, 'ANZ Joint', 'anz/joint-2026-09.csv');
+    const new19 = await joint19();
+    expect(new19.id).not.toBe(r.transactionId);
+    expect(
+      await attachReceipt(t.ctx, r.receiptId, { kind: 'transaction', transactionId: new19.id }),
+    ).toEqual({
+      ok: true,
+      transactionId: new19.id,
+    });
+    expect(await splitShape(new19.id)).toEqual(R_A_SPLITS);
+    expect(await listUnattachedReceipts(t.ctx)).toEqual([]);
+    // 已经挂上的不能再挂
+    expect(
+      await attachReceipt(t.ctx, r.receiptId, {
+        kind: 'new',
+        accountId: t.h.account('ANZ Joint').id,
+      }),
+    ).toMatchObject({ ok: false, code: 'attached' });
+  });
+
+  it('R20.7: an unattached receipt can also become a new transaction (R20.5)', async () => {
+    const batch = await importFixture(t, 'ANZ Joint', 'anz/joint-2026-09.csv');
+    const r = await saveOk({
+      target: { kind: 'transaction', transactionId: (await joint19()).id },
+    });
+    await undoImport(t.ctx, batch.batchId);
+
+    const attached = await attachReceipt(t.ctx, r.receiptId, {
+      kind: 'new',
+      accountId: t.h.account('ANZ Joint').id,
+    });
+    if (!attached.ok) throw new Error(attached.message);
+    expect(await getTransaction(attached.transactionId)).toMatchObject({
+      source: 'receipt',
+      status: 'pending',
+      date: '2026-08-31',
+      amountCents: -5840,
+    });
+    // 新建的交易没有卡号，Cosmetics 那组按账户默认（R5），不是 Male (card)
+    expect(
+      (await splitShape(attached.transactionId)).map((x) => [x.amountCents, x.category]),
+    ).toEqual([
+      [-3140, 'Groceries / Supermarket'],
+      [-1500, 'Home & utilities / Household supplies'],
+      [-1200, 'Personal & medical / Cosmetics & toiletries'],
+    ]);
+  });
+
+  it('R20.1: after R-A, R-E and R-U, no receipt.parsed_json contains card numbers 1111, 2222 or name fields', async () => {
+    const batch = await importFixture(t, 'ANZ Joint', 'anz/joint-2026-09.csv');
+    const a = await saveOk({
+      target: { kind: 'transaction', transactionId: (await joint19()).id },
+    });
+    await saveOk({
+      receipt: raw('coles-e.json'),
+      target: { kind: 'new', accountId: t.h.account('ANZ Joint').id },
+    });
+    await undoImport(t.ctx, batch.batchId);
+    await importFixture(t, 'ANZ Joint', 'anz/joint-2026-09.csv');
+    await attachReceipt(t.ctx, a.receiptId, {
+      kind: 'transaction',
+      transactionId: (await joint19()).id,
+    });
+    // noisy.json 带了 customer、cashier
+    await saveOk({
+      reader: 'manual',
+      receipt: raw('noisy.json'),
+      target: { kind: 'new', accountId: t.h.account('ANZ Joint').id },
+    });
+
+    const rows = await receiptRows();
+    expect(rows).toHaveLength(3);
+    for (const row of rows) {
+      const text = JSON.stringify(row.parsedJson);
+      expect(text).not.toContain('1111');
+      expect(text).not.toContain('2222');
+      expect(text).not.toMatch(/cardLast4|customer|cashier/i);
+      // R2.3：名字里没有 8 位以上连续数字（分类 id 是 uuid，不在检查范围内）
+      const json = row.parsedJson as { items: { name: string }[]; discounts: { label: string }[] };
+      for (const text of [
+        row.merchant,
+        ...json.items.map((i) => i.name),
+        ...json.discounts.map((d) => d.label),
+      ]) {
+        expect(text).not.toMatch(/\d{8,}/);
+      }
+    }
+  });
+});
+
+describeDb('另一个家庭（R20、household_id）', () => {
+  beforeEach(async () => {
+    await resetBusinessTables();
+    t = await createTestHousehold();
+  });
+
+  it("another household's transactions and receipts: save, attach and delete return not_found; the list does not show them", async () => {
+    await db.delete(schema.householdUser).where(eq(schema.householdUser.userId, TEST_USER.id));
+    const other = await createTestHousehold();
+    await importFixture(other, 'ANZ Joint', 'anz/joint-2026-09.csv');
+    const other19 = await joint19(other);
+    const otherSaved = await saveReceipt(other.ctx, {
+      reader: 'manual',
+      receipt: raw('grocer-b.json'),
+      target: { kind: 'new', accountId: other.h.account('ANZ Joint').id },
+    });
+    if (!otherSaved.ok) throw new Error(otherSaved.message);
+    // 让 other 的小票变成没挂上
+    await db.update(schema.receipt).set({ transactionId: null });
+    const before = await splitShape(other19.id, other);
+
+    // 本家庭：挂到别家的交易
+    expect(
+      await save({ target: { kind: 'transaction', transactionId: other19.id } }),
+    ).toMatchObject({
+      ok: false,
+      code: 'not_found',
+    });
+    // 本家庭：新建在别家的账户上
+    expect(
+      await save({
+        receipt: raw('coles-e.json'),
+        target: { kind: 'new', accountId: other.h.account('ANZ Joint').id },
+      }),
+    ).toMatchObject({ ok: false, code: 'account' });
+    // 别家的小票：挂、删、列表
+    expect(
+      await attachReceipt(t.ctx, otherSaved.receiptId, {
+        kind: 'new',
+        accountId: t.h.account('ANZ Joint').id,
+      }),
+    ).toMatchObject({ ok: false, code: 'not_found' });
+    expect(await deleteReceipt(t.ctx, otherSaved.receiptId)).toMatchObject({
+      ok: false,
+      code: 'not_found',
+    });
+    expect(await listUnattachedReceipts(t.ctx)).toEqual([]);
+
+    expect(await splitShape(other19.id, other)).toEqual(before);
+    expect(await db.$count(schema.receipt)).toBe(1);
+    expect((await listUnattachedReceipts(other.ctx)).map((x) => x.id)).toEqual([
+      otherSaved.receiptId,
+    ]);
   });
 });

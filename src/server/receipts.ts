@@ -3,7 +3,7 @@
 // 钱怎么算全部由 src/lib/rules/ 的纯函数决定，这里负责读、校验形状、在事务里写回
 // 每个查询都带 household_id。图片只在这次请求的内存里，不写磁盘、不打日志
 // cardLast4 只在内存里用（R20.4、R20.5），不入库
-import { and, eq, gte, lte } from 'drizzle-orm';
+import { and, desc, eq, gte, isNull, lte } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/db';
 import { financialAccount, receipt, transaction } from '@/db/schema';
@@ -12,24 +12,32 @@ import { addDays, todayInMelbourne } from '@/lib/rules/periods';
 import {
   checkReceipt,
   normalizeReceipt,
+  rawReceiptSchema,
   type NormalizedReceipt,
+  type ReceiptCheckIssue,
   type ReceiptCategoryOption,
   type ReceiptCheck,
   type ReceiptFieldErrors,
 } from '@/lib/rules/receipt';
 import {
+  buildReceiptTransaction,
   defaultReceiptAccount,
   findReceiptCandidates,
+  needsOverwriteConfirm,
   type ReceiptAccountDefault,
   type ReceiptCandidateTx,
 } from '@/lib/rules/receipt-match';
+import type { ManualFieldErrors } from '@/lib/rules/manual';
 import type { TransactionStatus } from '@/lib/rules/pending';
+import { defaultItemCategories, planReceiptSplits } from '@/lib/rules/receipt-split';
+import type { SplitRow } from '@/lib/rules/split';
 import { isSelectableCategory } from '@/lib/rules/split-edit';
 import type { Card, TransferStatus } from '@/lib/rules/types';
 import type { HouseholdContext } from './context';
 import { lastManualAccountId, loadManualContext, type QuickAddCategory } from './manual';
 import { getReceiptReader, type ReceiptInput, type ReceiptReader } from './receipt-readers';
-import type { DbTx } from './transactions';
+import { lockTransaction, writeSplits, type LoadedTx } from './splits';
+import { loadEditContext, type DbTx } from './transactions';
 
 // ---------- 返回的形状 ----------
 
@@ -263,4 +271,318 @@ export async function scanReceipt(
     candidates,
     account,
   };
+}
+
+// ---------- 保存、挂上 ----------
+
+// 挂到哪：已有交易（R20.4 选中的，或从交易详情上传），或在这个账户新建一笔（R20.5）
+const targetSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('transaction'), transactionId: z.uuid() }),
+  z.object({ kind: z.literal('new'), accountId: z.uuid() }),
+]);
+
+export type ReceiptTarget = z.input<typeof targetSchema>;
+
+// receipt.reader：`llm:<模型名>`、`text`、`manual`（schema）
+const readerSchema = z.string().regex(/^(manual|text|llm:[\w./:@-]{1,100})$/);
+
+// 核对后的小票用和 reader 原始结果一样的字符串格式（R20.1），服务器重新跑 normalizeReceipt、checkReceipt
+// （R20.2：手动填的商品走同样的整理和校验），不信客户端算的结果
+const saveSchema = z.object({
+  reader: readerSchema,
+  receipt: rawReceiptSchema.refine((r) => r.items.length <= 200 && r.discounts.length <= 50, {
+    message: '商品太多',
+  }),
+  target: targetSchema,
+  confirmOverwrite: z.boolean().default(false),
+});
+
+export type SaveReceiptInput = z.input<typeof saveSchema>;
+
+export type ReceiptWriteFailure =
+  | {
+      ok: false;
+      code: 'invalid' | 'not_found' | 'transfer' | 'has_receipt' | 'attached';
+      message: string;
+    }
+  // R20.2：整理或校验没过，标在对应那行
+  | {
+      ok: false;
+      code: 'check_failed';
+      message: string;
+      errors: ReceiptFieldErrors;
+      issues: ReceiptCheckIssue[];
+    }
+  // R20.5：新建交易的字段（账户）不对
+  | { ok: false; code: 'account'; message: string; errors: ManualFieldErrors }
+  // R20.6：已经改过，要用户确认覆盖。什么都没写
+  | {
+      ok: false;
+      code: 'needs_confirm';
+      message: string;
+      splitCount: number;
+      manualCategory: boolean;
+    }
+  // R20.3 第 4、5 步：差额是负数、某组合计不是正数、挂在收入上
+  | { ok: false; code: 'split_failed'; message: string };
+
+export type SaveReceiptResult =
+  { ok: true; receiptId: string; transactionId: string } | ReceiptWriteFailure;
+export type AttachReceiptResult = { ok: true; transactionId: string } | ReceiptWriteFailure;
+export type DeleteReceiptResult = { ok: true } | { ok: false; code: 'not_found'; message: string };
+
+const INVALID = { ok: false, code: 'invalid', message: '参数不合法' } as const;
+const TX_NOT_FOUND = { ok: false, code: 'not_found', message: '找不到这笔交易' } as const;
+const RECEIPT_NOT_FOUND = { ok: false, code: 'not_found', message: '找不到这张小票' } as const;
+
+// R20.2：校验没过 → check_failed
+function checkFailure(
+  receipt: NormalizedReceipt,
+  errors: ReceiptFieldErrors,
+): Extract<ReceiptWriteFailure, { code: 'check_failed' }> | null {
+  const check = checkReceipt(receipt);
+  if (check.ok) return null;
+  return {
+    ok: false,
+    code: 'check_failed',
+    message: check.issues.map((i) => i.message).join('；'),
+    errors,
+    issues: check.issues,
+  };
+}
+
+// 一个事务里把（已经通过 checkReceipt 的）小票挂到交易上，写好拆分。返回交易 id
+// 所有检查都在写库之前做完，失败时什么都没写
+async function attachInTx(
+  tx: DbTx,
+  ctx: HouseholdContext,
+  r: NormalizedReceipt,
+  target: z.output<typeof targetSchema>,
+  confirmOverwrite: boolean,
+  today: string,
+): Promise<{ ok: true; transactionId: string } | ReceiptWriteFailure> {
+  const editCtx = await loadEditContext(tx, ctx);
+
+  if (target.kind === 'new') {
+    // R20.5：账户不是本家庭的、归档了 → buildManualTransaction 按字段报错
+    const m = await loadManualContext(tx, ctx, today);
+    const built = buildReceiptTransaction(r, target.accountId, m);
+    if (!built.ok) {
+      return {
+        ok: false,
+        code: 'account',
+        message: Object.values(built.errors).join('；'),
+        errors: built.errors,
+      };
+    }
+    const primary: SplitRow = { id: null, ...built.split, note: null };
+    const draft = {
+      accountId: built.transaction.accountId,
+      cardLast4: null,
+      amountCents: built.transaction.amountCents,
+      splits: [primary],
+    };
+    const items = defaultItemCategories(r.items, primary.categoryId);
+    const plan = planReceiptSplits(r, items, draft, editCtx);
+    if (!plan.ok) return { ok: false, code: 'split_failed', message: plan.message };
+
+    const [row] = await tx
+      .insert(transaction)
+      .values({ ...built.transaction, householdId: ctx.householdId, createdBy: ctx.userId })
+      .returning({ id: transaction.id });
+    const created: LoadedTx = { ...draft, id: row.id, transferStatus: 'none', splits: [] };
+    await writeSplits(tx, ctx, created, [plan.primary, ...plan.created]);
+    return { ok: true, transactionId: row.id };
+  }
+
+  // 已有交易：锁住交易和拆分
+  const t = await lockTransaction(tx, ctx, target.transactionId);
+  if (!t) return TX_NOT_FOUND;
+  // R20.4、R15.2：转账不能拆，suggested 的也不要
+  if (t.transferStatus !== 'none') {
+    return { ok: false, code: 'transfer', message: '内部转账（或建议的转账）不能挂小票' };
+  }
+  // R20.7：一笔交易只能挂一张小票
+  const [existing] = await tx
+    .select({ id: receipt.id })
+    .from(receipt)
+    .where(and(eq(receipt.transactionId, t.id), eq(receipt.householdId, ctx.householdId)));
+  if (existing) return { ok: false, code: 'has_receipt', message: '这笔交易已经挂了小票' };
+
+  // R20.6：已经改过，没确认覆盖就不写
+  const overwrite = needsOverwriteConfirm(t.splits);
+  if (overwrite.needed && !confirmOverwrite) {
+    const parts = [
+      overwrite.splitCount > 1 ? `拆分 ${overwrite.splitCount} 条` : null,
+      overwrite.manualCategory ? '手动改过分类' : null,
+    ].filter(Boolean);
+    return {
+      ok: false,
+      code: 'needs_confirm',
+      message: `这笔已经手动改过（${parts.join(' / ')}），用小票的结果覆盖吗？原来的拆分会删掉，主拆分的备注保留。`,
+      splitCount: overwrite.splitCount,
+      manualCategory: overwrite.manualCategory,
+    };
+  }
+
+  const primary = t.splits.find((x) => x.isPrimary);
+  if (!primary) throw new Error(`交易 ${t.id} 没有主拆分`);
+  const items = defaultItemCategories(r.items, primary.categoryId);
+  const plan = planReceiptSplits(r, items, t, editCtx);
+  if (!plan.ok) return { ok: false, code: 'split_failed', message: plan.message };
+
+  // 原来的非主拆分（plan.deletedIds）不在新列表里，writeSplits 会删掉
+  await writeSplits(tx, ctx, t, [plan.primary, ...plan.created]);
+  return { ok: true, transactionId: t.id };
+}
+
+// parsed_json（schema）：用户核对后的版本。不含卡号（cardLast4 在这里去掉）、人名
+// items[].category 存分类 id，null = 跟主分类（R20.3 第 1 步），重新挂到别的交易时按那笔的主分类走
+function toParsedJson(r: NormalizedReceipt) {
+  return {
+    items: r.items.map((i) => ({
+      name: i.name,
+      amountCents: i.amountCents,
+      category: i.categoryId,
+    })),
+    discounts: r.discounts.map((d) => ({ label: d.label, amountCents: d.amountCents })),
+    payment: r.payment.method,
+  };
+}
+
+const parsedJsonSchema = z.object({
+  items: z.array(
+    z.object({ name: z.string(), amountCents: z.number().int(), category: z.string().nullable() }),
+  ),
+  discounts: z.array(z.object({ label: z.string(), amountCents: z.number().int() })),
+  payment: z.enum(['card', 'cash', 'unknown']),
+});
+
+// R20.3 到 R20.7：一个事务。服务器重新整理、校验、拆分；交易已经挂了小票、改过但没确认覆盖、转账都报错不写
+export async function saveReceipt(
+  ctx: HouseholdContext,
+  input: SaveReceiptInput,
+): Promise<SaveReceiptResult> {
+  const parsed = saveSchema.safeParse(input);
+  if (!parsed.success) return INVALID;
+  const { reader, target, confirmOverwrite } = parsed.data;
+  const today = todayInMelbourne();
+
+  return db.transaction(async (tx) => {
+    const m = await loadManualContext(tx, ctx, today);
+    const { receipt: r, errors } = normalizeReceipt(
+      parsed.data.receipt,
+      receiptCategoryOptions(m.categories),
+      today,
+    );
+    const failed = checkFailure(r, errors);
+    if (failed) return failed;
+
+    const attached = await attachInTx(tx, ctx, r, target, confirmOverwrite, today);
+    if (!attached.ok) return attached;
+
+    const [row] = await tx
+      .insert(receipt)
+      .values({
+        householdId: ctx.householdId,
+        transactionId: attached.transactionId,
+        merchant: r.merchant,
+        receiptDate: r.date!,
+        totalCents: r.totalCents!,
+        parsedJson: toParsedJson(r),
+        reader,
+        createdBy: ctx.userId,
+      })
+      .returning({ id: receipt.id });
+    return { ok: true, receiptId: row.id, transactionId: attached.transactionId };
+  });
+}
+
+// R20.7：给没挂上的小票重新挂（R20.4 选的交易，或 R20.5 新建）。用存着的核对结果，规则和 saveReceipt 一样
+// 存的分类现在不能选了（归档）→ 当作 null（R20.2）。存的里面没有卡号，新建时账户由用户选
+export async function attachReceipt(
+  ctx: HouseholdContext,
+  receiptId: string,
+  target: ReceiptTarget,
+  confirmOverwrite = false,
+): Promise<AttachReceiptResult> {
+  if (!z.uuid().safeParse(receiptId).success) return INVALID;
+  const t = targetSchema.safeParse(target);
+  if (!t.success) return INVALID;
+  const today = todayInMelbourne();
+
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select()
+      .from(receipt)
+      .where(and(eq(receipt.id, receiptId), eq(receipt.householdId, ctx.householdId)))
+      .for('update');
+    if (!row) return RECEIPT_NOT_FOUND;
+    if (row.transactionId !== null) {
+      return { ok: false, code: 'attached', message: '这张小票已经挂在一笔交易上了' };
+    }
+
+    const stored = parsedJsonSchema.parse(row.parsedJson);
+    const m = await loadManualContext(tx, ctx, today);
+    const selectable = new Set(receiptCategoryOptions(m.categories).map((c) => c.id));
+    const r: NormalizedReceipt = {
+      merchant: row.merchant,
+      date: row.receiptDate,
+      totalCents: row.totalCents,
+      items: stored.items.map((i) => ({
+        name: i.name,
+        amountCents: i.amountCents,
+        categoryId: i.category !== null && selectable.has(i.category) ? i.category : null,
+      })),
+      discounts: stored.discounts,
+      payment: { method: stored.payment, cardLast4: null },
+    };
+    const failed = checkFailure(r, { items: {}, discounts: {} });
+    if (failed) return failed;
+
+    const attached = await attachInTx(tx, ctx, r, t.data, confirmOverwrite, today);
+    if (!attached.ok) return attached;
+
+    await tx
+      .update(receipt)
+      .set({ transactionId: attached.transactionId })
+      .where(and(eq(receipt.id, receiptId), eq(receipt.householdId, ctx.householdId)));
+    return { ok: true, transactionId: attached.transactionId };
+  });
+}
+
+// R20.7 删除小票：只删 receipt 那行，拆分不动
+export async function deleteReceipt(
+  ctx: HouseholdContext,
+  receiptId: string,
+): Promise<DeleteReceiptResult> {
+  if (!z.uuid().safeParse(receiptId).success) return RECEIPT_NOT_FOUND;
+  const deleted = await db
+    .delete(receipt)
+    .where(and(eq(receipt.id, receiptId), eq(receipt.householdId, ctx.householdId)))
+    .returning({ id: receipt.id });
+  return deleted.length > 0 ? { ok: true } : RECEIPT_NOT_FOUND;
+}
+
+export type UnattachedReceipt = {
+  id: string;
+  merchant: string;
+  receiptDate: string;
+  totalCents: number;
+  createdAt: Date;
+};
+
+// R20.7：F8 顶部"N 张小票没挂上交易"，点开列出来。小票日期新的在前
+export async function listUnattachedReceipts(ctx: HouseholdContext): Promise<UnattachedReceipt[]> {
+  return db
+    .select({
+      id: receipt.id,
+      merchant: receipt.merchant,
+      receiptDate: receipt.receiptDate,
+      totalCents: receipt.totalCents,
+      createdAt: receipt.createdAt,
+    })
+    .from(receipt)
+    .where(and(eq(receipt.householdId, ctx.householdId), isNull(receipt.transactionId)))
+    .orderBy(desc(receipt.receiptDate), desc(receipt.createdAt), desc(receipt.id));
 }
