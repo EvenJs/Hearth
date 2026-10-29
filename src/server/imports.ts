@@ -16,7 +16,11 @@ import {
 } from '@/db/schema';
 import type { Bank } from '@/lib/accounts/account-input';
 import { canImportCsv } from '@/lib/import/banks';
-import { parseAnzStatement, type StatementLine } from '@/lib/import/anz-statement';
+import {
+  identifyStatementAccount,
+  parseAnzStatement,
+  type StatementLine,
+} from '@/lib/import/anz-statement';
 import { checkBalanceContinuity, deriveBalances, type BalanceWarning } from '@/lib/import/cba';
 import {
   csvGapWarning,
@@ -59,15 +63,16 @@ export type ImportInput = {
 };
 
 // ANZ 对账单（R1C）：buffer 是上传的 PDF，只在内存里读，不保存
+// accountId 不传：用对账单上的账号自动认账户（R1C，M6.6-6b）；传了就核对是不是这个账户的
 export type ImportStatementInput = {
-  accountId: string;
+  accountId?: string;
   fileName: string;
   buffer: ArrayBuffer | Uint8Array;
 };
 
 // 读出文字以后的那一步，测试直接用 fixture 的行
 export type ImportStatementLinesInput = {
-  accountId: string;
+  accountId?: string;
   fileName: string;
   lines: readonly StatementLine[];
 };
@@ -313,9 +318,11 @@ export async function importStatement(
   const fileError = checkPdfFile({ name: input.fileName, size: input.buffer.byteLength });
   if (fileError) return fail('invalid_file', fileError);
 
-  // 先看账户，不是 ANZ 就不用读 PDF
-  const target = await loadImportTarget(ctx, input.accountId, 'pdf');
-  if ('ok' in target) return target;
+  // 指定了账户：先看账户，不是 ANZ 就不用读 PDF
+  if (input.accountId !== undefined) {
+    const target = await loadImportTarget(ctx, input.accountId, 'pdf');
+    if ('ok' in target) return target;
+  }
 
   // R1C 第一层：读不出文字（扫描件、加密的、不是 PDF）
   const extracted = await extractPdfLines(input.buffer);
@@ -333,7 +340,15 @@ export async function importStatementLines(
   ctx: HouseholdContext,
   input: ImportStatementLinesInput,
 ): Promise<ImportResult> {
-  const target = await loadImportTarget(ctx, input.accountId, 'pdf');
+  // R1C 自动认账户：没指定账户时用账号找
+  let accountId = input.accountId;
+  if (accountId === undefined) {
+    const identified = await identifyAccount(ctx, input.lines);
+    if (!identified.ok) return fail('parse', identified.message);
+    accountId = identified.accountId;
+  }
+
+  const target = await loadImportTarget(ctx, accountId, 'pdf');
   if ('ok' in target) return target;
   const { config, account } = target;
 
@@ -358,6 +373,60 @@ export async function importStatementLines(
     closingBalanceCents: parsed.closingCents,
     balanceWarnings: [],
   });
+}
+
+// R1C 自动认账户：只在没归档的 ANZ 账户里找（R1C 只有 ANZ 有对账单解析器）
+async function identifyAccount(ctx: HouseholdContext, lines: readonly StatementLine[]) {
+  const candidates = await db
+    .select({ id: financialAccount.id, numberSuffix: financialAccount.numberSuffix })
+    .from(financialAccount)
+    .where(
+      and(
+        eq(financialAccount.householdId, ctx.householdId),
+        eq(financialAccount.bank, 'anz'),
+        eq(financialAccount.isArchived, false),
+      ),
+    );
+  return identifyStatementAccount(lines, candidates);
+}
+
+export type StatementIdentity =
+  | {
+      ok: true;
+      account: { id: string; name: string; numberSuffix: string | null };
+      coverage: ImportCoverage; // R12.2，导入页显示
+    }
+  | ImportFailure;
+
+// 导入页传了 PDF 以后马上调：读文字、认账户，什么都不写。导入时 importStatement 会重新读一遍再核对
+export async function identifyStatement(
+  ctx: HouseholdContext,
+  input: { fileName: string; buffer: ArrayBuffer | Uint8Array },
+): Promise<StatementIdentity> {
+  const fileError = checkPdfFile({ name: input.fileName, size: input.buffer.byteLength });
+  if (fileError) return fail('invalid_file', fileError);
+
+  const extracted = await extractPdfLines(input.buffer);
+  if (!extracted.ok) return fail('parse', extracted.message);
+
+  const identified = await identifyAccount(ctx, extracted.lines);
+  if (!identified.ok) return fail('parse', identified.message);
+
+  const [account] = await db
+    .select({
+      id: financialAccount.id,
+      name: financialAccount.name,
+      numberSuffix: financialAccount.numberSuffix,
+    })
+    .from(financialAccount)
+    .where(
+      and(
+        eq(financialAccount.id, identified.accountId),
+        eq(financialAccount.householdId, ctx.householdId),
+      ),
+    );
+  if (!account) return fail('not_importable', '账户不存在');
+  return { ok: true, account, coverage: await getImportCoverage(ctx, account.id) };
 }
 
 // R12.2 首尾衔接：同账户上一份对账单（source = pdf，date_to 比本次早的里面最大的）

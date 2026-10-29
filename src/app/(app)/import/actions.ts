@@ -5,10 +5,12 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
+import type { ImportCoverage } from '@/lib/import/coverage';
 import { checkImportFile, importFormSchema } from '@/lib/import/import-input';
 import { getHouseholdContext } from '@/server/context';
 import {
   getUndoPreview,
+  identifyStatement,
   importCsv,
   importStatement,
   undoImport,
@@ -27,10 +29,26 @@ export type ImportActionFailure = {
 const text = (v: FormDataEntryValue | null) => (typeof v === 'string' ? v : '');
 
 // 成功时 redirect 到 /import/[batchId]，不返回
-// 按扩展名分：.pdf 走 ANZ 对账单（R1C，期初期末从汇总页读，忽略填的余额），.csv 照旧
-// 不是 ANZ 账户传了 PDF：importStatement 会拒绝（R1C 只有 ANZ 有解析器），页面上本来也选不了
+// 按扩展名分：.pdf 走 ANZ 对账单（R1C：按账号自动认账户，期初期末从汇总页读，不看传来的账户和余额）
+// .csv 照旧要选账户
 export async function importFileAction(formData: FormData): Promise<ImportActionFailure> {
   const ctx = await getHouseholdContext();
+
+  const file = formData.get('file');
+  const checked = file instanceof File ? checkImportFile(file, 'anz') : null;
+  const fileError = !checked
+    ? '请选择文件'
+    : (checked.error ?? (checked.kind === null ? '只支持 .csv 或 .pdf 文件' : null));
+
+  // R1C 自动认账户（M6.6-6b）
+  if (file instanceof File && checked?.kind === 'pdf' && !fileError) {
+    return runImportAction(async () =>
+      importStatement(ctx, {
+        fileName: file.name,
+        buffer: new Uint8Array(await file.arrayBuffer()),
+      }),
+    );
+  }
 
   const fieldErrors: Partial<Record<ImportField, string>> = {};
   const parsed = importFormSchema.safeParse({
@@ -44,35 +62,27 @@ export async function importFileAction(formData: FormData): Promise<ImportAction
       fieldErrors[field] ??= issue.message;
     }
   }
-  const file = formData.get('file');
-  let kind: 'csv' | 'pdf' | null = null;
-  if (!(file instanceof File)) {
-    fieldErrors.file = '请选择文件';
-  } else {
-    const checked = checkImportFile(file, 'anz');
-    kind = checked.kind;
-    if (checked.error) fieldErrors.file = checked.error;
-  }
-  if (!parsed.success || !(file instanceof File) || fieldErrors.file || kind === null) {
+  if (fileError) fieldErrors.file = fileError;
+  if (!parsed.success || !(file instanceof File) || fileError) {
     return { ok: false, message: '请检查表单', fieldErrors };
   }
 
+  return runImportAction(async () =>
+    importCsv(ctx, {
+      accountId: parsed.data.accountId,
+      fileName: file.name,
+      text: await file.text(),
+      openingBalanceCents: parsed.data.openingBalanceCents,
+      closingBalanceCents: parsed.data.closingBalanceCents,
+    }),
+  );
+}
+
+// 跑导入、把失败转成表单错误；成功就跳到结果页
+async function runImportAction(run: () => Promise<ImportResult>): Promise<ImportActionFailure> {
   let result: ImportResult;
   try {
-    result =
-      kind === 'pdf'
-        ? await importStatement(ctx, {
-            accountId: parsed.data.accountId,
-            fileName: file.name,
-            buffer: new Uint8Array(await file.arrayBuffer()),
-          })
-        : await importCsv(ctx, {
-            accountId: parsed.data.accountId,
-            fileName: file.name,
-            text: await file.text(),
-            openingBalanceCents: parsed.data.openingBalanceCents,
-            closingBalanceCents: parsed.data.closingBalanceCents,
-          });
+    result = await run();
   } catch (err) {
     // 事务已经回滚，什么都没写入
     console.error('[import] 导入失败', err instanceof Error ? err.name : typeof err);
@@ -99,6 +109,36 @@ export async function importFileAction(formData: FormData): Promise<ImportAction
   }
 
   redirect(`/import/${result.batchId}`);
+}
+
+// ==================== R1C 自动认账户（M6.6-6b） ====================
+
+export type IdentifiedAccount = {
+  id: string;
+  name: string;
+  numberSuffix: string | null;
+  coverage: ImportCoverage; // R12.2
+};
+
+export type IdentifyActionResult =
+  { ok: true; account: IdentifiedAccount } | { ok: false; message: string };
+
+// 导入页传了 PDF 以后马上调：读对账单、认账户，什么都不写
+export async function identifyStatementAction(formData: FormData): Promise<IdentifyActionResult> {
+  const ctx = await getHouseholdContext();
+  const file = formData.get('file');
+  if (!(file instanceof File)) return { ok: false, message: '请选择文件' };
+  try {
+    const r = await identifyStatement(ctx, {
+      fileName: file.name,
+      buffer: new Uint8Array(await file.arrayBuffer()),
+    });
+    if (!r.ok) return { ok: false, message: r.message };
+    return { ok: true, account: { ...r.account, coverage: r.coverage } };
+  } catch (err) {
+    console.error('[import] 识别对账单失败', err instanceof Error ? err.name : typeof err);
+    return { ok: false, message: '读取对账单失败，请稍后再试' };
+  }
 }
 
 // ==================== R12.1 撤销导入（M3-9） ====================

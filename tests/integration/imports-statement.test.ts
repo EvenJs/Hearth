@@ -9,6 +9,7 @@ import {
   importCsv,
   importStatement,
   getImportResult,
+  identifyStatement,
   importStatementLines,
   listImportHistory,
   undoImport,
@@ -456,5 +457,108 @@ describeDb('M6.6-4 importStatement', () => {
       [pdf.batchId, 'pdf'],
       [csv.batchId, 'csv'],
     ]);
+  });
+
+  // ---------- M6.6-6b：自动认账户（R1C） ----------
+
+  const importUnassigned = (name: `${string}.txt`) =>
+    importStatementLines(t.ctx, { fileName: name, lines: readStatementFixture(name) });
+
+  async function setSuffix(account: string, numberSuffix: string) {
+    await db
+      .update(schema.financialAccount)
+      .set({ numberSuffix })
+      .where(eq(schema.financialAccount.id, t.h.account(account).id));
+  }
+
+  it('S11 / R1C: no account given → joint-2026-09.txt goes to ANZ Joint, same as S1', async () => {
+    const result = expectOk(await importUnassigned('joint-2026-09.txt'));
+    expect(result).toMatchObject({
+      rowCount: 19,
+      insertedCount: 19,
+      reconciliation: { status: 'passed' },
+    });
+    expect(await batchRow(result.batchId)).toMatchObject({
+      accountId: t.h.account(JOINT).id,
+      source: 'pdf',
+      dateFrom: '2026-09-01',
+      dateTo: '2026-09-30',
+    });
+  });
+
+  it('S11 / R1C: importStatement without accountId reads the PDF and finds the account', async () => {
+    const result = expectOk(
+      await importStatement(t.ctx, {
+        fileName: 'joint.pdf',
+        buffer: statementPdf('joint-2026-09.txt'),
+      }),
+    );
+    expect((await batchRow(result.batchId)).accountId).toBe(t.h.account(JOINT).id);
+  });
+
+  it('S12 / R1C: wrong-account.txt (…0002) goes to ANZ Male, ANZ Joint stays empty', async () => {
+    const result = expectOk(await importUnassigned('wrong-account.txt'));
+    expect((await batchRow(result.batchId)).accountId).toBe(t.h.account('ANZ Male').id);
+    expect(await listTransactions(t, JOINT)).toHaveLength(0);
+    expect(await listTransactions(t, 'ANZ Male')).toHaveLength(19);
+  });
+
+  it('S13 / R1C: no ANZ suffix matches (a CBA one does not count) → fails, nothing written', async () => {
+    await setSuffix(JOINT, '9999');
+    await setSuffix('CBA Female', '0001');
+    const result = await importUnassigned('joint-2026-09.txt');
+    expect(result).toMatchObject({
+      ok: false,
+      reason: 'parse',
+      message: '找不到尾号是 0001 的 ANZ 账户，先去账户设置填上尾号',
+    });
+    expect(await countRows()).toEqual({ batches: 0, txs: 0 });
+  });
+
+  it('R1C: archived ANZ accounts are not candidates', async () => {
+    await db
+      .update(schema.financialAccount)
+      .set({ isArchived: true })
+      .where(eq(schema.financialAccount.id, t.h.account(JOINT).id));
+    const result = await importUnassigned('joint-2026-09.txt');
+    expect(result).toMatchObject({ ok: false, reason: 'parse' });
+    expect(await countRows()).toEqual({ batches: 0, txs: 0 });
+  });
+
+  it('S14 / R1C: two ANZ suffixes match → fails, nothing written', async () => {
+    await setSuffix('ANZ Male', '50001');
+    const result = await importUnassigned('joint-2026-09.txt');
+    expect(result).toMatchObject({
+      ok: false,
+      message: '有 2 个 ANZ 账户的尾号都对得上，去账户设置把尾号填长一点',
+    });
+    expect(await countRows()).toEqual({ batches: 0, txs: 0 });
+  });
+
+  it('M6.6-6b: identifyStatement returns the account and its coverage, writes nothing', async () => {
+    await importCsvFixture('anz/joint-2026-09.csv');
+    const before = await countRows();
+    const r = await identifyStatement(t.ctx, {
+      fileName: 'joint.pdf',
+      buffer: statementPdf('joint-2026-10.txt'),
+    });
+    expect(r).toMatchObject({
+      ok: true,
+      account: { id: t.h.account(JOINT).id, name: JOINT, numberSuffix: '0001' },
+      coverage: { lastDateTo: '2026-09-30', statementDateTo: null },
+    });
+    expect(await countRows()).toEqual(before);
+  });
+
+  it('M6.6-6b: identifyStatement fails for a PDF without text and for a wrong file', async () => {
+    expect(
+      await identifyStatement(t.ctx, {
+        fileName: 'scan.pdf',
+        buffer: new TextEncoder().encode('not a pdf at all'),
+      }),
+    ).toMatchObject({ ok: false, reason: 'parse' });
+    expect(
+      await identifyStatement(t.ctx, { fileName: 'a.csv', buffer: new Uint8Array(10) }),
+    ).toMatchObject({ ok: false, reason: 'invalid_file' });
   });
 });

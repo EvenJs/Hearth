@@ -6,7 +6,7 @@ import {
 } from '../../../tests/helpers/fixtures';
 import { normalizeDescription } from '@/lib/rules/dedupe';
 import type { ParsedRow } from '@/lib/rules/types';
-import { parseAnzStatement, statementPeriod } from './anz-statement';
+import { identifyStatementAccount, parseAnzStatement, statementPeriod } from './anz-statement';
 import { parseBankCsv } from './index';
 
 // 期望值来自 business-rules.md R1C、R1C.1 和 fixtures/README.md "ANZ 对账单用例"
@@ -365,6 +365,71 @@ describe('statementPeriod（R1C）', () => {
     expect(statementPeriod('2026-12-16', '2027-01-15')).toEqual({
       from: '2026-12-15',
       to: '2027-01-15',
+    });
+  });
+});
+
+// M6.6-6b：用对账单的账号认账户。accounts 是调用方筛好的没归档的 ANZ 账户
+describe('identifyStatementAccount（R1C 自动认账户）', () => {
+  const JOINT = { id: 'joint', numberSuffix: '0001' };
+  const MALE = { id: 'male', numberSuffix: '0002' };
+
+  it('R1C / S11: joint-2026-09.txt → the account whose suffix matches', () => {
+    expect(
+      identifyStatementAccount(readStatementFixture('joint-2026-09.txt'), [MALE, JOINT]),
+    ).toEqual({ ok: true, accountId: 'joint' });
+  });
+
+  it('R1C / S12: wrong-account.txt (…0002) → ANZ Male', () => {
+    expect(
+      identifyStatementAccount(readStatementFixture('wrong-account.txt'), [JOINT, MALE]),
+    ).toEqual({ ok: true, accountId: 'male' });
+  });
+
+  it('R1C: a longer suffix matches too', () => {
+    expect(
+      identifyStatementAccount(readStatementFixture('joint-2026-09.txt'), [
+        { id: 'long', numberSuffix: '450001' },
+      ]),
+    ).toEqual({ ok: true, accountId: 'long' });
+  });
+
+  it('R1C / S13: no suffix matches → fail with only the last 4 digits', () => {
+    const r = identifyStatementAccount(readStatementFixture('joint-2026-09.txt'), [
+      { id: 'joint', numberSuffix: '9999' },
+      { id: 'no-suffix', numberSuffix: null },
+    ]);
+    expect(r).toEqual({
+      ok: false,
+      message: '找不到尾号是 0001 的 ANZ 账户，先去账户设置填上尾号',
+    });
+    if (!r.ok) expect(r.message).not.toMatch(/\d{5,}|1234-?5/);
+  });
+
+  it('R1C: no accounts at all → same failure', () => {
+    expect(identifyStatementAccount(readStatementFixture('joint-2026-09.txt'), []).ok).toBe(false);
+  });
+
+  it('R1C / S14: two suffixes match → fail, ask for a longer suffix', () => {
+    expect(
+      identifyStatementAccount(readStatementFixture('joint-2026-09.txt'), [
+        JOINT,
+        { id: 'male', numberSuffix: '50001' },
+      ]),
+    ).toEqual({ ok: false, message: '有 2 个 ANZ 账户的尾号都对得上，去账户设置把尾号填长一点' });
+  });
+
+  it('R1C: not a statement → title error; no account number → 找不到账号', () => {
+    expect(identifyStatementAccount([{ page: 1, text: 'Dear customer' }], [JOINT])).toEqual({
+      ok: false,
+      message: '找不到对账单标题，这不像 ANZ 对账单',
+    });
+    const noNumber = readStatementFixture('joint-2026-09.txt').filter(
+      (l) => !/\d{4}-\d{5}/.test(l.text),
+    );
+    expect(identifyStatementAccount(noNumber, [JOINT])).toEqual({
+      ok: false,
+      message: '找不到账号',
     });
   });
 });

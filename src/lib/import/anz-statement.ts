@@ -231,6 +231,34 @@ function readHeader(lines: StatementLine[], accountSuffix: string | null) {
   return { periodFrom, periodTo, summary: readSummary(lines) };
 }
 
+// R1C 自动认账户（M6.6-6b）：在调用方给的账户（没归档的 ANZ）里，找 number_suffix 和对账单账号尾部对得上的
+// 账号不返回；错误信息里只带后 4 位
+export function identifyStatementAccount(
+  lines: readonly StatementLine[],
+  accounts: readonly { id: string; numberSuffix: string | null }[],
+): { ok: true; accountId: string } | { ok: false; message: string } {
+  const trimmed = lines.map((l) => ({ page: l.page, text: l.text.trim() }));
+  if (!trimmed.some((l) => isTitle(l.text))) {
+    return { ok: false, message: '找不到对账单标题，这不像 ANZ 对账单' };
+  }
+  const accountNumber = findAfterLabel(trimmed, ACCOUNT_LABEL, ACCOUNT_LOOKAHEAD, ACCOUNT_NUMBER);
+  if (accountNumber === null) return { ok: false, message: '找不到账号' };
+  const digits = accountNumber.replace(/-/g, '');
+
+  const matches = accounts.filter((a) => a.numberSuffix && digits.endsWith(a.numberSuffix));
+  if (matches.length === 1) return { ok: true, accountId: matches[0].id };
+  if (matches.length === 0) {
+    return {
+      ok: false,
+      message: `找不到尾号是 ${digits.slice(-4)} 的 ANZ 账户，先去账户设置填上尾号`,
+    };
+  }
+  return {
+    ok: false,
+    message: `有 ${matches.length} 个 ANZ 账户的尾号都对得上，去账户设置把尾号填长一点`,
+  };
+}
+
 function isTitle(text: string): boolean {
   return /\bANZ\b/.test(text) && /\bSTATEMENT\b/.test(text);
 }
