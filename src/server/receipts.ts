@@ -6,7 +6,7 @@
 import { and, desc, eq, gte, isNull, lte } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/db';
-import { financialAccount, receipt, transaction } from '@/db/schema';
+import { financialAccount, member, receipt, transaction } from '@/db/schema';
 import { cleanMerchant } from '@/lib/rules/merchant';
 import { addDays, todayInMelbourne } from '@/lib/rules/periods';
 import {
@@ -24,8 +24,10 @@ import {
   defaultReceiptAccount,
   findReceiptCandidates,
   needsOverwriteConfirm,
+  type OverwriteCheck,
   type ReceiptAccountDefault,
   type ReceiptCandidateTx,
+  type ReceiptTransaction,
 } from '@/lib/rules/receipt-match';
 import type { ManualFieldErrors } from '@/lib/rules/manual';
 import type { TransactionStatus } from '@/lib/rules/pending';
@@ -65,6 +67,8 @@ export type ReceiptDraft = {
   // 日期、总额读不出来时为 null，用户填好后再调 getReceiptCandidates
   candidates: ReceiptCandidatesResult | null;
   account: ReceiptAccountDefault; // R20.5 新建时的默认账户
+  // R20.5 新建时能选的账户（没归档的），按名字排
+  accounts: { id: string; name: string; bank: string; type: string }[];
 };
 
 export const MANUAL_READER = 'manual';
@@ -270,6 +274,9 @@ export async function scanReceipt(
     categories,
     candidates,
     account,
+    accounts: m.accounts
+      .filter((a) => !a.isArchived)
+      .map((a) => ({ id: a.id, name: a.name, bank: a.bank, type: a.type })),
   };
 }
 
@@ -351,16 +358,33 @@ function checkFailure(
   };
 }
 
-// 一个事务里把（已经通过 checkReceipt 的）小票挂到交易上，写好拆分。返回交易 id
-// 所有检查都在写库之前做完，失败时什么都没写
-async function attachInTx(
+// 计划阶段的失败（R20.6 的确认在写库前才判断，不在这里）
+type PlanFailure = Exclude<ReceiptWriteFailure, { code: 'needs_confirm' }>;
+
+// 挂到交易上之前的计划：所有检查都在这里做完，不写库。保存和预览共用，预览的结果和最后存的一样
+type AttachPlan =
+  | {
+      ok: true;
+      kind: 'new';
+      transaction: ReceiptTransaction;
+      draft: LoadedTx; // id 是空字符串，写库时换成新交易的 id
+      rows: SplitRow[]; // 主拆分在第一个
+    }
+  | {
+      ok: true;
+      kind: 'existing';
+      loaded: LoadedTx;
+      rows: SplitRow[];
+      overwrite: OverwriteCheck; // R20.6
+    };
+
+async function planAttach(
   tx: DbTx,
   ctx: HouseholdContext,
   r: NormalizedReceipt,
   target: z.output<typeof targetSchema>,
-  confirmOverwrite: boolean,
   today: string,
-): Promise<{ ok: true; transactionId: string } | ReceiptWriteFailure> {
+): Promise<AttachPlan | PlanFailure> {
   const editCtx = await loadEditContext(tx, ctx);
 
   if (target.kind === 'new') {
@@ -376,23 +400,24 @@ async function attachInTx(
       };
     }
     const primary: SplitRow = { id: null, ...built.split, note: null };
-    const draft = {
+    const draft: LoadedTx = {
+      id: '',
       accountId: built.transaction.accountId,
       cardLast4: null,
       amountCents: built.transaction.amountCents,
-      splits: [primary],
+      transferStatus: 'none',
+      splits: [],
     };
     const items = defaultItemCategories(r.items, primary.categoryId);
-    const plan = planReceiptSplits(r, items, draft, editCtx);
+    const plan = planReceiptSplits(r, items, { ...draft, splits: [primary] }, editCtx);
     if (!plan.ok) return { ok: false, code: 'split_failed', message: plan.message };
-
-    const [row] = await tx
-      .insert(transaction)
-      .values({ ...built.transaction, householdId: ctx.householdId, createdBy: ctx.userId })
-      .returning({ id: transaction.id });
-    const created: LoadedTx = { ...draft, id: row.id, transferStatus: 'none', splits: [] };
-    await writeSplits(tx, ctx, created, [plan.primary, ...plan.created]);
-    return { ok: true, transactionId: row.id };
+    return {
+      ok: true,
+      kind: 'new',
+      transaction: built.transaction,
+      draft,
+      rows: [plan.primary, ...plan.created],
+    };
   }
 
   // 已有交易：锁住交易和拆分
@@ -409,31 +434,63 @@ async function attachInTx(
     .where(and(eq(receipt.transactionId, t.id), eq(receipt.householdId, ctx.householdId)));
   if (existing) return { ok: false, code: 'has_receipt', message: '这笔交易已经挂了小票' };
 
-  // R20.6：已经改过，没确认覆盖就不写
-  const overwrite = needsOverwriteConfirm(t.splits);
-  if (overwrite.needed && !confirmOverwrite) {
-    const parts = [
-      overwrite.splitCount > 1 ? `拆分 ${overwrite.splitCount} 条` : null,
-      overwrite.manualCategory ? '手动改过分类' : null,
-    ].filter(Boolean);
-    return {
-      ok: false,
-      code: 'needs_confirm',
-      message: `这笔已经手动改过（${parts.join(' / ')}），用小票的结果覆盖吗？原来的拆分会删掉，主拆分的备注保留。`,
-      splitCount: overwrite.splitCount,
-      manualCategory: overwrite.manualCategory,
-    };
-  }
-
   const primary = t.splits.find((x) => x.isPrimary);
   if (!primary) throw new Error(`交易 ${t.id} 没有主拆分`);
   const items = defaultItemCategories(r.items, primary.categoryId);
   const plan = planReceiptSplits(r, items, t, editCtx);
   if (!plan.ok) return { ok: false, code: 'split_failed', message: plan.message };
+  return {
+    ok: true,
+    kind: 'existing',
+    loaded: t,
+    rows: [plan.primary, ...plan.created],
+    overwrite: needsOverwriteConfirm(t.splits),
+  };
+}
 
-  // 原来的非主拆分（plan.deletedIds）不在新列表里，writeSplits 会删掉
-  await writeSplits(tx, ctx, t, [plan.primary, ...plan.created]);
-  return { ok: true, transactionId: t.id };
+function overwriteMessage(o: OverwriteCheck): string {
+  const parts = [
+    o.splitCount > 1 ? `拆分 ${o.splitCount} 条` : null,
+    o.manualCategory ? '手动改过分类' : null,
+  ].filter(Boolean);
+  return `这笔已经手动改过（${parts.join(' / ')}），用小票的结果覆盖吗？原来的拆分会删掉，主拆分的备注保留。`;
+}
+
+// 一个事务里把（已经通过 checkReceipt 的）小票挂到交易上，写好拆分。返回交易 id
+// 所有检查都在写库之前做完，失败时什么都没写
+async function attachInTx(
+  tx: DbTx,
+  ctx: HouseholdContext,
+  r: NormalizedReceipt,
+  target: z.output<typeof targetSchema>,
+  confirmOverwrite: boolean,
+  today: string,
+): Promise<{ ok: true; transactionId: string } | ReceiptWriteFailure> {
+  const plan = await planAttach(tx, ctx, r, target, today);
+  if (!plan.ok) return plan;
+
+  if (plan.kind === 'new') {
+    const [row] = await tx
+      .insert(transaction)
+      .values({ ...plan.transaction, householdId: ctx.householdId, createdBy: ctx.userId })
+      .returning({ id: transaction.id });
+    await writeSplits(tx, ctx, { ...plan.draft, id: row.id }, plan.rows);
+    return { ok: true, transactionId: row.id };
+  }
+
+  // R20.6：已经改过，没确认覆盖就不写
+  if (plan.overwrite.needed && !confirmOverwrite) {
+    return {
+      ok: false,
+      code: 'needs_confirm',
+      message: overwriteMessage(plan.overwrite),
+      splitCount: plan.overwrite.splitCount,
+      manualCategory: plan.overwrite.manualCategory,
+    };
+  }
+  // 原来的非主拆分不在新列表里，writeSplits 会删掉
+  await writeSplits(tx, ctx, plan.loaded, plan.rows);
+  return { ok: true, transactionId: plan.loaded.id };
 }
 
 // parsed_json（schema）：用户核对后的版本。不含卡号（cardLast4 在这里去掉）、人名
@@ -495,6 +552,112 @@ export async function saveReceipt(
       })
       .returning({ id: receipt.id });
     return { ok: true, receiptId: row.id, transactionId: attached.transactionId };
+  });
+}
+
+// ---------- 预览 ----------
+
+const previewSchema = z.object({
+  receipt: saveSchema.shape.receipt,
+  target: targetSchema,
+});
+
+export type PreviewReceiptInput = z.input<typeof previewSchema>;
+
+export type ReceiptPreviewRow = {
+  isPrimary: boolean;
+  amountCents: number; // 和交易同符号（支出是负数）
+  categoryId: string;
+  categoryLabel: string; // `一级 / 二级`，一级和系统分类只有一级的名字
+  categorySource: SplitRow['categorySource'];
+  memberName: string;
+  memberSource: SplitRow['memberSource'];
+};
+
+export type ReceiptPreview =
+  | {
+      ok: true;
+      rows: ReceiptPreviewRow[]; // 主拆分在第一个
+      // 挂到已有交易时那笔交易（从详情页进来时显示它和差额）；新建时为 null
+      transaction: {
+        date: string;
+        amountCents: number;
+        merchant: string;
+        accountName: string;
+      } | null;
+      extraCents: number; // R20.3 第 4 步：交易金额的绝对值 − 小票总额，> 0 时多一组未分类
+      overwrite: OverwriteCheck | null; // R20.6，新建时为 null
+    }
+  | PlanFailure;
+
+// 核对界面的"保存后的拆分"：和 saveReceipt 走同一个计划（planAttach），所以和最后存的一样。不写库
+export async function previewReceipt(
+  ctx: HouseholdContext,
+  input: PreviewReceiptInput,
+): Promise<ReceiptPreview> {
+  const parsed = previewSchema.safeParse(input);
+  if (!parsed.success) return INVALID;
+  const today = todayInMelbourne();
+
+  return db.transaction(async (tx) => {
+    const m = await loadManualContext(tx, ctx, today);
+    const { receipt: r, errors } = normalizeReceipt(
+      parsed.data.receipt,
+      receiptCategoryOptions(m.categories),
+      today,
+    );
+    const failed = checkFailure(r, errors);
+    if (failed) return failed;
+
+    const plan = await planAttach(tx, ctx, r, parsed.data.target, today);
+    if (!plan.ok) return plan;
+
+    const byId = new Map(m.categories.map((c) => [c.id, c]));
+    const label = (id: string) => {
+      const c = byId.get(id);
+      if (!c) return '?';
+      const parent = c.parentId ? byId.get(c.parentId) : undefined;
+      return parent ? `${parent.nameEn} / ${c.nameEn}` : c.nameEn;
+    };
+    // 归档的归属人也要能显示名字，所以不用 m.members
+    const members = new Map(
+      (
+        await tx
+          .select({ id: member.id, name: member.name })
+          .from(member)
+          .where(eq(member.householdId, ctx.householdId))
+      ).map((x) => [x.id, x.name]),
+    );
+    const rows = plan.rows.map((x): ReceiptPreviewRow => ({
+      isPrimary: x.isPrimary,
+      amountCents: x.amountCents,
+      categoryId: x.categoryId,
+      categoryLabel: label(x.categoryId),
+      categorySource: x.categorySource,
+      memberName: members.get(x.memberId) ?? '?',
+      memberSource: x.memberSource,
+    }));
+
+    if (plan.kind === 'new') {
+      return { ok: true, rows, transaction: null, extraCents: 0, overwrite: null };
+    }
+    const [info] = await tx
+      .select({
+        date: transaction.date,
+        amountCents: transaction.amountCents,
+        merchant: transaction.merchant,
+        accountName: financialAccount.name,
+      })
+      .from(transaction)
+      .innerJoin(financialAccount, eq(financialAccount.id, transaction.accountId))
+      .where(and(eq(transaction.id, plan.loaded.id), eq(transaction.householdId, ctx.householdId)));
+    return {
+      ok: true,
+      rows,
+      transaction: info,
+      extraCents: Math.abs(info.amountCents) - r.totalCents!,
+      overwrite: plan.overwrite,
+    };
   });
 }
 

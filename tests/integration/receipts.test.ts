@@ -14,6 +14,7 @@ import {
   deleteReceipt,
   getReceiptCandidates,
   listUnattachedReceipts,
+  previewReceipt,
   saveReceipt,
   scanReceipt,
   type SaveReceiptInput,
@@ -814,5 +815,110 @@ describeDb('另一个家庭（R20、household_id）', () => {
     expect((await listUnattachedReceipts(other.ctx)).map((x) => x.id)).toEqual([
       otherSaved.receiptId,
     ]);
+  });
+});
+
+describeDb('previewReceipt（核对界面"保存后的拆分"）', () => {
+  beforeEach(async () => {
+    await resetBusinessTables();
+    t = await createTestHousehold();
+  });
+
+  it('R-A: preview on #19 equals what saveReceipt writes, and writes nothing', async () => {
+    await importFixture(t, 'ANZ Joint', 'anz/joint-2026-09.csv');
+    const n19 = await joint19();
+    const before = await getSplits(n19.id);
+    const target = { kind: 'transaction', transactionId: n19.id } as const;
+
+    const p = await previewReceipt(t.ctx, { receipt: raw('coles-a.json'), target });
+    expect(p).toMatchObject({
+      ok: true,
+      transaction: { date: '2026-09-01', amountCents: -5840, accountName: 'ANZ Joint' },
+      extraCents: 0,
+      overwrite: { needed: false },
+    });
+    if (!p.ok) return;
+    expect(
+      p.rows.map((x) => ({
+        primary: x.isPrimary,
+        amountCents: x.amountCents,
+        category: x.categoryLabel,
+        member: `${x.memberName} (${x.memberSource})`,
+        categorySource: x.categorySource,
+        note: null,
+      })),
+    ).toEqual(R_A_SPLITS);
+    expect(await getSplits(n19.id)).toEqual(before);
+    expect(await db.$count(schema.receipt)).toBe(0);
+
+    await saveOk({ target });
+    expect(await splitShape(n19.id)).toEqual(R_A_SPLITS);
+  });
+
+  it('R-C: from the detail page on a -59.28 transaction → preview has -0.88 Uncategorised (system), extraCents 88', async () => {
+    const id = await insertPending(t, {
+      account: 'ANZ Joint',
+      date: '2026-09-01',
+      amountCents: -5928,
+      category: 'Groceries / Supermarket',
+      member: 'Home',
+    });
+    const p = await previewReceipt(t.ctx, {
+      receipt: raw('coles-a.json'),
+      target: { kind: 'transaction', transactionId: id },
+    });
+    expect(p).toMatchObject({
+      ok: true,
+      extraCents: 88,
+      overwrite: { needed: true, manualCategory: true },
+    });
+    if (!p.ok) return;
+    expect(p.rows.reduce((sum, x) => sum + x.amountCents, 0)).toBe(-5928);
+    expect(p.rows).toContainEqual(
+      expect.objectContaining({
+        amountCents: -88,
+        categoryId: t.h.systemCategory('uncategorized').id,
+        categorySource: 'system',
+      }),
+    );
+  });
+
+  it('R-E: preview for a new transaction → one primary Groceries / Supermarket row, nothing created', async () => {
+    const p = await previewReceipt(t.ctx, {
+      receipt: raw('coles-e.json'),
+      target: { kind: 'new', accountId: t.h.account('ANZ Joint').id },
+    });
+    expect(p).toMatchObject({ ok: true, transaction: null, overwrite: null });
+    if (!p.ok) return;
+    expect(p.rows).toEqual([
+      expect.objectContaining({
+        isPrimary: true,
+        amountCents: -2345,
+        categoryLabel: 'Groceries / Supermarket',
+        categorySource: 'rule',
+        memberName: 'Home',
+      }),
+    ]);
+    expect(await db.$count(schema.transaction)).toBe(0);
+  });
+
+  it('R-C / R-D: failures come back the same as from saveReceipt', async () => {
+    const id = await insertPending(t, {
+      account: 'ANZ Joint',
+      date: '2026-09-01',
+      amountCents: -5000,
+      category: 'Groceries / Supermarket',
+      member: 'Home',
+    });
+    const target = { kind: 'transaction', transactionId: id } as const;
+    expect(await previewReceipt(t.ctx, { receipt: raw('coles-a.json'), target })).toEqual({
+      ok: false,
+      code: 'split_failed',
+      message: '小票合计比这笔交易多 $8.40，不支持',
+    });
+    expect(await previewReceipt(t.ctx, { receipt: raw('bad-total.json'), target })).toMatchObject({
+      ok: false,
+      code: 'check_failed',
+    });
   });
 });
