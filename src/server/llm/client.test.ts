@@ -34,7 +34,7 @@ describe('createOpenAiCompatibleClient（tech-stack 11.2）', () => {
     const { fetchImpl, calls } = fakeFetch(() => completion('{"a":1}'));
     const result = await createOpenAiCompatibleClient(CONFIG, fetchImpl).chat(REQUEST);
 
-    expect(result).toEqual({ ok: true, content: '{"a":1}' });
+    expect(result).toEqual({ ok: true, content: '{"a":1}', model: 'vision-model' });
     expect(calls[0].url).toBe('https://llm.example/v1/chat/completions');
     expect(calls[0].init.method).toBe('POST');
     expect((calls[0].init.headers as Record<string, string>).Authorization).toBe('Bearer test-key');

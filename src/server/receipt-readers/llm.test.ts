@@ -29,14 +29,15 @@ function fakeClient(result: LlmResult | (() => Promise<LlmResult>)) {
 const ok = (content: unknown): LlmResult => ({
   ok: true,
   content: typeof content === 'string' ? content : JSON.stringify(content),
+  model: 'fake/model-1',
 });
 
 describe('llm reader（R20.1a）', () => {
-  it('R20.1: valid JSON comes back as the raw receipt, reader is llm', async () => {
+  it('R20.1: valid JSON comes back as the raw receipt, reader is llm:<model>', async () => {
     const raw = readReceiptFixture('coles-a.json');
     const { client } = fakeClient(ok(raw));
     const result = await createLlmReader(client).read(image(), CATEGORIES);
-    expect(result).toEqual({ ok: true, raw, reader: 'llm' });
+    expect(result).toEqual({ ok: true, raw, reader: 'llm:fake/model-1' });
   });
 
   it('R20.1: extra fields like names, ABN and phone are dropped by Zod', async () => {
@@ -64,7 +65,7 @@ describe('llm reader（R20.1a）', () => {
       ok(`<think>reading…</think>\n\`\`\`json\n${JSON.stringify(raw)}\n\`\`\``),
     );
     const result = await createLlmReader(client).read(image(), CATEGORIES);
-    expect(result).toEqual({ ok: true, raw, reader: 'llm' });
+    expect(result).toEqual({ ok: true, raw, reader: 'llm:fake/model-1' });
   });
 
   it('R20.1a: HTTP 429 is a failure, not a throw', async () => {

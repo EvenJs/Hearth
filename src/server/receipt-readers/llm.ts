@@ -88,7 +88,8 @@ export function createLlmReader(client: LlmClient): ReceiptReader {
           const fields = [...new Set(parsed.error.issues.map((i) => i.path.join('.') || '(根)'))];
           return { ok: false, reason: `返回格式不对：${fields.join(', ')}` };
         }
-        return { ok: true, raw: parsed.data, reader: 'llm' };
+        // schema：receipt.reader 存 `llm:<模型名>`
+        return { ok: true, raw: parsed.data, reader: `llm:${result.model}` };
       } catch {
         // LlmClient 不该抛错，万一抛了也当作识别失败
         return { ok: false, reason: '识别出错' };

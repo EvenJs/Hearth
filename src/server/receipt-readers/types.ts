@@ -4,6 +4,7 @@ import type { RawReceipt } from '@/lib/rules/receipt';
 
 export type ReceiptInput = { kind: 'image'; image: Blob } | { kind: 'text'; text: string };
 
+// reader 存进 receipt.reader：`llm:<模型名>`、`text`（schema）
 export type ReadResult =
   { ok: true; raw: RawReceipt; reader: string } | { ok: false; reason: string };
 

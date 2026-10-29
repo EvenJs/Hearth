@@ -11,6 +11,7 @@ import {
   financialAccount,
   importBatch,
   member,
+  receipt,
   transaction,
   transactionSplit,
 } from '@/db/schema';
@@ -1161,11 +1162,28 @@ async function loadUndoState(
     });
     splitsByTx.set(sp.transactionId, list);
   }
+  // R20.7：挂了小票的（弹窗"挂了小票 N 笔"）
+  const withReceipt = new Set(
+    (
+      await tx
+        .select({ transactionId: receipt.transactionId })
+        .from(receipt)
+        .innerJoin(transaction, eq(transaction.id, receipt.transactionId))
+        .where(
+          and(
+            eq(receipt.householdId, hh),
+            eq(transaction.householdId, hh),
+            eq(transaction.importBatchId, batch.id),
+          ),
+        )
+    ).map((r) => r.transactionId),
+  );
   const batchTxs: UndoBatchTx[] = txs.map((t) => ({
     id: t.id,
     transferPairId: t.transferPairId,
     wasPending: t.source !== 'csv',
     note: t.note,
+    hasReceipt: withReceipt.has(t.id),
     splits: splitsByTx.get(t.id) ?? [],
   }));
 
@@ -1285,6 +1303,7 @@ export async function undoImport(ctx: HouseholdContext, batchId: string): Promis
     }
 
     // 3. 删除本批次插入的交易（拆分级联删除），再删 import_batch
+    //    挂在被删交易上的小票靠外键 on delete set null 脱开（R20.7），恢复成 pending 的照样挂着
     const deleted = await tx
       .delete(transaction)
       .where(and(eq(transaction.householdId, hh), eq(transaction.importBatchId, batch.id)))

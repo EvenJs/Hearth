@@ -16,8 +16,9 @@ export type LlmChatRequest = {
   json?: boolean; // 要求返回 JSON：response_format json_object
 };
 
-// content 是模型返回的原文，由调用方解析和校验
-export type LlmResult = { ok: true; content: string } | { ok: false; reason: string };
+// content 是模型返回的原文，由调用方解析和校验；model 是这次用的模型名（receipt.reader 记 `llm:<模型名>`）
+export type LlmResult =
+  { ok: true; content: string; model: string } | { ok: false; reason: string };
 
 export interface LlmClient {
   // 不抛错，失败返回 { ok: false, reason }
@@ -89,7 +90,7 @@ export function createOpenAiCompatibleClient(
       if (typeof content !== 'string' || content.trim() === '') {
         return { ok: false, reason: '服务商没有返回内容' };
       }
-      return { ok: true, content };
+      return { ok: true, content, model };
     },
   };
 }
