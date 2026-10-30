@@ -186,6 +186,6 @@ export function statusHint(account: Pick<Account, 'bank'>): {
 } {
   const status = initialStatus(account);
   return status === 'confirmed'
-    ? { status, message: '现金 / ANZ Plus 账户，保存后直接确认' }
-    : { status, message: 'ANZ / CBA 账户会先记为待确认，导入时自动匹配' };
+    ? { status, message: '现金账户，保存后直接确认' }
+    : { status, message: 'ANZ / CBA / ANZ Plus 账户会先记为待确认，导入时自动匹配' };
 }

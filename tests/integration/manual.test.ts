@@ -380,7 +380,7 @@ describeDb('manual entry data layer (M6-2)', () => {
 
   // ---------- R8.1、R17.1、R17.3 ----------
 
-  it('R8.1 P7: ANZ Plus Male +8.50 Income / Interest → confirmed, is_pre_tax, Male (account)', async () => {
+  it('R8.1 P7: ANZ Plus Male +8.50 Income / Interest → pending, is_pre_tax, Male (account)', async () => {
     const id = await record({
       account: 'ANZ Plus Male',
       date: '2026-09-30',
@@ -390,7 +390,7 @@ describeDb('manual entry data layer (M6-2)', () => {
       category: 'Income / Interest',
     });
     expect(await getTransaction(id)).toMatchObject({
-      status: 'confirmed',
+      status: 'pending',
       amountCents: 850,
       cardLast4: null,
       balanceCents: null,

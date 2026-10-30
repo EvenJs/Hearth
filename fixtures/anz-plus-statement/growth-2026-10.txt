@@ -1,0 +1,16 @@
+Account Statement
+1 October 2026 - 31 October 2026  Male Test
+1/23 Example St
+Melbourne VIC 3000
+AUS
+ANZ Plus Growth Saver
+Branch Number (BSB)  Account Number  Opening Balance  Closing Balance
+012 345  400 000 004  $10,725.00  $10,725.00
+Account Name
+Male Test
+Transactions
+Date  Description  Credit  Debit  Balance
+Opening Balance  $10,725.00
+Please check this statement carefully.
+Footer text about ANZ Plus.
+Australia and New Zealand Banking Group Limited (ANZ).  Page 1 of 1

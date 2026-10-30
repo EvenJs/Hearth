@@ -28,7 +28,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { BANK_LABELS } from '@/lib/accounts/account-input';
-import { statementPeriod } from '@/lib/import/anz-statement';
+import { statementPeriod } from '@/lib/import/index';
 import { formatAud } from '@/lib/rules/money';
 import { cn } from '@/lib/utils';
 import { getHouseholdContext } from '@/server/context';
@@ -91,7 +91,7 @@ function ImportResult({ r }: { r: ImportResultView }) {
     r.statementContinuity?.status === 'mismatch' ||
     r.importGap !== null;
   const isPdf = r.source === 'pdf';
-  const period = isPdf ? statementPeriod(r.dateFrom, r.dateTo) : null;
+  const period = isPdf ? statementPeriod(r.account.bank, r.dateFrom, r.dateTo) : null;
 
   return (
     <>
@@ -147,7 +147,7 @@ function ImportResult({ r }: { r: ImportResultView }) {
 
       <ReconciliationCard r={r} />
 
-      {isPdf && r.statementContinuity && <ContinuityCard continuity={r.statementContinuity} />}
+      {isPdf && r.statementContinuity && <ContinuityCard continuity={r.statementContinuity} bank={r.account.bank} />}
 
       {r.importGap && (
         <Card className="border-amber-300">
@@ -420,12 +420,15 @@ function ReconciliationCard({ r }: { r: ImportResultView }) {
 }
 
 // R12.2 首尾衔接：上一份对账单的期末和这一份的期初比。"没有上一份"不显示，调用方已经过滤
+// 上一份是同一个账户的，银行一样
 function ContinuityCard({
   continuity,
+  bank,
 }: {
   continuity: NonNullable<ImportResultView['statementContinuity']>;
+  bank: ImportResultView['account']['bank'];
 }) {
-  const prev = statementPeriod(continuity.previous.dateFrom, continuity.previous.dateTo);
+  const prev = statementPeriod(bank, continuity.previous.dateFrom, continuity.previous.dateTo);
   const prevLabel = `${prev.from} 至 ${prev.to}`;
   const prevLink = (
     <Link

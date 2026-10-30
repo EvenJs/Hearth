@@ -4,20 +4,21 @@ import { fileURLToPath } from 'node:url';
 
 const FIXTURES_DIR = fileURLToPath(new URL('../../fixtures/', import.meta.url));
 
-// 只允许 anz/*.csv、cba/*.csv、anz-statement/*.txt、receipts/*.json，防止测试误读别的文件
+// 只允许 anz/*.csv、cba/*.csv、anz-statement/*.txt、anz-plus-statement/*.txt、receipts/*.json，防止测试误读别的文件
 const FIXTURE_PATH =
-  /^((anz|cba)\/[a-z0-9-]+\.csv|anz-statement\/[a-z0-9-]+\.txt|receipts\/[a-z0-9-]+\.json)$/;
+  /^((anz|cba)\/[a-z0-9-]+\.csv|(anz-statement|anz-plus-statement)\/[a-z0-9-]+\.txt|receipts\/[a-z0-9-]+\.json)$/;
 
 export type FixturePath =
   | `anz/${string}.csv`
   | `cba/${string}.csv`
   | `anz-statement/${string}.txt`
+  | `anz-plus-statement/${string}.txt`
   | `receipts/${string}.json`;
 
 export function readFixture(path: FixturePath): string {
   if (!FIXTURE_PATH.test(path)) {
     throw new Error(
-      `fixture 路径不对: ${path}（只能是 anz/*.csv、cba/*.csv、anz-statement/*.txt 或 receipts/*.json）`,
+      `fixture 路径不对: ${path}（只能是 anz/*.csv、cba/*.csv、anz-statement/*.txt、anz-plus-statement/*.txt 或 receipts/*.json）`,
     );
   }
   return readFileSync(FIXTURES_DIR + path, 'utf8');
@@ -51,4 +52,9 @@ export function toStatementLines(text: string): StatementFixtureLine[] {
 
 export function readStatementFixture(name: `${string}.txt`): StatementFixtureLine[] {
   return toStatementLines(readFixture(`anz-statement/${name}`));
+}
+
+// R1D：ANZ Plus 对账单 fixture，格式和 R1C 一样
+export function readAnzPlusStatementFixture(name: `${string}.txt`): StatementFixtureLine[] {
+  return toStatementLines(readFixture(`anz-plus-statement/${name}`));
 }

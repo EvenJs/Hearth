@@ -9,6 +9,7 @@ dedupe_key = sha256( account_id | date | amount_cents | normalizedDescription | 
 ```
 
 - `balance_cents`：CBA 有余额，写进 key；ANZ 没有，写空字符串。ANZ 的 PDF 对账单虽然有余额，也写空字符串（R1C），不然和 CSV 的 key 对不上
+- ANZ Plus 的 PDF 对账单（R1D）**写余额**：ANZ Plus 没有 CSV 要对齐，和 R1C 不一样。同一天同额同描述的两笔余额不同，key 本来就不同，`occurrence` 照旧数
 - `normalizedDescription`：**脱敏后**的原始描述，转大写，连续空白合并为一个空格，去首尾空白（不是 merchant，清洗规则以后会改，key 不能跟着变）
 - `occurrence`：同一个文件内，`(date, amount_cents, normalizedDescription)` 完全相同的第几笔，从 1 开始，按文件里的出现顺序计数
 

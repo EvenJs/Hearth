@@ -1,10 +1,11 @@
 'use server';
 
-// F2 导入的 Server Action（M3-7；M6.6-6 加 ANZ PDF 对账单）。输入用 Zod 再校验一次，前端校验可以被绕过
+// F2 导入的 Server Action（M3-7；M6.6-6 加 ANZ PDF 对账单，M7.5 加 ANZ Plus）。输入用 Zod 再校验一次，前端校验可以被绕过
 // 不保存上传的原文件；日志里不打印文件内容和数据库错误详情（参数里可能有交易描述）
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
+import type { Bank } from '@/lib/accounts/account-input';
 import type { ImportCoverage } from '@/lib/import/coverage';
 import { checkImportFile, importFormSchema } from '@/lib/import/import-input';
 import { getHouseholdContext } from '@/server/context';
@@ -29,7 +30,7 @@ export type ImportActionFailure = {
 const text = (v: FormDataEntryValue | null) => (typeof v === 'string' ? v : '');
 
 // 成功时 redirect 到 /import/[batchId]，不返回
-// 按扩展名分：.pdf 走 ANZ 对账单（R1C：按账号自动认账户，期初期末从汇总页读，不看传来的账户和余额）
+// 按扩展名分：.pdf 走 ANZ / ANZ Plus 对账单（R1C、R1D：按账号自动认账户，期初期末从汇总页读，不看传来的账户和余额）
 // .csv 照旧要选账户
 export async function importFileAction(formData: FormData): Promise<ImportActionFailure> {
   const ctx = await getHouseholdContext();
@@ -111,11 +112,12 @@ async function runImportAction(run: () => Promise<ImportResult>): Promise<Import
   redirect(`/import/${result.batchId}`);
 }
 
-// ==================== R1C 自动认账户（M6.6-6b） ====================
+// ==================== R1C、R1D 自动认账户（M6.6-6b） ====================
 
 export type IdentifiedAccount = {
   id: string;
   name: string;
+  bank: Bank;
   numberSuffix: string | null;
   coverage: ImportCoverage; // R12.2
 };

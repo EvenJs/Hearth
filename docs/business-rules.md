@@ -17,7 +17,7 @@
 
 | 规则 | 文件 | 小节 |
 |---|---|---|
-| R1. 解析（CSV 和 ANZ 对账单） | [`rules/R01-parse.md`](rules/R01-parse.md) | R1.0、R1A、R1C、R1C.1、R1B、R1B.1、R1B.2 |
+| R1. 解析（CSV 和 PDF 对账单） | [`rules/R01-parse.md`](rules/R01-parse.md) | R1.0、R1A、R1C、R1C.1、R1D、R1D.1、R1B、R1B.1、R1B.2 |
 | R2. 提取和脱敏 | [`rules/R02-extract-mask.md`](rules/R02-extract-mask.md) | R2.1、R2.2、R2.3 |
 | R3. 清洗商家名 | [`rules/R03-merchant.md`](rules/R03-merchant.md) | — |
 | R4. 去重 | [`rules/R04-dedupe.md`](rules/R04-dedupe.md) | R4.1、R4.2 |
