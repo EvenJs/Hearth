@@ -2,13 +2,13 @@ import { History } from 'lucide-react';
 import Link from 'next/link';
 import { Suspense } from 'react';
 import { Button } from '@/components/ui/button';
-import { canImportCsv } from '@/lib/import/banks';
+import { canImportCsv, canImportStatement } from '@/lib/import/banks';
 import { listAccounts } from '@/server/accounts';
 import { getHouseholdContext } from '@/server/context';
 import { getImportCoverage } from '@/server/imports';
 import { ImportForm, type ImportAccount } from './import-form';
 
-// F2 导入（设计图 06）：CSV，ANZ 还能传 PDF 对账单（R1C）；R12.2 上次导到哪天。结果页 /import/[batchId]，历史页 /import/history
+// F2 导入（设计图 06）：CSV，ANZ、ANZ Plus 能传 PDF 对账单（R1C、R1D）；R12.2 上次导到哪天。结果页 /import/[batchId]，历史页 /import/history
 export default function ImportPage() {
   return (
     <>
@@ -16,7 +16,7 @@ export default function ImportPage() {
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold">导入银行流水</h1>
           <p className="text-sm text-muted-foreground">
-            上传 ANZ 或 CBA 网银导出的 CSV，ANZ 也可以传 PDF 对账单。自动去重、分类、配对内部转账。
+            上传 ANZ 或 CBA 网银导出的 CSV，或者 ANZ、ANZ Plus 的 PDF 对账单（ANZ Plus 只能导 PDF 对账单）。自动去重、分类、配对内部转账。
           </p>
         </div>
         <Button asChild variant="outline" size="sm" className="w-fit shrink-0">
@@ -37,8 +37,10 @@ export default function ImportPage() {
 
 async function ImportSection() {
   const ctx = await getHouseholdContext();
-  // 只列能导入、没归档的账户（ANZ Plus、现金不出现）
-  const importable = (await listAccounts(ctx)).filter((a) => canImportCsv(a.bank));
+  // 只列能导入、没归档的账户（现金、其他不出现）；ANZ Plus 只能导对账单（R1D）
+  const importable = (await listAccounts(ctx)).filter(
+    (a) => canImportCsv(a.bank) || canImportStatement(a.bank),
+  );
   // R12.2：每个账户上次导到哪天、对账单导到哪天。账户就几个，逐个查
   const accounts: ImportAccount[] = await Promise.all(
     importable.map(async (a) => ({
@@ -54,7 +56,7 @@ async function ImportSection() {
   if (accounts.length === 0) {
     return (
       <p className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">
-        还没有能导入 CSV 的账户（ANZ 或 CBA）。先去{' '}
+        还没有能导入的账户（ANZ、CBA 或 ANZ Plus）。先去{' '}
         <Link href="/settings/accounts" className="text-primary underline underline-offset-4">
           账户设置
         </Link>{' '}

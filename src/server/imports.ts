@@ -398,7 +398,7 @@ async function identifyAccount(ctx: HouseholdContext, lines: readonly StatementL
 export type StatementIdentity =
   | {
       ok: true;
-      account: { id: string; name: string; numberSuffix: string | null };
+      account: { id: string; name: string; bank: Bank; numberSuffix: string | null };
       coverage: ImportCoverage; // R12.2，导入页显示
     }
   | ImportFailure;
@@ -421,6 +421,7 @@ export async function identifyStatement(
     .select({
       id: financialAccount.id,
       name: financialAccount.name,
+      bank: financialAccount.bank,
       numberSuffix: financialAccount.numberSuffix,
     })
     .from(financialAccount)
