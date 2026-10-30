@@ -4,7 +4,7 @@
 import { and, asc, count, eq, inArray, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/db';
-import { category, categoryRule, member, transactionSplit } from '@/db/schema';
+import { budget, category, categoryRule, member, transactionSplit } from '@/db/schema';
 import {
   checkCategoryEdit,
   checkNewCategory,
@@ -120,6 +120,8 @@ export type AdminCategoryItem = {
   // R19.1 用了几笔、几条规则指向它。一级是自己加所有二级的合计
   splitCount: number;
   ruleCount: number;
+  // R19.4 归档确认框用：这个分类有几个预算。一级是自己加所有二级的合计
+  budgetCount: number;
 };
 
 export type AdminTopCategory = AdminCategoryItem & { children: AdminCategoryItem[] };
@@ -136,7 +138,8 @@ export type CategoryWriteResult =
   | { ok: false; reason: 'invalid' | 'not_found'; message: string };
 
 export type ArchiveResult =
-  | { ok: true; ids: string[] }
+  // deletedBudgetCount：只有归档时有，一起删掉了几个预算（R19.4）
+  | { ok: true; ids: string[]; deletedBudgetCount?: number }
   | { ok: false; reason: 'invalid' | 'not_found'; message: string }
   // R19.4：有规则指向。ruleFilterTopId：规则页链接带的一级筛选
   | { ok: false; reason: 'has_rules'; message: string; ruleCount: number; ruleFilterTopId: string };
@@ -193,6 +196,19 @@ async function loadSplitCounts(
   return new Map(rows.map((r) => [r.categoryId, r.n]));
 }
 
+// 分类 id → 预算个数（每个分类最多一个，R11.2）
+async function loadBudgetCounts(
+  tx: DbTx | typeof db,
+  ctx: HouseholdContext,
+): Promise<Map<string, number>> {
+  const rows = await tx
+    .select({ categoryId: budget.categoryId, n: count() })
+    .from(budget)
+    .where(eq(budget.householdId, ctx.householdId))
+    .groupBy(budget.categoryId);
+  return new Map(rows.map((r) => [r.categoryId, r.n]));
+}
+
 // 默认归属人要属于本家庭、没归档（防止表单被改成别家的 member id）
 async function isActiveMemberTx(tx: DbTx, ctx: HouseholdContext, memberId: string) {
   const [m] = await tx
@@ -212,10 +228,11 @@ async function isActiveMemberTx(tx: DbTx, ctx: HouseholdContext, memberId: strin
 export async function listCategoriesForAdmin(ctx: HouseholdContext): Promise<CategoryAdminList> {
   return db.transaction(
     async (tx) => {
-      const [rows, ruleCounts, splitCounts] = await Promise.all([
+      const [rows, ruleCounts, splitCounts, budgetCounts] = await Promise.all([
         loadAdminCategories(tx, ctx),
         loadRuleCounts(tx, ctx),
         loadSplitCounts(tx, ctx),
+        loadBudgetCounts(tx, ctx),
       ]);
 
       const item = (c: (typeof rows)[number]): AdminCategoryItem => ({
@@ -232,6 +249,7 @@ export async function listCategoriesForAdmin(ctx: HouseholdContext): Promise<Cat
         isArchived: c.isArchived,
         splitCount: splitCounts.get(c.id) ?? 0,
         ruleCount: ruleCounts.get(c.id) ?? 0,
+        budgetCount: budgetCounts.get(c.id) ?? 0,
       });
 
       const tops = new Map<string, AdminTopCategory>();
@@ -245,6 +263,7 @@ export async function listCategoriesForAdmin(ctx: HouseholdContext): Promise<Cat
         top.children.push(child);
         top.splitCount += child.splitCount;
         top.ruleCount += child.ruleCount;
+        top.budgetCount += child.budgetCount;
       }
 
       const list: CategoryAdminList = { expense: [], income: [], system: [] };
@@ -386,7 +405,7 @@ async function setArchived(tx: DbTx, ctx: HouseholdContext, ids: string[], archi
 }
 
 // R19.4 归档：一级带上所有二级；有规则指向（一级包括二级）就不归档，什么都不改
-// 已有交易不动，统计照常算
+// 这些分类的预算在同一个事务里硬删除（R11.3）。已有交易不动，统计照常算
 export async function archiveCategory(
   ctx: HouseholdContext,
   categoryId: string,
@@ -413,7 +432,11 @@ export async function archiveCategory(
       return { ok: false, reason: 'invalid', message: p.message };
     }
     await setArchived(tx, ctx, p.ids, true);
-    return { ok: true, ids: p.ids };
+    const deleted = await tx
+      .delete(budget)
+      .where(and(eq(budget.householdId, ctx.householdId), inArray(budget.categoryId, p.ids)))
+      .returning({ id: budget.id });
+    return { ok: true, ids: p.ids, deletedBudgetCount: deleted.length };
   });
 }
 

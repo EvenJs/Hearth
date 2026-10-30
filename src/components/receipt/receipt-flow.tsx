@@ -18,6 +18,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
+import { cn } from '@/lib/utils';
 import type { ReceiptDraft } from '@/server/receipts';
 import { scanReceiptAction } from './actions';
 import { compressReceiptImage, UnreadableImageError } from './compress-image';
@@ -64,9 +65,8 @@ export function useReceiptFlow(opts: {
     setVariant(window.matchMedia(MOBILE_QUERY).matches ? 'sheet' : 'dialog');
     setOpen(true);
     if (inputMode === 'image') {
+      // 先停在"选图"这一步，用户点按钮才打开文件选择（不自动弹）
       setPhase({ kind: 'pick' });
-      // 在点击的同一个事件里打开选图（手机上可以直接拍照）。用户取消了也还停在"选图"这一步
-      fileInput.current?.click();
     } else {
       setPhase({ kind: 'reading', message: '打开中…' });
       void scan(id, null);
@@ -159,7 +159,11 @@ export function useReceiptFlow(opts: {
       />
       <Dialog open={open && !sheet} onOpenChange={(o) => !o && close()}>
         <DialogContent
-          className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-5xl"
+          // 选图、识别中只有一两个按钮，用窄的；核对界面是左右两栏（商品表 + 挂到哪笔交易），才需要宽
+          className={cn(
+            'max-h-[calc(100dvh-2rem)] overflow-y-auto',
+            phase.kind === 'review' ? 'sm:max-w-5xl' : 'sm:max-w-md',
+          )}
           onInteractOutside={(e) => phase.kind === 'review' && e.preventDefault()}
         >
           <DialogHeader>

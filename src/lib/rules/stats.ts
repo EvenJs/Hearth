@@ -17,9 +17,9 @@ export type StatSplit = {
 export type Metric = 'income' | 'expense';
 
 // R10：一笔拆分算哪一类
-type Bucket = Metric | 'uncategorized' | 'excluded';
+export type Bucket = Metric | 'uncategorized' | 'excluded';
 
-function bucketOf(c: Category): Bucket {
+export function bucketOf(c: Category): Bucket {
   if (c.kind === 'income') return 'income';
   if (c.kind === 'expense') return 'expense';
   switch (c.systemKey) {
@@ -43,13 +43,13 @@ function inRange(date: string, range: DateRange): boolean {
   return date >= range.start && date <= range.end;
 }
 
-type CategoryIndex = {
+export type CategoryIndex = {
   get: (id: string) => Category;
   // 一级分类 id（自己是一级时返回自己）
   topOf: (id: string) => string;
 };
 
-function indexCategories(categories: readonly Category[]): CategoryIndex {
+export function indexCategories(categories: readonly Category[]): CategoryIndex {
   const byId = new Map(categories.map((c) => [c.id, c]));
   const get = (id: string) => {
     const c = byId.get(id);

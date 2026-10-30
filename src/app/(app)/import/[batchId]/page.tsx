@@ -7,8 +7,10 @@ import {
   Clock,
   Copy,
   History,
+  List,
   Link2,
   Unlink,
+  Upload,
   XCircle,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -16,6 +18,7 @@ import { notFound } from 'next/navigation';
 import { Suspense } from 'react';
 import { z } from 'zod';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
   Card,
   CardAction,
@@ -261,6 +264,28 @@ function ImportResult({ r }: { r: ImportResultView }) {
           没有需要处理的提醒。
         </p>
       )}
+
+      {/* 看完结果的下一步：接着导下一个文件，或者去流水看这次导进来的 */}
+      <div className="flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:justify-end">
+        <Button variant="outline" asChild>
+          <Link href="/import">
+            <Upload className="size-4" />
+            继续导入
+          </Link>
+        </Button>
+        <Button asChild>
+          <Link
+            href={
+              r.insertedCount > 0
+                ? `/transactions?batch=${r.batchId}`
+                : `/transactions?account=${r.account.id}`
+            }
+          >
+            <List className="size-4" />
+            {r.insertedCount > 0 ? `查看这次导入的 ${r.insertedCount} 笔` : '查看流水'}
+          </Link>
+        </Button>
+      </div>
     </>
   );
 }
