@@ -5,6 +5,7 @@ import { pivotViewFromSearchParams } from '@/lib/dashboard/pivot-view';
 import type { DashboardScope } from '@/lib/dashboard/links';
 import { todayInMelbourne } from '@/lib/rules/periods';
 import { filtersFromSearchParams } from '@/lib/transactions/filters';
+import { listBudgetsWithProgress } from '@/server/budgets';
 import { getHouseholdContext } from '@/server/context';
 import { getDashboard, getPivot } from '@/server/dashboard';
 import { listMembers } from '@/server/members';
@@ -12,12 +13,14 @@ import { ExpenseCategories } from './_dashboard/expense-categories';
 import { KpiCards, PendingNote } from './_dashboard/kpi-cards';
 import { MemberSwitch } from './_dashboard/member-switch';
 import { PeriodPicker } from './_dashboard/period-picker';
+import { PinnedBudgets } from './_dashboard/pinned-budgets';
 import { PivotSection } from './_dashboard/pivot-section';
 import { TopMerchants } from './_dashboard/top-merchants';
 
 // F6 看板（设计图 02，M5-3）：时间段和归属人在 URL 参数里，写法和 F8 一样（period 或 from/to、member）
 // 没有参数 = 本月、全部归属人。不合法的参数丢掉（filtersFromSearchParams）
-// 分类占比和 Top 商家（M5-4）；汇总表（M5-5，切换写在 URL 的 grain、group、metric）；趋势（M5-6）后面加；预算、税务卡片在 M7
+// 分类占比和 Top 商家（M5-4）；汇总表（M5-5，切换写在 URL 的 grain、group、metric）；趋势（M5-6）后面加
+// 顶部置顶预算（M7-4，R11.3）固定本月、全家，不跟筛选；税务卡片在 M7-6
 export default function HomePage(props: PageProps<'/'>) {
   return (
     // 读 session 和 searchParams 的部分放在 Suspense 里（cacheComponents）
@@ -51,9 +54,11 @@ async function DashboardSection({
   // 不是本家庭的归属人 id 当作没选
   const memberId = members.some((m) => m.id === filters.memberId) ? filters.memberId : undefined;
   const input = { period: filters.period ?? DEFAULT_PERIOD, memberId };
-  const [dashboard, pivotData] = await Promise.all([
+  const [dashboard, pivotData, budgets] = await Promise.all([
     getDashboard(ctx, input, today),
     getPivot(ctx, { ...input, ...view }, today),
+    // R11.3：不传时间段和归属人
+    listBudgetsWithProgress(ctx, today),
   ]);
   const scope: DashboardScope = { period: dashboard.period, memberId };
 
@@ -77,6 +82,12 @@ async function DashboardSection({
           />
         </div>
       </header>
+
+      <PinnedBudgets
+        budgets={budgets.budgets}
+        overview={budgets.overview}
+        memberSelected={memberId !== undefined}
+      />
 
       <div className="flex flex-col gap-3">
         <KpiCards dashboard={dashboard} scope={scope} today={today} />
