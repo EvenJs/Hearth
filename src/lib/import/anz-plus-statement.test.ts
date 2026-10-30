@@ -5,7 +5,11 @@ import {
   readStatementFixture,
   toStatementLines,
 } from '../../../tests/helpers/fixtures';
-import { parseAnzPlusStatement } from './anz-plus-statement';
+import {
+  identifyAnzPlusStatementAccount,
+  looksLikeAnzPlusStatement,
+  parseAnzPlusStatement,
+} from './anz-plus-statement';
 import { parseAnzStatement } from './anz-statement';
 
 // 期望值来自 business-rules.md R1D、R1D.1 和 fixtures/cases/10-anz-plus-statement.md
@@ -325,6 +329,90 @@ describe('parseAnzPlusStatement（R1D）', () => {
         ),
       );
       expect(failure.message).toContain('找不到期初期末');
+    });
+  });
+});
+
+// M7.5-5：导入时先认格式（R1D 两条都满足用 R1D，否则交给 R1C）
+describe('looksLikeAnzPlusStatement（R1D 认格式）', () => {
+  it('R1D: growth-2026-09.txt and growth-2026-10.txt (0 transactions) are ANZ Plus statements', () => {
+    expect(looksLikeAnzPlusStatement(readAnzPlusStatementFixture('growth-2026-09.txt'))).toBe(true);
+    expect(looksLikeAnzPlusStatement(readAnzPlusStatementFixture('growth-2026-10.txt'))).toBe(true);
+  });
+
+  it('R1D: an R1C ANZ statement is not', () => {
+    expect(looksLikeAnzPlusStatement(readStatementFixture('joint-2026-09.txt'))).toBe(false);
+  });
+
+  it('R1D: both conditions are needed (title line, product line before the table header)', () => {
+    const noTitle = MAIN_TEXT.replace('Account Statement\n', 'ANZ ACCOUNT STATEMENT\n');
+    const noProduct = MAIN_TEXT.replace('ANZ Plus Growth Saver', 'Growth Saver');
+    expect(looksLikeAnzPlusStatement(toStatementLines(noTitle))).toBe(false);
+    // 页脚的 Footer text about ANZ Plus. 在表头之后，不算
+    expect(looksLikeAnzPlusStatement(toStatementLines(noProduct))).toBe(false);
+  });
+});
+
+// M7.5-5：用对账单的账号认账户。accounts 是调用方筛好的没归档的 ANZ Plus 账户（不和 ANZ 混着找）
+describe('identifyAnzPlusStatementAccount（R1D 自动认账户）', () => {
+  const PLUS = { id: 'plus', numberSuffix: '0004' };
+  const OTHER = { id: 'other', numberSuffix: '9999' };
+
+  it('R1D / B1: growth-2026-09.txt → the account whose suffix matches', () => {
+    expect(
+      identifyAnzPlusStatementAccount(readAnzPlusStatementFixture('growth-2026-09.txt'), [
+        OTHER,
+        PLUS,
+      ]),
+    ).toEqual({ ok: true, accountId: 'plus' });
+  });
+
+  it('R1D: a longer suffix matches too (account number has spaces)', () => {
+    expect(
+      identifyAnzPlusStatementAccount(readAnzPlusStatementFixture('growth-2026-09.txt'), [
+        { id: 'long', numberSuffix: '000004' },
+      ]),
+    ).toEqual({ ok: true, accountId: 'long' });
+  });
+
+  it('R1D / B4: no suffix matches → fail with only the last 4 digits', () => {
+    const r = identifyAnzPlusStatementAccount(
+      readAnzPlusStatementFixture('wrong-account.txt'),
+      [PLUS, { id: 'no-suffix', numberSuffix: null }],
+    );
+    expect(r).toEqual({
+      ok: false,
+      message: '找不到尾号是 0002 的 ANZ Plus 账户，先去账户设置填上尾号',
+    });
+    if (!r.ok) expect(r.message).not.toMatch(/\d{5,}|012 ?345/);
+  });
+
+  it('R1D / B5: no accounts at all → same failure', () => {
+    expect(
+      identifyAnzPlusStatementAccount(readAnzPlusStatementFixture('growth-2026-09.txt'), []),
+    ).toEqual({ ok: false, message: '找不到尾号是 0004 的 ANZ Plus 账户，先去账户设置填上尾号' });
+  });
+
+  it('R1D / B6: two suffixes match → fail, ask for a longer suffix', () => {
+    expect(
+      identifyAnzPlusStatementAccount(readAnzPlusStatementFixture('growth-2026-09.txt'), [
+        PLUS,
+        { id: 'plus2', numberSuffix: '00004' },
+      ]),
+    ).toEqual({
+      ok: false,
+      message: '有 2 个 ANZ Plus 账户的尾号都对得上，去账户设置把尾号填长一点',
+    });
+  });
+
+  it('R1D: not an ANZ Plus statement → format error; no summary values → 找不到账号', () => {
+    expect(
+      identifyAnzPlusStatementAccount(readStatementFixture('joint-2026-09.txt'), [PLUS]),
+    ).toEqual({ ok: false, message: '这不像 ANZ Plus 对账单' });
+    const noNumber = MAIN_TEXT.replace('012 345  400 000 004  $10,000.00  $10,725.00\n', '');
+    expect(identifyAnzPlusStatementAccount(toStatementLines(noNumber), [PLUS])).toEqual({
+      ok: false,
+      message: '找不到账号',
     });
   });
 });

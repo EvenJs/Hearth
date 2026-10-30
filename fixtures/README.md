@@ -50,6 +50,7 @@
 | `anz/joint-2026-09-lf.csv`      | ANZ Joint  | 同上，LF 行尾                                                  |
 | `anz/joint-2026-09-overlap.csv` | ANZ Joint  | 和上面日期重叠，测去重（R4）                                   |
 | `anz/me-2026-09.csv`            | ANZ Male   | 测转账配对（R6.2）和兜底建议（R6.3）                           |
+| `anz/me-to-plus-2026-09.csv`    | ANZ Male   | 和 ANZ Plus 对账单的转账配对（R6.2），见"ANZ Plus 对账单用例" B9、B10 |
 | `anz/invalid-date.csv`          | ANZ 任意   | 第 1 行 31/02，整个文件应失败（R1）                            |
 | `anz/invalid-zero-amount.csv`   | ANZ 任意   | 金额 0，应失败（R1）                                           |
 | `cba/female-2026-09.csv`        | CBA Female | CBA 解析和清洗、余额、税前收入、Tax (ATO)、和 joint 的转账配对 |

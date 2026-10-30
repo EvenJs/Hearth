@@ -92,10 +92,7 @@ export function parseAnzPlusStatement(
   accountSuffix: string | null,
 ): ParseAnzPlusStatementResult {
   try {
-    return parse(
-      lines.map((l) => ({ page: l.page, text: l.text.trim() })).filter((l) => l.text !== ''),
-      accountSuffix,
-    );
+    return parse(trimLines(lines), accountSuffix);
   } catch (error) {
     if (error instanceof StatementError) {
       return { ok: false, message: error.message, page: error.page, index: error.index };
@@ -104,14 +101,63 @@ export function parseAnzPlusStatement(
   }
 }
 
+// R1D 认格式（M7.5-5）：上传对账单时先用它判断，满足用 R1D，否则交给 R1C
+export function looksLikeAnzPlusStatement(lines: readonly StatementLine[]): boolean {
+  return isAnzPlus(trimLines(lines));
+}
+
+// R1D 自动认账户（M7.5-5）：在调用方给的账户（没归档的 ANZ Plus）里，找 number_suffix 和对账单账号尾部对得上的
+// 账号不返回；错误信息里只带后 4 位
+export function identifyAnzPlusStatementAccount(
+  lines: readonly StatementLine[],
+  accounts: readonly { id: string; numberSuffix: string | null }[],
+): { ok: true; accountId: string } | { ok: false; message: string } {
+  const trimmed = trimLines(lines);
+  if (!isAnzPlus(trimmed)) return { ok: false, message: NOT_ANZ_PLUS_MESSAGE };
+  let digits: string;
+  try {
+    digits = readSummary(beforeTableHeader(trimmed)).accountDigits;
+  } catch (error) {
+    if (error instanceof StatementError) return { ok: false, message: '找不到账号' };
+    throw error;
+  }
+
+  const matches = accounts.filter((a) => a.numberSuffix && digits.endsWith(a.numberSuffix));
+  if (matches.length === 1) return { ok: true, accountId: matches[0].id };
+  if (matches.length === 0) {
+    return {
+      ok: false,
+      message: `找不到尾号是 ${digits.slice(-4)} 的 ANZ Plus 账户，先去账户设置填上尾号`,
+    };
+  }
+  return {
+    ok: false,
+    message: `有 ${matches.length} 个 ANZ Plus 账户的尾号都对得上，去账户设置把尾号填长一点`,
+  };
+}
+
+function trimLines(lines: readonly StatementLine[]): StatementLine[] {
+  return lines.map((l) => ({ page: l.page, text: l.text.trim() })).filter((l) => l.text !== '');
+}
+
+// 交易表表头之前的行；找不到表头时是全部
+function beforeTableHeader(lines: StatementLine[]): StatementLine[] {
+  const headerAt = lines.findIndex((l) => TABLE_HEADER.test(l.text));
+  return headerAt === -1 ? lines : lines.slice(0, headerAt);
+}
+
+// R1D 认格式：两条缺一条就不是。页脚说明里的 ANZ Plus 在表头之后，不算
+function isAnzPlus(lines: StatementLine[]): boolean {
+  const hasTitle = lines.some((l) => l.text === TITLE);
+  const hasProduct = beforeTableHeader(lines).some((l) => l.text.startsWith(PRODUCT_PREFIX));
+  return hasTitle && hasProduct;
+}
+
 function parse(lines: StatementLine[], accountSuffix: string | null): ParseAnzPlusStatementResult {
   const headerAt = lines.findIndex((l) => TABLE_HEADER.test(l.text));
-  const beforeHeader = headerAt === -1 ? lines : lines.slice(0, headerAt);
+  const beforeHeader = beforeTableHeader(lines);
 
-  // R1D 认格式：两条缺一条就不是。页脚说明里的 ANZ Plus 在表头之后，不算
-  const hasTitle = lines.some((l) => l.text === TITLE);
-  const hasProduct = beforeHeader.some((l) => l.text.startsWith(PRODUCT_PREFIX));
-  if (!hasTitle || !hasProduct) throw new StatementError(NOT_ANZ_PLUS_MESSAGE);
+  if (!isAnzPlus(lines)) throw new StatementError(NOT_ANZ_PLUS_MESSAGE);
 
   const { periodFrom, periodTo } = readPeriod(lines);
 

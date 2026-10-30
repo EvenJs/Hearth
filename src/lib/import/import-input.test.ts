@@ -157,4 +157,19 @@ describe('checkImportFile', () => {
       error: '只支持 .csv 文件',
     });
   });
+  it('R1D / B7: ANZ Plus only takes a PDF statement', () => {
+    expect(checkImportFile({ name: 'growth.pdf', size: 1234 }, 'anz_plus')).toEqual({
+      kind: 'pdf',
+      error: null,
+    });
+    expect(checkImportFile({ name: 'a.pdf', size: MAX_PDF_BYTES + 1 }, 'anz_plus').error).toBe(
+      '文件不能超过 1.5 MB',
+    );
+    for (const name of ['growth.csv', 'growth.xlsx']) {
+      expect(checkImportFile({ name, size: 1234 }, 'anz_plus')).toEqual({
+        kind: null,
+        error: 'ANZ Plus 只能导 PDF 对账单',
+      });
+    }
+  });
 });

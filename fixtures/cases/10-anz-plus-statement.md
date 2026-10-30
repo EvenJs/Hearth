@@ -87,5 +87,17 @@ Australia and New Zealand Banking Group Limited (ANZ).  Page 1 of 1
 | B5 | 把 `ANZ Plus Male` 归档 | 不选账户，导入 `growth-2026-09.txt` | 整份失败"找不到尾号是 0004 的 ANZ Plus 账户"；什么都没写 |
 | B6 | 再建一个 `anz_plus` 账户，尾号 `00004` | 不选账户，导入 `growth-2026-09.txt` | 整份失败"有 2 个 ANZ Plus 账户的尾号都对得上"；什么都没写 |
 | B7 | 空数据库 | 往 `ANZ Plus Male` 传一份 CSV | 拒绝，信息说 ANZ Plus 只能导 PDF 对账单 |
+| B8 | 空数据库，在 `ANZ Plus Male` 手动录入 2026-09-29 +5.00 Income / Interest（pending，R8.1） | 导入 `growth-2026-09.txt` | 匹配 `CREDIT INTEREST PAID $5.00`（相差 1 天）→ 确认，日期变 09-30，分类保留；新增 3，`matched_pending_count = 1` |
+| B9 | 空数据库，先导 `anz/me-to-plus-2026-09.csv` 到 `ANZ Male` | 导入 `growth-2026-09.txt` | 两边 4 笔都是 `transfer_status = auto`；ANZ Male 09-02 −1000.00 ↔ ANZ Plus 09-02 +1000.00、ANZ Male 09-15 +300.00 ↔ ANZ Plus 09-15 −300.00 两对互相写上 `transfer_pair_id`。2026-09 看板收入只有利息 $25.00，支出 0 |
+| B10 | 空数据库 | 顺序反过来：先导 `growth-2026-09.txt`，再导 `anz/me-to-plus-2026-09.csv` | 和 B9 一样 |
 
-和 ANZ 账户的转账配对（R6.2）、替换手动记的利息（R8.2）的用例在 M7.5-4、M7.5-5 加。
+`anz/me-to-plus-2026-09.csv`（ANZ CSV 格式，导入到 `ANZ Male`，编的）：
+
+| # | 日期 | 金额 | 描述 |
+| --- | --- | --- | --- |
+| 1 | 15/09/2026 | 300.00 | `ANZ M-BANKING FUNDS TFER TRANSFER 100002  FROM       400000004` |
+| 2 | 02/09/2026 | -1000.00 | `ANZ M-BANKING FUNDS TFER TRANSFER 100001  TO  012345-400000004` |
+
+ANZ 那边转去 ANZ Plus 时带 BSB（`TO  012345-400000004`，R2.2），转回来时只有账号。
+
+替换旧的 confirmed 手动利息、撤销后变 pending 再匹配上：见 `06-pending.md` 的 P11（连数据库那部分在 M7.5-5 测）。
