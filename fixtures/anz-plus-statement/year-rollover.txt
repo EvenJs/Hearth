@@ -1,0 +1,21 @@
+Account Statement
+15 December 2026 - 14 January 2027  Male Test
+1/23 Example St
+Melbourne VIC 3000
+AUS
+ANZ Plus Growth Saver
+Branch Number (BSB)  Account Number  Opening Balance  Closing Balance
+012 345  400 000 004  $10,000.00  $10,725.00
+Interest Earned  Account Name
++ $25.00  Male Test
+Transactions
+Date  Description  Credit  Debit  Balance
+10 Jan  BONUS CREDIT INTEREST PAID  $20.00  $10,725.00
+10 Jan  CREDIT INTEREST PAID  $5.00  $10,705.00
+28 Dec  TRANSFER TO 012345-400000002 #100002  $300.00  $10,700.00
+Effective Date 14/09/2026
+20 Dec  TRANSFER FROM 012345-400000002 #100001  $1,000.00  $11,000.00
+Opening Balance  $10,000.00
+Please check this statement carefully.
+Footer text about ANZ Plus.
+Australia and New Zealand Banking Group Limited (ANZ).  Page 1 of 1
