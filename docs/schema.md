@@ -100,7 +100,7 @@ rule_match_type      contains | starts_with
 | id                | uuid         | PK                      |                                                             |
 | household_id      | uuid         | FK, not null            |                                                             |
 | name              | text         | not null                | 如 "ANZ Joint"、"现金（我）"                                |
-| bank              | bank         | not null                | 决定用哪个 CSV 解析器；anz_plus、cash、other 不能导入（R1） |
+| bank              | bank         | not null                | 决定用哪个解析器；anz_plus 只能导 PDF 对账单（R1D），cash、other 不能导入（R1） |
 | type              | account_type | not null                |                                                             |
 | default_member_id | uuid         | FK → member, not null   |                                                             |
 | number_suffix     | varchar(6)   | null                    | 账号尾号，4 到 6 位数字，用于识别内部转账；现金账户为空     |

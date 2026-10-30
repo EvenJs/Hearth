@@ -31,7 +31,7 @@ Hearth 是一个家庭记账 web app，给我和老婆两个人用。核心流�
 
 ## 技术栈
 
-Next.js 16（App Router）· TypeScript strict · Neon Postgres · Drizzle ORM · Better Auth · Tailwind + shadcn/ui · Recharts · Zod + react-hook-form · Papa Parse · unpdf（M6.6 起，只用来读 ANZ 对账单）· Vitest · pnpm · Vercel
+Next.js 16（App Router）· TypeScript strict · Neon Postgres · Drizzle ORM · Better Auth · Tailwind + shadcn/ui · Recharts · Zod + react-hook-form · Papa Parse · unpdf（M6.6 起，只用来读 ANZ 和 ANZ Plus 对账单）· Vitest · pnpm · Vercel
 
 不要引入文档里没有的库。真的需要时先问我。
 
