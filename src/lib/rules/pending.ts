@@ -1,7 +1,7 @@
 // pending 交易：R8.1 手动录入时的初始状态，R8.2 导入时找候选
 // R8.3 的普通字段在导入事务里直接更新；R8.3 例外（银行那行是内部转账）在这里算
 // 纯函数，不 import 数据库和 Next.js
-import { canImportCsv } from '@/lib/import/banks';
+import type { Bank } from '@/lib/accounts/account-input';
 import { bySystemKey } from './classify';
 import { recomputeMember, type MemberContext } from './member';
 import { daysBetween } from './periods';
@@ -9,12 +9,24 @@ import type { Account, CategorySource, MemberSource, ProcessedRow } from './type
 
 export type TransactionStatus = 'pending' | 'confirmed';
 
-// R8.1：有 CSV 解析器的银行（anz、cba）等导入时确认；没有的（cash、anz_plus、other）直接 confirmed
+// R8.1：能导入的银行（anz、cba 的 CSV，anz_plus 的 PDF 对账单）等导入时确认；cash、other 直接 confirmed
+const PENDING_BANKS: readonly Bank[] = ['anz', 'cba', 'anz_plus'];
+
 export function initialStatus(account: Pick<Account, 'bank'>): TransactionStatus {
-  return canImportCsv(account.bank) ? 'pending' : 'confirmed';
+  return PENDING_BANKS.includes(account.bank) ? 'pending' : 'confirmed';
 }
 
-// 同账户里还是 pending 的交易
+// R8.2 候选：pending，或者 R8.1 改之前在 ANZ Plus 手动记的 confirmed 交易（导入对账单时替换）
+// ANZ、CBA 的 confirmed 交易不是候选
+export function isMatchCandidate(
+  tx: { status: TransactionStatus; source: 'csv' | 'manual' | 'receipt'; importBatchId: string | null },
+  account: Pick<Account, 'bank'>,
+): boolean {
+  if (tx.status === 'pending') return true;
+  return account.bank === 'anz_plus' && tx.source === 'manual' && tx.importBatchId === null;
+}
+
+// 同账户里的候选（isMatchCandidate 筛过的）
 export type PendingTx = {
   id: string;
   accountId: string;

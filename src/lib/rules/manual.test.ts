@@ -88,7 +88,7 @@ describe('buildManualTransaction: status (R8.1)', () => {
     expect(r.transaction.amountCents).toBe(-1500);
   });
 
-  it('R8.1 P7: ANZ Plus Male +8.50 Income / Interest → confirmed, is_pre_tax, Male (account)', () => {
+  it('R8.1 P7: ANZ Plus Male +8.50 Income / Interest → pending, is_pre_tax, Male (account)', () => {
     const r = built({
       accountId: acc('ANZ Plus Male'),
       kind: 'income',
@@ -97,7 +97,7 @@ describe('buildManualTransaction: status (R8.1)', () => {
       categoryId: cat('Income / Interest'),
     });
     expect(r.transaction).toMatchObject({
-      status: 'confirmed',
+      status: 'pending',
       amountCents: 850,
       date: '2026-09-30',
     });

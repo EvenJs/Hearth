@@ -1,23 +1,25 @@
 import { describe, expect, it } from 'vitest';
+import { parseAnzPlusStatement } from '@/lib/import/anz-plus-statement';
 import { processFile } from '@/lib/import/process';
-import { readFixture } from '../../../tests/helpers/fixtures';
+import { readAnzPlusStatementFixture, readFixture } from '../../../tests/helpers/fixtures';
 import { buildTestHousehold } from '../../../tests/helpers/household';
 import {
   confirmPendingTransfer,
   findPendingMatches,
   initialStatus,
+  isMatchCandidate,
   type PendingTx,
 } from './pending';
 
-// 期望值来自 business-rules.md R8.1、R8.2 和 fixtures/README.md "pending 匹配用例"
+// 期望值来自 business-rules.md R8.1、R8.2 和 fixtures/cases/06-pending.md
 // 只测找候选，确认动作（R8.3）在 M3 的事务里做
 
 const h = buildTestHousehold();
 const joint = h.account('ANZ Joint');
 
 describe('initialStatus（R8.1）', () => {
-  it('R8.1 P7: ANZ Plus has no parser → confirmed', () => {
-    expect(initialStatus(h.account('ANZ Plus Male'))).toBe('confirmed');
+  it('R8.1 P7: ANZ Plus can import PDF statements → pending', () => {
+    expect(initialStatus(h.account('ANZ Plus Male'))).toBe('pending');
   });
 
   it('R8.1 P8: CBA has a parser → pending', () => {
@@ -190,5 +192,56 @@ describe('confirmPendingTransfer：R8.3 例外，银行那行是内部转账', (
     };
     expect(confirmPendingTransfer(row(8), pending, ctx)).toEqual({ kind: 'not_transfer' });
     expect(confirmPendingTransfer(row(18), pending, ctx)).toEqual({ kind: 'not_transfer' });
+  });
+});
+
+describe('isMatchCandidate：R8.2 候选，P11 到 P14', () => {
+  const anzPlus = h.account('ANZ Plus Male');
+  const legacy = { status: 'confirmed', source: 'manual', importBatchId: null } as const;
+
+  it('R8.2: every pending is a candidate, whatever the bank or source', () => {
+    for (const bank of ['anz', 'cba', 'anz_plus'] as const) {
+      expect(isMatchCandidate({ ...legacy, status: 'pending' }, { bank })).toBe(true);
+    }
+    expect(
+      isMatchCandidate({ status: 'pending', source: 'receipt', importBatchId: null }, anzPlus),
+    ).toBe(true);
+  });
+
+  it('R8.2 P11: ANZ Plus confirmed manual tx with no import batch → candidate', () => {
+    expect(isMatchCandidate(legacy, anzPlus)).toBe(true);
+  });
+
+  it('R8.2 P12: ANZ Plus confirmed manual tx already confirmed by an import → not a candidate', () => {
+    expect(isMatchCandidate({ ...legacy, importBatchId: 'batch:1' }, anzPlus)).toBe(false);
+  });
+
+  it('R8.2 P13: ANZ and CBA confirmed manual txs are not candidates', () => {
+    expect(isMatchCandidate(legacy, joint)).toBe(false);
+    expect(isMatchCandidate(legacy, h.account('CBA Female'))).toBe(false);
+  });
+
+  it('R8.2 P14: ANZ Plus confirmed receipt tx → not a candidate (only source = manual)', () => {
+    expect(isMatchCandidate({ ...legacy, source: 'receipt' }, anzPlus)).toBe(false);
+  });
+
+  it('R8.2: ANZ Plus confirmed imported tx (source csv) → not a candidate', () => {
+    expect(isMatchCandidate({ ...legacy, source: 'csv' }, anzPlus)).toBe(false);
+  });
+
+  it('R8.2 P11: the old +20.00 interest on 09-30 matches the bonus interest row in growth-2026-09', () => {
+    const result = parseAnzPlusStatement(readAnzPlusStatementFixture('growth-2026-09.txt'), '0004');
+    if (!result.ok) throw new Error(result.message);
+    const old: PendingTx = {
+      id: 'P11',
+      accountId: anzPlus.id,
+      date: '2026-09-30',
+      amountCents: 2000,
+    };
+    const matches = findPendingMatches(result.rows, anzPlus.id, [old]);
+    expect(matches.filter((m) => m.kind === 'match')).toEqual([
+      { kind: 'match', pendingId: 'P11' },
+    ]);
+    expect(matches.filter((m) => m.kind !== 'none')).toHaveLength(1);
   });
 });
