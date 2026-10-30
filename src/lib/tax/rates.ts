@@ -26,11 +26,23 @@ const RATES: Record<number, readonly TaxBracket[]> = {
 // Medicare levy 2%（R14.3）
 export const MEDICARE_PERCENT = 2;
 
+// R14.1：2026 → "2026-27"
+export function financialYearLabel(financialYear: number): string {
+  return `${financialYear}-${String((financialYear + 1) % 100).padStart(2, '0')}`;
+}
+
+// R14.7：有税率表的财年，从新到旧。设置页的财年下拉只列这些
+export function availableFinancialYears(): number[] {
+  return Object.keys(RATES)
+    .map(Number)
+    .sort((a, b) => b - a);
+}
+
 export function getTaxRates(financialYear: number): readonly TaxBracket[] {
   const rates = RATES[financialYear];
   if (!rates) {
     throw new Error(
-      `没有 ${financialYear}-${String((financialYear + 1) % 100).padStart(2, '0')} 财年的税率表，请先在 src/lib/tax/rates.ts 加上`,
+      `没有 ${financialYearLabel(financialYear)} 财年的税率表，请先在 src/lib/tax/rates.ts 加上`,
     );
   }
   return rates;

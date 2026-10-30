@@ -268,7 +268,11 @@ describeDb('M6.5-6 listCategoriesForAdmin / createCategory / updateCategory / ar
     const coffeeSplits = (await splitRows()).filter((s) => s.categoryId === cat(COFFEE));
     expect(coffeeSplits.length).toBeGreaterThan(0);
 
-    expect(await archiveCategory(t.ctx, cat(COFFEE))).toEqual({ ok: true, ids: [cat(COFFEE)] });
+    expect(await archiveCategory(t.ctx, cat(COFFEE))).toEqual({
+      ok: true,
+      ids: [cat(COFFEE)],
+      deletedBudgetCount: 0,
+    });
     expect((await categoryRow(cat(COFFEE))).isArchived).toBe(true);
 
     expect(await getDashboard(t.ctx, { period: SEPT }, TODAY)).toEqual(dashBefore);
