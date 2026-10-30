@@ -72,12 +72,20 @@ export function checkPdfFile(file: { name: string; size: number }): string | nul
 
 export type ImportFileKind = 'csv' | 'pdf';
 
-// 导入页的文件检查（M6.6-6）：ANZ 收 .csv 和 .pdf 对账单（R1C），CBA 只收 .csv
+// R1D：ANZ Plus 不能导出 CSV
+export const ANZ_PLUS_PDF_ONLY = 'ANZ Plus 只能导 PDF 对账单';
+
+// 导入页的文件检查（M6.6-6）：ANZ 收 .csv 和 .pdf 对账单（R1C），CBA 只收 .csv，ANZ Plus 只收 .pdf（R1D）
 // 按扩展名分，大小按各自的上限。kind = null 表示这种文件不能导入
 export function checkImportFile(
   file: { name: string; size: number },
   bank: Bank,
 ): { kind: ImportFileKind | null; error: string | null } {
+  if (bank === 'anz_plus') {
+    return /.\.pdf$/i.test(file.name)
+      ? { kind: 'pdf', error: checkPdfFile(file) }
+      : { kind: null, error: ANZ_PLUS_PDF_ONLY };
+  }
   if (bank === 'anz' && /.\.pdf$/i.test(file.name)) {
     return { kind: 'pdf', error: checkPdfFile(file) };
   }

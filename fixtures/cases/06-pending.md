@@ -16,11 +16,11 @@
 
 计数：`inserted_count = 17`、`matched_pending_count = 2`。
 
-## 没有 CSV 的账户（R8.1）
+## 手动录入的初始状态（R8.1）
 
 | 用例 | 操作                                                               | 期望                                                           |
 | ---- | ------------------------------------------------------------------ | -------------------------------------------------------------- |
-| P7   | 在 ANZ Plus Male 手动录入 2026-09-30 +8.50，分类 Income / Interest | 直接 confirmed（anz_plus 没有解析器），is_pre_tax = true，Male |
+| P7   | 在 ANZ Plus Male 手动录入 2026-09-30 +8.50，分类 Income / Interest | pending（2026-10-30 改：anz_plus 能导 PDF 对账单，R8.1），is_pre_tax = true，Male |
 | P8   | 在 CBA Female 手动录入 -15.00                                      | pending（cba 有解析器）                                        |
 | P9   | 尝试给 ANZ Plus Male 导入 CSV                                      | 拒绝：这个账户不能导入                                         |
 
@@ -31,3 +31,16 @@
 | P10 | 在 ANZ Joint 手动录入 2026-09-14 -500.00，分类 Entertainment & eat-out / Restaurants，归属人 Female，备注"给老婆"；然后导入 `joint-2026-09.csv` | 匹配 #11（相差 1 天）→ confirmed，日期变 09-15；R6.1 认出转给 CBA Female → `transfer_status = auto`，分类改成 Internal transfer，`category_source = system`；归属人保持 Female（manual），备注保留 |
 
 计数：`inserted_count = 18`、`matched_pending_count = 1`。之后导入 `cba/female-2026-09.csv`，P10 和 CBA #10 照常配对。
+
+## ANZ Plus 的旧手动交易（R8.2 候选，2026-10-30 加）
+
+R8.1 改之前在 ANZ Plus 手动记的 confirmed 交易，导入对账单时当候选。P11–P14 的交易直接写进数据库（模拟旧数据），不经过录入流程。
+
+| 用例 | 旧交易 | 期望 |
+| --- | --- | --- |
+| P11 | ANZ Plus Male，2026-09-30 +20.00，`confirmed`、`source = manual`、`import_batch_id` 空，分类 Income / Interest | 是候选。导入 `anz-plus-statement/growth-2026-09.txt`：匹配 `BONUS CREDIT INTEREST PAID $20.00`（相差 0 天）→ 按 R8.3 更新，不新增；分类保留。撤销这次导入（R12.1）→ 变成 **pending**，再导一次又匹配上 |
+| P12 | ANZ Plus Male，同 P11，但 `import_batch_id` 有值 | 不是候选（已经被导入确认过） |
+| P13 | ANZ Joint，2026-09-30 +20.00，`confirmed`、`source = manual`、`import_batch_id` 空 | 不是候选（不是 anz_plus）。CBA Female 一样 |
+| P14 | ANZ Plus Male，2026-09-30 +20.00，`confirmed`、`source = receipt`、`import_batch_id` 空 | 不是候选（R8.2 只写了 `source = manual`） |
+
+纯函数层（M7.5-4）只测"是不是候选"和匹配结果；更新字段、撤销恢复成 pending 在 M7.5-5 的 `pnpm test:db` 里测。

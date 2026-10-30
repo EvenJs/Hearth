@@ -1,8 +1,8 @@
-// CSV 和 ANZ PDF 对账单导入（business-rules.md R12、R1C），第 1 到 10 步；导入结果页（M3-8）；撤销导入（R12.1）
+// CSV 和 ANZ / ANZ Plus PDF 对账单导入（business-rules.md R12、R1C、R1D），第 1 到 10 步；导入结果页（M3-8）；撤销导入（R12.1）
 // 业务判断全部用 src/lib/ 的纯函数，这里只负责读写数据库和串流程
 // 不保存上传的原文件；日志和报错里不打印原始描述
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, gt, gte, inArray, lt, lte, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, gte, inArray, isNull, lt, lte, ne, or, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import {
   card,
@@ -16,12 +16,8 @@ import {
   transactionSplit,
 } from '@/db/schema';
 import type { Bank } from '@/lib/accounts/account-input';
-import { canImportCsv } from '@/lib/import/banks';
-import {
-  identifyStatementAccount,
-  parseAnzStatement,
-  type StatementLine,
-} from '@/lib/import/anz-statement';
+import type { StatementLine } from '@/lib/import/anz-statement';
+import { canImportCsv, canImportStatement } from '@/lib/import/banks';
 import { checkBalanceContinuity, deriveBalances, type BalanceWarning } from '@/lib/import/cba';
 import {
   csvGapWarning,
@@ -29,11 +25,12 @@ import {
   type ImportCoverage,
   type ImportGap,
 } from '@/lib/import/coverage';
-import { checkPdfFile } from '@/lib/import/import-input';
+import { ANZ_PLUS_PDF_ONLY, checkPdfFile } from '@/lib/import/import-input';
+import { identifyBankStatement, parseBankStatement } from '@/lib/import/index';
 import { processFile, processRows, type HouseholdConfig } from '@/lib/import/process';
-import { addDays, todayInMelbourne } from '@/lib/rules/periods';
+import { todayInMelbourne } from '@/lib/rules/periods';
 import { bySystemKey } from '@/lib/rules/classify';
-import { confirmPendingTransfer, findPendingMatches } from '@/lib/rules/pending';
+import { confirmPendingTransfer, findPendingMatches, isMatchCandidate } from '@/lib/rules/pending';
 import { pendingsToCheck, reconcile, type Reconciliation } from '@/lib/rules/reconcile';
 import type { TransferPlan } from '@/lib/rules/transfer';
 import type {
@@ -226,11 +223,15 @@ async function loadImportTarget(
   if (!target) return fail('not_importable', '账户不存在');
   if (target.isArchived) return fail('not_importable', '这个账户已经归档了，不能导入');
   if (kind === 'csv' && !canImportCsv(target.bank)) {
-    return fail('not_importable', '这个账户不能导入 CSV');
+    // R1D：ANZ Plus 不能导出 CSV（B7）
+    return fail(
+      'not_importable',
+      target.bank === 'anz_plus' ? ANZ_PLUS_PDF_ONLY : '这个账户不能导入 CSV',
+    );
   }
-  // R1C：只有 ANZ 有对账单解析器
-  if (kind === 'pdf' && target.bank !== 'anz') {
-    return fail('not_importable', '只有 ANZ 账户能导入 PDF 对账单');
+  // R1C、R1D：只有 ANZ 和 ANZ Plus 有对账单解析器
+  if (kind === 'pdf' && !canImportStatement(target.bank)) {
+    return fail('not_importable', '只有 ANZ 和 ANZ Plus 账户能导入 PDF 对账单');
   }
 
   const config = await loadHouseholdConfig(ctx);
@@ -311,7 +312,7 @@ export async function importCsv(ctx: HouseholdContext, input: ImportInput): Prom
   });
 }
 
-// R1C：ANZ PDF 对账单。文件检查 → 读文字 → 和 CSV 一样的处理和事务
+// R1C、R1D：ANZ / ANZ Plus PDF 对账单。文件检查 → 读文字 → 和 CSV 一样的处理和事务
 export async function importStatement(
   ctx: HouseholdContext,
   input: ImportStatementInput,
@@ -319,7 +320,7 @@ export async function importStatement(
   const fileError = checkPdfFile({ name: input.fileName, size: input.buffer.byteLength });
   if (fileError) return fail('invalid_file', fileError);
 
-  // 指定了账户：先看账户，不是 ANZ 就不用读 PDF
+  // 指定了账户：先看账户，不是 ANZ、ANZ Plus 就不用读 PDF
   if (input.accountId !== undefined) {
     const target = await loadImportTarget(ctx, input.accountId, 'pdf');
     if ('ok' in target) return target;
@@ -336,12 +337,12 @@ export async function importStatement(
   });
 }
 
-// R1C 第二层以后：解析 → R2 到 R5（processRows）→ R12 第 3 到 9 步
+// R1C、R1D 第二层以后：解析 → R2 到 R5（processRows）→ R12 第 3 到 9 步
 export async function importStatementLines(
   ctx: HouseholdContext,
   input: ImportStatementLinesInput,
 ): Promise<ImportResult> {
-  // R1C 自动认账户：没指定账户时用账号找
+  // R1C、R1D 自动认账户：没指定账户时用账号找
   let accountId = input.accountId;
   if (accountId === undefined) {
     const identified = await identifyAccount(ctx, input.lines);
@@ -353,8 +354,8 @@ export async function importStatementLines(
   if ('ok' in target) return target;
   const { config, account } = target;
 
-  // R1C：表头、账号尾号、三项检查，任何一条不过整份失败。账号尾号核对在解析里做，不存
-  const parsed = parseAnzStatement(input.lines, account.numberSuffix);
+  // R1C、R1D：按账户的银行选解析器。任何一条检查不过整份失败。账号尾号核对在解析里做，不存
+  const parsed = parseBankStatement(account.bank, input.lines, account.numberSuffix);
   if (!parsed.ok) {
     // 信息里已经写了第几页第几笔
     return { ...fail('parse', parsed.message), page: parsed.page, index: parsed.index };
@@ -366,35 +367,38 @@ export async function importStatementLines(
     fileName: input.fileName,
     source: 'pdf',
     rows: processRows(parsed.rows, account, config),
-    // R1C：账期是 (periodFrom, periodTo]，R9 照旧按 [date_from, date_to] 算
-    dateFrom: addDays(parsed.periodFrom, 1),
-    dateTo: parsed.periodTo,
-    // R9：期初期末从汇总页来
+    // R1C 的 date_from 是账期开始日的第二天，R1D 是开始日（parseBankStatement 算好了）
+    dateFrom: parsed.dateFrom,
+    dateTo: parsed.dateTo,
+    // R9：期初期末从汇总来
     openingBalanceCents: parsed.openingCents,
     closingBalanceCents: parsed.closingCents,
     balanceWarnings: [],
   });
 }
 
-// R1C 自动认账户：只在没归档的 ANZ 账户里找（R1C 只有 ANZ 有对账单解析器）
+// R1C、R1D 自动认账户：在没归档的账户里找，ANZ 对账单只找 ANZ 账户，ANZ Plus 只找 ANZ Plus（identifyBankStatement 筛）
 async function identifyAccount(ctx: HouseholdContext, lines: readonly StatementLine[]) {
   const candidates = await db
-    .select({ id: financialAccount.id, numberSuffix: financialAccount.numberSuffix })
+    .select({
+      id: financialAccount.id,
+      bank: financialAccount.bank,
+      numberSuffix: financialAccount.numberSuffix,
+    })
     .from(financialAccount)
     .where(
       and(
         eq(financialAccount.householdId, ctx.householdId),
-        eq(financialAccount.bank, 'anz'),
         eq(financialAccount.isArchived, false),
       ),
     );
-  return identifyStatementAccount(lines, candidates);
+  return identifyBankStatement(lines, candidates);
 }
 
 export type StatementIdentity =
   | {
       ok: true;
-      account: { id: string; name: string; numberSuffix: string | null };
+      account: { id: string; name: string; bank: Bank; numberSuffix: string | null };
       coverage: ImportCoverage; // R12.2，导入页显示
     }
   | ImportFailure;
@@ -417,6 +421,7 @@ export async function identifyStatement(
     .select({
       id: financialAccount.id,
       name: financialAccount.name,
+      bank: financialAccount.bank,
       numberSuffix: financialAccount.numberSuffix,
     })
     .from(financialAccount)
@@ -550,26 +555,35 @@ async function runImport(ctx: HouseholdContext, p: PreparedImport): Promise<Impo
     const fresh = rows.filter((r) => !existing.has(r.dedupeKey));
     const duplicateCount = rows.length - fresh.length;
 
-    // R8.2：同账户的 pending，带上拆分数和主拆分的归属人（R8.3 例外要用）
-    const pendings = await tx
-      .select({
-        id: transaction.id,
-        accountId: transaction.accountId,
-        date: transaction.date,
-        amountCents: transaction.amountCents,
-        memberId: transactionSplit.memberId,
-        memberSource: transactionSplit.memberSource,
-        splitCount: splitCountSql,
-      })
-      .from(transaction)
-      .innerJoin(transactionSplit, primarySplitJoin)
-      .where(
-        and(
-          eq(transaction.householdId, hh),
-          eq(transaction.accountId, account.id),
-          eq(transaction.status, 'pending'),
-        ),
-      );
+    // R8.2：同账户的候选，带上拆分数和主拆分的归属人（R8.3 例外要用）
+    // 候选是 pending，加上 ANZ Plus 的旧手动交易（confirmed、manual、没有批次）；先宽查，再按银行筛
+    const pendings = (
+      await tx
+        .select({
+          id: transaction.id,
+          accountId: transaction.accountId,
+          date: transaction.date,
+          amountCents: transaction.amountCents,
+          status: transaction.status,
+          source: transaction.source,
+          importBatchId: transaction.importBatchId,
+          memberId: transactionSplit.memberId,
+          memberSource: transactionSplit.memberSource,
+          splitCount: splitCountSql,
+        })
+        .from(transaction)
+        .innerJoin(transactionSplit, primarySplitJoin)
+        .where(
+          and(
+            eq(transaction.householdId, hh),
+            eq(transaction.accountId, account.id),
+            or(
+              eq(transaction.status, 'pending'),
+              and(eq(transaction.source, 'manual'), isNull(transaction.importBatchId)),
+            ),
+          ),
+        )
+    ).filter((p) => isMatchCandidate(p, account));
     const pendingById = new Map(pendings.map((p) => [p.id, p]));
     const matches = findPendingMatches(fresh, account.id, pendings);
 
@@ -812,7 +826,7 @@ export type ImportResultView = {
   fileName: string;
   createdAt: Date;
   account: { id: string; name: string; bank: Bank; numberSuffix: string | null };
-  source: 'csv' | 'pdf'; // pdf = ANZ 对账单（R1C）
+  source: 'csv' | 'pdf'; // pdf = ANZ / ANZ Plus 对账单（R1C、R1D）
   dateFrom: string;
   dateTo: string;
   rowCount: number;
@@ -988,7 +1002,7 @@ export type ImportHistoryRow = {
   createdAt: Date;
   fileName: string;
   account: { id: string; name: string; bank: Bank; numberSuffix: string | null };
-  source: 'csv' | 'pdf'; // pdf = ANZ 对账单（R1C）
+  source: 'csv' | 'pdf'; // pdf = ANZ / ANZ Plus 对账单（R1C、R1D）
   dateFrom: string;
   dateTo: string;
   insertedCount: number;

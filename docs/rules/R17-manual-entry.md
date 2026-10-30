@@ -50,14 +50,14 @@ R8.1 定了状态，这里补表单和编辑删除的规则。
 
 ## R17.5 编辑和删除整笔交易
 
-只有 `source = manual`（或小票建的 `source = receipt`，R20.7）**且** `import_batch_id` 为空的交易能编辑、删除整笔（还没被导入确认的 pending，以及现金、ANZ Plus 这类直接 confirmed 的）。被导入确认过的 pending（R8.3）和导入的交易一样，只能改分类、归属人、拆分、备注。
+只有 `source = manual`（或小票建的 `source = receipt`，R20.7）**且** `import_batch_id` 为空的交易能编辑、删除整笔（还没被导入确认的 pending，以及现金这类直接 confirmed 的，还有 R8.1 改之前录的 ANZ Plus confirmed 交易）。被导入确认过的 pending（R8.3）和导入的交易一样，只能改分类、归属人、拆分、备注。
 
 **编辑**：日期、金额、描述、账户，规则同 R17.1。
 
 - 不能改符号（支出改收入）。要改就删掉重记
 - 改金额：只有主拆分时才能改，主拆分跟着变；有多个拆分时提示先删掉拆分
 - 改描述：重新清洗 merchant，**不**重新猜分类、不动分类
-- 改账户：状态按新账户重新走 R8.1（ANZ → 现金变 confirmed，现金 → ANZ 变 pending）；归属人如果不是 `manual`，按 R5 用新账户重算
+- 改账户：状态按新账户重新走 R8.1（ANZ、ANZ Plus → 现金变 confirmed，现金 → ANZ、ANZ Plus 变 pending）；归属人如果不是 `manual`，按 R5 用新账户重算
 - 改日期、金额、账户以后，这笔 pending 在以前导入批次 `warnings` 里的"可能重复"不会自己消失，按 R17.6 实时算
 
 **删除**：硬删除（tech-stack：交易只限手动录入的能硬删），拆分级联删除。删除前弹窗确认。

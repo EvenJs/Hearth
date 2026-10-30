@@ -13,7 +13,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { BANK_LABELS } from '@/lib/accounts/account-input';
-import { statementPeriod } from '@/lib/import/anz-statement';
+import { statementPeriod } from '@/lib/import/index';
 import { formatAud } from '@/lib/rules/money';
 import type { Reconciliation } from '@/lib/rules/reconcile';
 import { getHouseholdContext } from '@/server/context';
@@ -121,10 +121,10 @@ async function HistorySection() {
   );
 }
 
-// CSV 显示文件里的日期范围；对账单显示纸面上的账期（R1C）
+// CSV 显示文件里的日期范围；对账单显示纸面上的账期（R1C、R1D）
 function DateRange({ r }: { r: ImportHistoryRow }) {
   if (r.source === 'pdf') {
-    const p = statementPeriod(r.dateFrom, r.dateTo);
+    const p = statementPeriod(r.account.bank, r.dateFrom, r.dateTo);
     return (
       <>
         账期 {p.from} 至 {p.to}

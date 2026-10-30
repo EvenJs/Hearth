@@ -146,7 +146,7 @@ reader 的原始结果（或用户在核对界面改过的）先整理：
 
 新交易：
 
-- `status` 按账户走 R8.1：ANZ、CBA → `pending`，等导入 CSV 时按 R8.2 确认；现金、ANZ Plus → `confirmed`
+- `status` 按账户走 R8.1：ANZ、CBA、ANZ Plus → `pending`，等导入 CSV 或对账单时按 R8.2 确认；现金 → `confirmed`
 - `source = receipt`，`date` = 小票日期，`amount_cents` = −总额
 - `raw_description` = 店名（R20.2 整理后），`merchant` = R3 清洗结果
 - `card_last4` 空（同 R17.1，银行流水确认时 R8.3 再填）

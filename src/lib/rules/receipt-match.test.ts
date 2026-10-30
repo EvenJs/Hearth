@@ -290,12 +290,16 @@ describe('R20.5 buildReceiptTransaction', () => {
     });
   });
 
-  it('R8.1: cash and ANZ Plus accounts are confirmed', () => {
-    for (const accountId of [cashA.id, h.account('ANZ Plus Male').id]) {
-      const r = buildReceiptTransaction(fixture('coles-e.json'), accountId, ctx);
-      if (!r.ok) throw new Error(JSON.stringify(r.errors));
-      expect(r.transaction.status, accountId).toBe('confirmed');
-    }
+  it('R8.1: cash accounts are confirmed', () => {
+    const r = buildReceiptTransaction(fixture('coles-e.json'), cashA.id, ctx);
+    if (!r.ok) throw new Error(JSON.stringify(r.errors));
+    expect(r.transaction.status).toBe('confirmed');
+  });
+
+  it('R8.1: ANZ Plus accounts are pending (R20.5)', () => {
+    const r = buildReceiptTransaction(fixture('coles-e.json'), h.account('ANZ Plus Male').id, ctx);
+    if (!r.ok) throw new Error(JSON.stringify(r.errors));
+    expect(r.transaction.status).toBe('pending');
   });
 
   it('R8.1: CBA is pending', () => {

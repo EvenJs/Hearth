@@ -50,11 +50,13 @@
 | `anz/joint-2026-09-lf.csv`      | ANZ Joint  | 同上，LF 行尾                                                  |
 | `anz/joint-2026-09-overlap.csv` | ANZ Joint  | 和上面日期重叠，测去重（R4）                                   |
 | `anz/me-2026-09.csv`            | ANZ Male   | 测转账配对（R6.2）和兜底建议（R6.3）                           |
+| `anz/me-to-plus-2026-09.csv`    | ANZ Male   | 和 ANZ Plus 对账单的转账配对（R6.2），见"ANZ Plus 对账单用例" B9、B10 |
 | `anz/invalid-date.csv`          | ANZ 任意   | 第 1 行 31/02，整个文件应失败（R1）                            |
 | `anz/invalid-zero-amount.csv`   | ANZ 任意   | 金额 0，应失败（R1）                                           |
 | `cba/female-2026-09.csv`        | CBA Female | CBA 解析和清洗、余额、税前收入、Tax (ATO)、和 joint 的转账配对 |
 | `cba/broken-balance.csv`        | CBA Female | 余额不连续时只警告不失败（R1B.1）                              |
 | `anz-statement/*.txt`           | ANZ Joint  | ANZ PDF 对账单（R1C、R12.2），读文字以后的样子，见"ANZ 对账单用例" |
+| `anz-plus-statement/*.txt`      | ANZ Plus Male | ANZ Plus PDF 对账单（R1D），读文字以后的样子，见"ANZ Plus 对账单用例" |
 | `receipts/*.json`               | —          | 小票识别（R20），见最后一节"小票用例"                       |
 
 ---
@@ -75,3 +77,4 @@
 | 撤销导入用例（R12.1） | [`cases/07-undo.md`](cases/07-undo.md) | 看各用例自己的前提 |
 | ANZ 对账单用例（R1C、R12.2，M6.6） | [`cases/08-anz-statement.md`](cases/08-anz-statement.md) | 看各用例自己的前提 |
 | 小票用例（R20，M6.7） | [`cases/09-receipts.md`](cases/09-receipts.md) | 看各用例自己的前提 |
+| ANZ Plus 对账单用例（R1D，M7.5） | [`cases/10-anz-plus-statement.md`](cases/10-anz-plus-statement.md) | 看各用例自己的前提 |

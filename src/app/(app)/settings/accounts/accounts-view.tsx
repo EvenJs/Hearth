@@ -22,7 +22,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { ACCOUNT_TYPE_LABELS, BANK_LABELS } from '@/lib/accounts/account-input';
-import { canImportCsv } from '@/lib/import/banks';
+import { canImportCsv, canImportStatement } from '@/lib/import/banks';
 import type { Account } from '@/server/accounts';
 import type { Card } from '@/server/cards';
 import type { Member } from '@/server/members';
@@ -36,6 +36,18 @@ type Props = {
   members: Member[];
   showArchived: boolean;
 };
+
+// 流水来源（R1、R1C、R1D）
+function sourceLabel(bank: Account['bank']): string | null {
+  if (canImportCsv(bank)) return canImportStatement(bank) ? 'CSV / 对账单' : 'CSV 导入';
+  if (canImportStatement(bank)) return 'PDF 对账单';
+  return null;
+}
+
+// R1D：ANZ Plus 导对账单要按尾号认账户
+function needsSuffix(a: Account): boolean {
+  return a.bank === 'anz_plus' && !a.numberSuffix;
+}
 
 // editing：null = 关闭；'new' = 新建；Account = 编辑
 type Editing = null | 'new' | Account;
@@ -105,6 +117,7 @@ export function AccountsView({ accounts, cards, members, showArchived }: Props) 
                     <div className="text-xs text-muted-foreground md:hidden">
                       {BANK_LABELS[a.bank]} · {ACCOUNT_TYPE_LABELS[a.type]}
                       {a.numberSuffix && ` · ••${a.numberSuffix}`}
+                      {needsSuffix(a) && <span className="text-amber-600"> · 先填尾号</span>}
                     </div>
                   </TableCell>
                   <TableCell className="hidden md:table-cell">{BANK_LABELS[a.bank]}</TableCell>
@@ -116,11 +129,22 @@ export function AccountsView({ accounts, cards, members, showArchived }: Props) 
                     {a.numberSuffix ? `••${a.numberSuffix}` : '—'}
                   </TableCell>
                   <TableCell className="hidden md:table-cell">
-                    {canImportCsv(a.bank) ? (
-                      <Badge variant="secondary">CSV 导入</Badge>
-                    ) : (
-                      <Badge variant="outline">手动录入</Badge>
-                    )}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {sourceLabel(a.bank) ? (
+                        <Badge variant="secondary">{sourceLabel(a.bank)}</Badge>
+                      ) : (
+                        <Badge variant="outline">手动录入</Badge>
+                      )}
+                      {needsSuffix(a) && (
+                        <Badge
+                          variant="outline"
+                          className="border-amber-500/50 text-amber-700 dark:text-amber-400"
+                          title="导入 PDF 对账单时按尾号认账户"
+                        >
+                          先填尾号
+                        </Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell>
                     <div className="flex justify-end gap-1">
@@ -156,7 +180,8 @@ export function AccountsView({ accounts, cards, members, showArchived }: Props) 
           <SheetHeader>
             <SheetTitle>{editing === 'new' ? '新增账户' : '编辑账户'}</SheetTitle>
             <SheetDescription>
-              银行决定能不能导入 CSV：ANZ、CBA 可以，其他只能手动录入。
+              银行决定怎么导入：ANZ 可以导 CSV 和 PDF 对账单，CBA 导 CSV，ANZ Plus 只能导 PDF
+              对账单，其他只能手动录入。
             </SheetDescription>
           </SheetHeader>
           {editing !== null && (

@@ -220,17 +220,17 @@ describe('autoMember', () => {
 });
 
 describe('statusHint', () => {
-  it('R8.1: 现金、ANZ Plus → confirmed', () => {
+  it('R8.1: 现金 → confirmed', () => {
     expect(statusHint(cash).status).toBe('confirmed');
-    expect(statusHint(h.account('ANZ Plus Male')).status).toBe('confirmed');
-    expect(statusHint(cash).message).toBe('现金 / ANZ Plus 账户，保存后直接确认');
+    expect(statusHint(cash).message).toBe('现金账户，保存后直接确认');
   });
 
-  it('R8.1: ANZ、CBA → pending', () => {
+  it('R8.1: ANZ、CBA、ANZ Plus → pending', () => {
     expect(statusHint(h.account('ANZ Joint')).status).toBe('pending');
     expect(statusHint(h.account('CBA Female')).status).toBe('pending');
+    expect(statusHint(h.account('ANZ Plus Male')).status).toBe('pending');
     expect(statusHint(h.account('ANZ Joint')).message).toBe(
-      'ANZ / CBA 账户会先记为待确认，导入时自动匹配',
+      'ANZ / CBA / ANZ Plus 账户会先记为待确认，导入时自动匹配',
     );
   });
 });
