@@ -80,7 +80,7 @@
 
 - 驱动用 `neon-serverless`（WebSocket Pool），**不用** `neon-http`。HTTP 驱动不支持事务，而 CSV 导入必须在一个事务里完成，要么全部成功要么全部回滚
 - 开发和生产用两个独立的数据库（Neon 的 branch），开发时不碰真实数据
-- 迁移流程：改 schema → `drizzle-kit generate` → 检查生成的 SQL → `drizzle-kit migrate`
+- 迁移流程：改 schema → `drizzle-kit generate` → 检查生成的 SQL → dev 上 `drizzle-kit migrate` → SQL 跟着 PR 合进 `dev`（**在这个 PR 里审 SQL**）→ 合进 `main` 后 GitHub Action 自动建快照、迁移 prod、部署（见 10.2）
 - 免费额度：每个项目 0.5 GB 存储、100 CU 小时计算，家庭记账远远用不完
 
 ---
@@ -172,6 +172,15 @@ RECEIPT_READER         # 小票用哪个 reader：llm | none，不填或不认�
 - `RECEIPT_READER=llm` 但没配 `LLM_*`：启动不报错，识别时显示"暂时识别不了"，可以手动填商品，其他功能照常
 
 - `.env.local` 不进 git，仓库里只放 `.env.example`
+
+GitHub 仓库 Secrets（只给 `.github/workflows/deploy-prod.yml` 用，不进代码、不进 Vercel）：
+
+```
+NEON_API_KEY             # Neon 控制台建的 API key，用来建快照、删旧快照
+NEON_PROJECT_ID          # Neon 项目 ID
+DATABASE_URL_PROD        # prod 的直连串（主机名不带 -pooler），跑迁移用
+VERCEL_DEPLOY_HOOK_URL   # Vercel Deploy Hook（分支 main）
+```
 - Vercel 上在项目设置里配置
 - 换域名时（2026-10-25 踩过）：Vercel 上 Production 的 `BETTER_AUTH_URL` 改成新域名（带 `https://`，结尾不带 `/`），然后 Redeploy。不改会登录 403 `Invalid origin`；改了以后只认新域名，旧域名登不上
 
@@ -218,13 +227,27 @@ RECEIPT_READER         # 小票用哪个 reader：llm | none，不填或不认�
 
 ### 10.2 迁移前打快照
 
+**自动（M7.5-8 起）**：`main` 有 push 时，`.github/workflows/deploy-prod.yml`：
+
+1. 这次 push 有没有新增的 `drizzle/*.sql`，没有就跳到第 4 步（找不到 push 前的 commit 时按有处理）
+2. 用 `neondatabase/create-branch-action` 从 `production` 建快照 `pre-migrate-YYYYMMDD-<短 commit>`（Data and schema，日期按墨尔本时间）
+3. 用 `DATABASE_URL_PROD`（直连串）跑 `pnpm db:migrate`，失败就停，不部署
+4. 调 Vercel Deploy Hook 部署。`vercel.json` 关掉了 git 自动部署，所有分支 push 都不会自己部署
+5. 只留最近 3 个 `pre-migrate-*`，更早的删掉（失败只出警告）
+
+- 迁移失败时：线上还是旧版本，但 prod 的 schema 可能已经改了一部分 → 看 Action 日志，必要时从快照恢复
+- Action 的版本锁在 commit SHA，升级时一起改注释里的版本号
+- 不要开 Actions debug 日志，会打出快照 branch 的连接串
+
+**手动（Action 坏了时的备用）**：
+
 - prod 跑 `db:migrate` 之前，先在 Neon 控制台从 prod 建一个 branch，命名 `pre-migrate-YYYYMMDD`
   - 建 branch 时选 **Data and schema**、当前时间点（Schema only 不带数据，不能当备份）
   - 建完后 Neon 显示的往往是新 branch 的连接串。迁移要用 **prod** 的连接串，回到 prod branch 重新复制
 - 本地对 prod 跑命令时，不改 `.env.local`：新开一个终端，`read -s DATABASE_URL` 粘贴连接串，再 `export DATABASE_URL`（shell 里的值优先于 `.env.local`，密码也不进 shell 历史）。做完关掉终端
 - 跑之前用 `echo ${DATABASE_URL#*@} | cut -d/ -f1` 打印主机名，确认和 Vercel 上 `DATABASE_URL` 的主机名一致
 - 迁移出问题时可以从这个 branch 恢复
-- 确认没问题后删掉（免费版 branch 数量有限）
+- 确认没问题后删掉（免费版 branch 数量有限）。自动建的 `pre-migrate-*` 由 Action 清理，只留 3 个
 
 ### 10.3 恢复演练
 

@@ -57,9 +57,9 @@ pnpm db:seed        种子数据
 
 ### 数据库
 - 用 `drizzle-orm/neon-serverless`，**不用** `neon-http`（导入需要事务）
-- **改表结构前先问我**。迁移文件生成后给我看 SQL 再执行
+- **改表结构前先问我**。迁移文件生成后给我看 SQL，我同意了才 commit（合进 `main` 会被 Action 自动执行）
 - 迁移里有 `DROP`、`ALTER ... TYPE`、删列、改列名时，要单独指出来
-- prod 跑迁移前提醒我先建 Neon branch 快照（tech-stack 10.2）
+- prod 迁移由 GitHub Action 自动建 Neon 快照（tech-stack 10.2）。只有手动跑 prod 迁移时才提醒我先建快照
 - 银行账户表叫 `financial_account`，因为 Better Auth 已经有 `account` 表
 - 分类和归属人在 `transaction_split` 上，不在 `transaction` 上
 
