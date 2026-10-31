@@ -32,7 +32,9 @@
 ### 分支
 
 - `dev`：日常开发的主干，每个任务的 PR 合到这里
-- `main`：线上版本，push 后 Vercel 自动部署。里程碑做完才从 `dev` 合进来
+- `main`：线上版本。里程碑做完才从 `dev` 合进来
+- **迁移 SQL 在合进 `dev` 的 PR 里审**。合进 `main` 就会自动执行：GitHub Action 先建 Neon 快照、再迁移 prod、再部署（tech-stack 10.2）。迁移失败就不部署
+- 其他分支 push 不部署（`vercel.json` 关掉了 git 自动部署，`main` 也只靠 Action 的 Deploy Hook）
 
 ### 1. 开始
 
