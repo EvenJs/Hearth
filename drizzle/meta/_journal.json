@@ -29,6 +29,13 @@
       "when": 1793242855406,
       "tag": "0003_m6_7_1_receipt",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793494490494,
+      "tag": "0004_m7_6_4_item_type_rule",
+      "breakpoints": true
     }
   ]
 }

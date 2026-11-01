@@ -7,6 +7,7 @@ import { and, desc, eq, gte, isNull, lte } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/db';
 import { category, financialAccount, member, receipt, transaction } from '@/db/schema';
+import { ITEM_TYPE_KEYS } from '@/lib/rules/item-type';
 import { cleanMerchant } from '@/lib/rules/merchant';
 import { addDays, todayInMelbourne } from '@/lib/rules/periods';
 import {
@@ -509,9 +510,15 @@ function toParsedJson(r: NormalizedReceipt) {
   };
 }
 
+// items[].type：R21.1 的 key。M7.6 以前存的没有，可选（R21.6，统计里算"未分"）
 const parsedJsonSchema = z.object({
   items: z.array(
-    z.object({ name: z.string(), amountCents: z.number().int(), category: z.string().nullable() }),
+    z.object({
+      name: z.string(),
+      amountCents: z.number().int(),
+      category: z.string().nullable(),
+      type: z.enum(ITEM_TYPE_KEYS).optional(),
+    }),
   ),
   discounts: z.array(z.object({ label: z.string(), amountCents: z.number().int() })),
   payment: z.enum(['card', 'cash', 'unknown']),

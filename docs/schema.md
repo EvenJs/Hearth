@@ -36,7 +36,10 @@ transaction_status   pending | confirmed
 transaction_source   csv | manual | receipt
 transfer_status      none | auto | suggested | confirmed
 rule_match_type      contains | starts_with
+item_type            fruit | vegetable | meat | seafood | dairy_egg | pantry | snack | drink | household | other
 ```
+
+`item_type` 说明：R21.1 的 key，列表在 `src/lib/rules/item-type.ts`（`ITEM_TYPE_KEYS`），enum 从那里取。不含 `untyped`（统计里的"未分"不是一个类型）。以后加类型要迁移 `ALTER TYPE ... ADD VALUE`
 
 `transfer_status` 说明：
 
@@ -265,7 +268,7 @@ rule_match_type      contains | starts_with
 
 `transaction.source = receipt` 表示交易是小票建的（R20.5）；挂到已有交易上的小票不改交易的 `source`。
 
-### item_type_rule（M7.6-4 建，待确认）
+### item_type_rule（M7.6-4，2026-11-01 加）
 
 从用户手动改商品类型里学到的：商品名 → 商品类型（R21.5）。预置关键词在代码里，不在这张表。
 
@@ -274,13 +277,11 @@ rule_match_type      contains | starts_with
 | id           | uuid        | PK                     |                                                            |
 | household_id | uuid        | FK, not null           |                                                            |
 | name_key     | text        | not null               | 规范化后的商品名（`normalizeItemName`，大写、单空格，最长 100） |
-| item_type    | text        | not null               | R21.1 的 key（不含 `untyped`），Zod 校验                     |
+| item_type    | item_type   | not null               | R21.1 的 key（不含 `untyped`）                               |
 | created_by   | text        | FK → user.id, not null | 最后一次改的人                                             |
 | updated_at   | timestamptz | not null               | 最后一次改的时间                                           |
 
 唯一：`(household_id, name_key)`。同名再学一次就 upsert 覆盖（最后一次为准）。
-
-待确认：`item_type` 用 `text` + Zod 还是 Postgres enum（第 0 节约定用 enum；用 enum 的话以后加类型要迁移 `ALTER TYPE ... ADD VALUE`，`parsed_json` 里的 `type` 反正只能 Zod 校验）。
 
 ### budget
 

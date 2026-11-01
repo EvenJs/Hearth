@@ -19,6 +19,9 @@ export const ITEM_TYPES = [
 
 export type ItemType = (typeof ITEM_TYPES)[number]['key'];
 
+// pgEnum 和 Zod 要非空元组
+export const ITEM_TYPE_KEYS = ITEM_TYPES.map((t) => t.key) as [ItemType, ...ItemType[]];
+
 // R21.3、R21.4：learned / preset / default 来自 matchItemType，follow 只有负数商品
 export type ItemTypeSource = 'learned' | 'preset' | 'default' | 'follow';
 export type ItemTypeMatch = { type: ItemType; source: ItemTypeSource };

@@ -22,6 +22,7 @@ import {
   jsonb,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
+import { ITEM_TYPE_KEYS } from '../lib/rules/item-type';
 
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
@@ -140,6 +141,8 @@ export const transactionStatus = pgEnum('transaction_status', ['pending', 'confi
 export const transactionSource = pgEnum('transaction_source', ['csv', 'manual', 'receipt']);
 export const transferStatus = pgEnum('transfer_status', ['none', 'auto', 'suggested', 'confirmed']);
 export const ruleMatchType = pgEnum('rule_match_type', ['contains', 'starts_with']);
+// R21.1，列表在 src/lib/rules/item-type.ts。不含 untyped（那只是统计里的"未分"）
+export const itemType = pgEnum('item_type', ITEM_TYPE_KEYS);
 
 // ---------- 通用列 ----------
 
@@ -409,6 +412,22 @@ export const receipt = pgTable(
     index('receipt_household_id_receipt_date_idx').on(t.householdId, t.receiptDate),
     check('receipt_total_cents_positive', sql`${t.totalCents} > 0`),
   ],
+);
+
+// R21.5：从用户手动改商品类型里学到的，商品名 → 类型。预置关键词在代码里，不在这张表
+export const itemTypeRule = pgTable(
+  'item_type_rule',
+  {
+    id: id(),
+    householdId: householdId(),
+    nameKey: text('name_key').notNull(), // normalizeItemName 以后（大写、单空格，最长 100）
+    itemType: itemType('item_type').notNull(),
+    createdBy: text('created_by') // 最后一次改的人
+      .notNull()
+      .references(() => user.id),
+    updatedAt: updatedAt(),
+  },
+  (t) => [unique('item_type_rule_household_id_name_key_unique').on(t.householdId, t.nameKey)],
 );
 
 export const budget = pgTable(
