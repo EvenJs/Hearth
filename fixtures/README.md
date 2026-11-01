@@ -57,7 +57,7 @@
 | `cba/broken-balance.csv`        | CBA Female | 余额不连续时只警告不失败（R1B.1）                              |
 | `anz-statement/*.txt`           | ANZ Joint  | ANZ PDF 对账单（R1C、R12.2），读文字以后的样子，见"ANZ 对账单用例" |
 | `anz-plus-statement/*.txt`      | ANZ Plus Male | ANZ Plus PDF 对账单（R1D），读文字以后的样子，见"ANZ Plus 对账单用例" |
-| `receipts/*.json`               | —          | 小票识别（R20），见最后一节"小票用例"                       |
+| `receipts/*.json`               | —          | 小票识别（R20），见"小票用例"；商品类型（R21）也用这几张，见"小票商品类型用例" |
 
 ---
 
@@ -78,3 +78,4 @@
 | ANZ 对账单用例（R1C、R12.2，M6.6） | [`cases/08-anz-statement.md`](cases/08-anz-statement.md) | 看各用例自己的前提 |
 | 小票用例（R20，M6.7） | [`cases/09-receipts.md`](cases/09-receipts.md) | 看各用例自己的前提 |
 | ANZ Plus 对账单用例（R1D，M7.5） | [`cases/10-anz-plus-statement.md`](cases/10-anz-plus-statement.md) | 看各用例自己的前提 |
+| 小票商品类型用例（R21，M7.6） | [`cases/11-item-types.md`](cases/11-item-types.md) | 看各用例自己的前提 |
