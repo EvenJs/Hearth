@@ -36,7 +36,10 @@ transaction_status   pending | confirmed
 transaction_source   csv | manual | receipt
 transfer_status      none | auto | suggested | confirmed
 rule_match_type      contains | starts_with
+item_type            fruit | vegetable | meat | seafood | dairy_egg | pantry | snack | drink | household | other
 ```
+
+`item_type` 说明：R21.1 的 key，列表在 `src/lib/rules/item-type.ts`（`ITEM_TYPE_KEYS`），enum 从那里取。不含 `untyped`（统计里的"未分"不是一个类型）。以后加类型要迁移 `ALTER TYPE ... ADD VALUE`
 
 `transfer_status` 说明：
 
@@ -255,7 +258,7 @@ rule_match_type      contains | starts_with
 | merchant       | text        | not null                                       | 小票上的店名，R20.2 整理后（脱敏，最长 100）                         |
 | receipt_date   | date        | not null                                       | 小票日期                                                             |
 | total_cents    | integer     | not null, > 0                                  | 小票总额，正数                                                       |
-| parsed_json    | jsonb       | not null                                       | `{ items: [{ name, amountCents, category }], discounts: [{ label, amountCents }], payment: 'card' \| 'cash' \| 'unknown' }`，用户核对后的版本。**不含卡号、人名** |
+| parsed_json    | jsonb       | not null                                       | `{ items: [{ name, amountCents, category, type }], discounts: [{ label, amountCents }], payment: 'card' \| 'cash' \| 'unknown' }`，用户核对后的版本。**不含卡号、人名**。`type` 是商品类型（R21.1 的 key），M7.6 以前存的没有，读的时候可选 |
 | reader         | text        | not null                                       | 用哪个 reader 读的（R20.1）：`llm:<模型名>`、`text`、`manual`（识别失败或 `none` 时手动填的） |
 | created_by     | text        | FK → user.id, not null                         |                                                                      |
 | created_at     | timestamptz | not null                                       |                                                                      |
@@ -264,6 +267,21 @@ rule_match_type      contains | starts_with
 索引：`(household_id, receipt_date)`
 
 `transaction.source = receipt` 表示交易是小票建的（R20.5）；挂到已有交易上的小票不改交易的 `source`。
+
+### item_type_rule（M7.6-4，2026-11-01 加）
+
+从用户手动改商品类型里学到的：商品名 → 商品类型（R21.5）。预置关键词在代码里，不在这张表。
+
+| 字段         | 类型        | 约束                   | 说明                                                       |
+| ------------ | ----------- | ---------------------- | ---------------------------------------------------------- |
+| id           | uuid        | PK                     |                                                            |
+| household_id | uuid        | FK, not null           |                                                            |
+| name_key     | text        | not null               | 规范化后的商品名（`normalizeItemName`，大写、单空格，最长 100） |
+| item_type    | item_type   | not null               | R21.1 的 key（不含 `untyped`）                               |
+| created_by   | text        | FK → user.id, not null | 最后一次改的人                                             |
+| updated_at   | timestamptz | not null               | 最后一次改的时间                                           |
+
+唯一：`(household_id, name_key)`。同名再学一次就 upsert 覆盖（最后一次为准）。
 
 ### budget
 

@@ -4,6 +4,7 @@
 // 输入的形状由 src/server/receipts.ts 里的 Zod 校验，钱的计算在 src/lib/rules/ 的纯函数
 // 图片只在这次请求的内存里：不写磁盘、不存数据库、不打日志。日志里也不打印小票内容和数据库错误详情
 import { revalidatePath } from 'next/cache';
+import type { ItemType } from '@/lib/rules/item-type';
 import { getHouseholdContext } from '@/server/context';
 import { getReceiptReader } from '@/server/receipt-readers';
 import {
@@ -15,6 +16,7 @@ import {
   previewReceipt,
   saveReceipt,
   scanReceipt,
+  setReceiptItemType,
   type AttachReceiptResult,
   type DeleteReceiptResult,
   type PreviewReceiptInput,
@@ -26,6 +28,7 @@ import {
   type ReceiptTarget,
   type SaveReceiptInput,
   type SaveReceiptResult,
+  type SetReceiptItemTypeResult,
 } from '@/server/receipts';
 
 // 浏览器里先压成 JPEG（长边 ≤ 1600px、≤ 1MB），这里再挡一次
@@ -117,6 +120,23 @@ export async function deleteReceiptAction(receiptId: string): Promise<DeleteRece
   } catch (err) {
     logError('删除', err);
     return { ok: false, code: 'not_found', message: '删除失败，请稍后再试' };
+  }
+}
+
+// R21.6 交易详情改一件商品的类型：只改 parsed_json 并学习，拆分不动。看板的类型统计也要刷新
+export async function setReceiptItemTypeAction(
+  receiptId: string,
+  index: number,
+  type: ItemType,
+): Promise<SetReceiptItemTypeResult> {
+  const ctx = await getHouseholdContext();
+  try {
+    const r = await setReceiptItemType(ctx, receiptId, index, type);
+    if (r.ok) revalidatePath('/', 'layout');
+    return r;
+  } catch (err) {
+    logError('改类型', err);
+    return { ok: false, code: 'invalid', message: '改类型失败，请稍后再试' };
   }
 }
 

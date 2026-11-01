@@ -17,7 +17,7 @@
 | merchant | 店名，原样 |
 | date | 小票日期，原样字符串（如 `24/10/2026`、`24/10/26`），由 R20.2 转换 |
 | total | 总额，原样字符串（如 `46.12`、`$46.12`） |
-| items | `[{ name, amount, category }]`。`amount` 原样字符串，单件折扣是负数；`category` 是分类列表里的一个字符串，或 `null`（跟主分类，见 R20.3） |
+| items | `[{ name, amount, category }]`。`amount` 原样字符串，单件折扣是负数；`category` 是分类列表里的一个字符串，或 `null`（跟主分类，见 R20.3）。reader 不给商品类型，类型在 R20.2 整理以后按 R21 填，存进 `parsed_json` |
 | discounts | 整单折扣 `[{ label, amount }]`，`amount` 是负数字符串。没有就是空数组 |
 | payment | `{ method: card / cash / unknown, cardLast4: 4 位数字或 null }` |
 
@@ -178,6 +178,7 @@ reader 的原始结果（或用户在核对界面改过的）先整理：
 - **删除小票**：交易详情里能删掉小票，只删 `receipt` 那行，拆分不动
 - **没挂上的小票**：F8 顶部提示"N 张小票没挂上交易"，点开列出来，每张能重新按 R20.4 匹配或 R20.5 新建
 - **统计**（R10、R11、R14）按拆分算，不用改
+- **商品类型**（R21）只存在 `parsed_json` 的 items 里，不进拆分：R20.3 和 `checkReceipt` 不读类型，类型怎么改拆分都不变，也不影响 R10、R11、R14 的统计。见 R21
 
 ## R20.8 例子
 

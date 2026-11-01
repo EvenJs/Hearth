@@ -3,15 +3,17 @@ import { Suspense } from 'react';
 import { formatRange, DEFAULT_PERIOD } from '@/lib/dashboard/format';
 import { pivotViewFromSearchParams } from '@/lib/dashboard/pivot-view';
 import type { DashboardScope } from '@/lib/dashboard/links';
-import { todayInMelbourne } from '@/lib/rules/periods';
+import { periodRange, todayInMelbourne } from '@/lib/rules/periods';
 import { financialYearOf } from '@/lib/tax/estimate';
 import { filtersFromSearchParams } from '@/lib/transactions/filters';
 import { listBudgetsWithProgress } from '@/server/budgets';
 import { getHouseholdContext } from '@/server/context';
 import { getDashboard, getPivot } from '@/server/dashboard';
+import { getItemTypeStats } from '@/server/item-types';
 import { listMembers } from '@/server/members';
 import { getHouseholdTax } from '@/server/tax';
 import { ExpenseCategories } from './_dashboard/expense-categories';
+import { ItemTypes } from './_dashboard/item-types';
 import { KpiCards, PendingNote } from './_dashboard/kpi-cards';
 import { MemberSwitch } from './_dashboard/member-switch';
 import { PeriodPicker } from './_dashboard/period-picker';
@@ -24,6 +26,7 @@ import { TopMerchants } from './_dashboard/top-merchants';
 // 没有参数 = 本月、全部归属人。不合法的参数丢掉（filtersFromSearchParams）
 // 分类占比和 Top 商家（M5-4）；汇总表（M5-5，切换写在 URL 的 grain、group、metric）；趋势（M5-6）后面加
 // 顶部置顶预算（M7-4，R11.3）固定本月、全家，不跟筛选；税务卡片（M7-6，R14.6）固定今天所在的财年
+// 商品类型统计（M7.6-7，R21.7）跟时间段、不跟归属人，放在汇总表下面
 export default function HomePage(props: PageProps<'/'>) {
   return (
     // 读 session 和 searchParams 的部分放在 Suspense 里（cacheComponents）
@@ -59,13 +62,16 @@ async function DashboardSection({
   // 不是本家庭的归属人 id 当作没选
   const memberId = members.some((m) => m.id === filters.memberId) ? filters.memberId : undefined;
   const input = { period: filters.period ?? DEFAULT_PERIOD, memberId };
-  const [dashboard, pivotData, budgets, tax] = await Promise.all([
+  const period = periodRange(input.period, today);
+  const [dashboard, pivotData, budgets, tax, itemTypeStats] = await Promise.all([
     getDashboard(ctx, input, today),
     getPivot(ctx, { ...input, ...view }, today),
     // R11.3：不传时间段和归属人
     listBudgetsWithProgress(ctx, today),
     // R14.6：不跟时间段
     getHouseholdTax(ctx, financialYearOf(today)),
+    // R21.7：全家，不传归属人
+    getItemTypeStats(ctx, period),
   ]);
   const scope: DashboardScope = { period: dashboard.period, memberId };
 
@@ -116,6 +122,8 @@ async function DashboardSection({
       </div>
 
       <PivotSection data={pivotData} scope={scope} view={view} members={members} today={today} />
+
+      <ItemTypes stats={itemTypeStats} today={today} />
     </>
   );
 }
