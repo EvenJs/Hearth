@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readReceiptFixture } from '../../../tests/helpers/fixtures';
 import { buildTestHousehold } from '../../../tests/helpers/household';
+import type { ItemType, LearnedItemTypes } from '@/lib/rules/item-type';
 import {
   normalizeReceipt,
   rawReceiptSchema,
@@ -12,7 +13,9 @@ import {
   formToRaw,
   groupCategories,
   itemCategoryHints,
+  itemTypeValues,
   liveCheck,
+  type ReceiptItemValue,
 } from './receipt-form';
 
 // 核对界面的表单（M6.7-7）。期望值来自 business-rules.md R20.2、R20.3 第 1 步和 fixtures/README.md "小票用例"
@@ -54,6 +57,7 @@ describe('draftToForm / formToRaw', () => {
       name: 'KIWIFRUIT 4 FOR $6',
       amount: '-0.80',
       categoryId: null,
+      type: null,
     });
 
     const raw = formToRaw(form, CATEGORIES);
@@ -152,8 +156,8 @@ describe('itemCategoryHints（R20.3 第 1 步）', () => {
   it('R20.3: a negative first row follows main', () => {
     expect(
       itemCategoryHints([
-        { key: 'a', name: 'X', amount: '-1.00', categoryId: null },
-        { key: 'b', name: 'Y', amount: '2.00', categoryId: null },
+        { key: 'a', name: 'X', amount: '-1.00', categoryId: null, type: null },
+        { key: 'b', name: 'Y', amount: '2.00', categoryId: null, type: null },
       ]),
     ).toEqual(['main', 'main']);
   });
@@ -192,5 +196,68 @@ describe('groupCategories（分类下拉）', () => {
     expect(groups.flatMap((g) => g.items.map((i) => i.id)).sort()).toEqual(
       CATEGORIES.map((c) => c.id).sort(),
     );
+  });
+});
+
+describe('itemTypeValues（R21.3、R21.4，核对界面的类型）', () => {
+  const EMPTY: LearnedItemTypes = new Map();
+  const row = (name: string, amount: string, type: ItemType | null = null): ReceiptItemValue => ({
+    key: key(),
+    name,
+    amount,
+    categoryId: null,
+    type,
+  });
+
+  it('R21.4 T-2: coles-a untouched → same types as assignItemTypes, -0.80 follows KIWIFRUIT GOLD', () => {
+    const items = draftToForm(normalized('coles-a.json').receipt, key).items;
+    expect(itemTypeValues(items, EMPTY).map((v, i) => [items[i].name, v.type, v.source])).toEqual([
+      ['MILK 3L', 'dairy_egg', 'preset'],
+      ['BANANAS PERKG', 'fruit', 'preset'],
+      ['KIWIFRUIT GOLD', 'fruit', 'preset'],
+      ['KIWIFRUIT 4 FOR $6', 'fruit', 'follow'],
+      ['PAPER TOWEL 2PK', 'household', 'preset'],
+      ['DISHWASHING LIQUID', 'household', 'preset'],
+      ['SHAMPOO 400ML', 'household', 'preset'],
+      ['WHITE BREAD', 'pantry', 'preset'],
+      ['TASTY CHEESE', 'dairy_egg', 'preset'],
+    ]);
+  });
+
+  it('R21.3: a row added by hand is recognised by its name once filled in; empty name → other', () => {
+    expect(itemTypeValues([row('', '')], EMPTY)).toEqual([{ type: 'other', source: 'default' }]);
+    expect(itemTypeValues([row('BANANA 1KG', '3.00')], EMPTY)).toEqual([
+      { type: 'fruit', source: 'preset' },
+    ]);
+  });
+
+  it('R21.3 L-2: a learned name wins over the preset', () => {
+    const learned: LearnedItemTypes = new Map([['CHICKEN STOCK', 'pantry']]);
+    expect(itemTypeValues([row(' chicken  stock ', '4.00')], learned)).toEqual([
+      { type: 'pantry', source: 'learned' },
+    ]);
+  });
+
+  it('a type picked by hand stays when the name changes', () => {
+    expect(itemTypeValues([row('BANANA 1KG', '3.00', 'snack')], EMPTY)).toEqual([
+      { type: 'snack', source: 'manual' },
+    ]);
+  });
+
+  it('R21.4: negatives follow the item before them, including one picked by hand; a first-line negative is other', () => {
+    const items = [
+      row('PROMO', '-1.00', 'meat'),
+      row('BANANA 1KG', '3.00', 'snack'),
+      row('MEMBER SAVE', '-0.50'),
+      row('ONLINE SAVE', '$-0.20', 'meat'),
+      row('LETTUCE', '2.50'),
+    ];
+    expect(itemTypeValues(items, EMPTY)).toEqual([
+      { type: 'other', source: 'default' },
+      { type: 'snack', source: 'manual' },
+      { type: 'snack', source: 'follow' },
+      { type: 'snack', source: 'follow' },
+      { type: 'vegetable', source: 'preset' },
+    ]);
   });
 });

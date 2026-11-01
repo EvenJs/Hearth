@@ -1,6 +1,13 @@
 // 小票核对界面的表单状态（M6.7-7，business-rules.md R20.2、R20.3）
 // 表单里金额是用户能改的字符串；保存时转回 reader 原始结果的格式（R20.1），服务器重新整理、校验
 // 合计提示用同一套纯函数（normalizeReceipt、checkReceipt）在浏览器里实时算
+// 商品类型（R21.3、R21.4）也在浏览器里按名字认，学习表由 scanReceipt 带过来
+import {
+  matchItemType,
+  type ItemType,
+  type ItemTypeSource,
+  type LearnedItemTypes,
+} from '@/lib/rules/item-type';
 import {
   checkReceipt,
   normalizeReceipt,
@@ -17,6 +24,7 @@ export type ReceiptItemValue = {
   name: string;
   amount: string; // 单件折扣是负数
   categoryId: string | null; // null = 跟主分类（负数跟上一件），R20.3 第 1 步
+  type: ItemType | null; // 手动选的商品类型；null = 按名字自动认（R21.3）。负数行不用（R21.4）
 };
 
 export type ReceiptDiscountValue = { key: string; label: string; amount: string };
@@ -51,6 +59,7 @@ export function draftToForm(r: NormalizedReceipt, newKey: () => string): Receipt
       name: i.name,
       amount: centsToReceiptInput(i.amountCents),
       categoryId: i.categoryId,
+      type: null,
     })),
     discounts: r.discounts.map((d) => ({
       key: newKey(),
@@ -120,12 +129,38 @@ export function liveCheck(
 // set：选了分类；main：跟主分类；previous：负数（单件折扣）跟上一件，第一行就是负数时跟主分类
 export type ItemCategoryHint = 'set' | 'main' | 'previous';
 
+// 表单里的金额字符串是不是负数（单件折扣）
+export function isNegativeInput(amount: string): boolean {
+  const compact = amount.replace(/\s+/g, '');
+  return compact.startsWith('-') || compact.startsWith('$-');
+}
+
 export function itemCategoryHints(items: readonly ReceiptItemValue[]): ItemCategoryHint[] {
   return items.map((item, index) => {
     if (item.categoryId !== null) return 'set';
-    const compact = item.amount.replace(/\s+/g, '');
-    const negative = compact.startsWith('-') || compact.startsWith('$-');
-    return negative && index > 0 ? 'previous' : 'main';
+    return isNegativeInput(item.amount) && index > 0 ? 'previous' : 'main';
+  });
+}
+
+// R21.3、R21.4：每一行现在的商品类型，给下拉显示，保存时作为 itemTypes 提交（服务器自己再比一次，R21.5）
+// 正数行：手动选过 → 选的（manual）；没选 → 按名字认（学到的 > 预置 > 其他），改名字跟着变
+// 负数行：跟前面最近的正数行（包括手动选的），第一行就是负数 → other
+export type ItemTypeValue = { type: ItemType; source: ItemTypeSource | 'manual' };
+
+export function itemTypeValues(
+  items: readonly ReceiptItemValue[],
+  learned: LearnedItemTypes,
+): ItemTypeValue[] {
+  let previous: ItemType | null = null;
+  return items.map((item): ItemTypeValue => {
+    if (isNegativeInput(item.amount)) {
+      return previous ? { type: previous, source: 'follow' } : { type: 'other', source: 'default' };
+    }
+    const value: ItemTypeValue = item.type
+      ? { type: item.type, source: 'manual' }
+      : matchItemType(item.name, learned);
+    previous = value.type;
+    return value;
   });
 }
 

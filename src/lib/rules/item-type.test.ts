@@ -5,6 +5,7 @@ import {
   ITEM_TYPES,
   ITEM_TYPE_KEYWORDS,
   assignItemTypes,
+  changeItemType,
   matchItemType,
   normalizeItemName,
   resolveItemTypes,
@@ -267,5 +268,76 @@ describe('R21.4 + R21.5 resolveItemTypes', () => {
       types: ['other', 'fruit'],
       learn: [],
     });
+  });
+});
+
+describe('R21.6 changeItemType（详情页改类型）', () => {
+  // coles-a 存成旧小票：items 没有 type
+  const old = () => fixture('coles-a.json').items.map((i) => ({ name: i.name, amountCents: i.amountCents }));
+  // coles-a 存成新小票：类型同 T-2
+  const typed = () => {
+    const items = fixture('coles-a.json').items;
+    const types = assignItemTypes(items, EMPTY);
+    return items.map((i, index) => ({ name: i.name, amountCents: i.amountCents, type: types[index].type }));
+  };
+  const indexOf = (items: { name: string }[], name: string) => items.findIndex((i) => i.name === name);
+
+  it('R21.6 D-1: old receipt → only TASTY CHEESE gets a type; no type before still counts as changed', () => {
+    const items = old();
+    const cheese = indexOf(items, 'TASTY CHEESE');
+    const r = changeItemType(items, cheese, 'dairy_egg');
+    expect(r).toEqual({
+      ok: true,
+      items: items.map((i, index) => (index === cheese ? { ...i, type: 'dairy_egg' } : i)),
+      learn: { name: 'TASTY CHEESE', type: 'dairy_egg' },
+    });
+  });
+
+  it('R21.6 D-2: KIWIFRUIT GOLD and the -0.80 right after it get fruit; the others stay without a type', () => {
+    const items = old();
+    const kiwi = indexOf(items, 'KIWIFRUIT GOLD');
+    const r = changeItemType(items, kiwi, 'fruit');
+    if (!r.ok) throw new Error('expected ok');
+    expect(r.items.map((i) => ('type' in i ? i.type : undefined))).toEqual(
+      items.map((_, index) => (index === kiwi || index === kiwi + 1 ? 'fruit' : undefined)),
+    );
+    expect(r.learn).toEqual({ name: 'KIWIFRUIT GOLD', type: 'fruit' });
+  });
+
+  it('R21.6 D-3: SHAMPOO 400ML household → other is learned; nothing else changes', () => {
+    const items = typed();
+    const shampoo = indexOf(items, 'SHAMPOO 400ML');
+    const r = changeItemType(items, shampoo, 'other');
+    expect(r).toEqual({
+      ok: true,
+      items: items.map((i, index) => (index === shampoo ? { ...i, type: 'other' } : i)),
+      learn: { name: 'SHAMPOO 400ML', type: 'other' },
+    });
+  });
+
+  it('R21.6 D-4: same type as stored → nothing learned, items unchanged', () => {
+    const items = typed();
+    const r = changeItemType(items, indexOf(items, 'MILK 3L'), 'dairy_egg');
+    expect(r).toEqual({ ok: true, items, learn: null });
+  });
+
+  it('R21.4: several negatives in a row all follow; the next positive item is left alone', () => {
+    const items = [
+      { name: 'BANANA 1KG', amountCents: 300, type: 'fruit' as ItemType },
+      { name: 'MEMBER SAVE', amountCents: -50, type: 'fruit' as ItemType },
+      { name: 'ONLINE SAVE', amountCents: -20, type: 'fruit' as ItemType },
+      { name: 'LETTUCE', amountCents: 250, type: 'vegetable' as ItemType },
+    ];
+    const r = changeItemType(items, 0, 'snack');
+    if (!r.ok) throw new Error('expected ok');
+    expect(r.items.map((i) => i.type)).toEqual(['snack', 'snack', 'snack', 'vegetable']);
+  });
+
+  it('R21.4: a negative line or an index out of range cannot be changed', () => {
+    const items = typed();
+    const kiwi = indexOf(items, 'KIWIFRUIT GOLD');
+    expect(changeItemType(items, kiwi + 1, 'meat')).toEqual({ ok: false });
+    expect(changeItemType(items, items.length, 'meat')).toEqual({ ok: false });
+    expect(changeItemType(items, -1, 'meat')).toEqual({ ok: false });
   });
 });

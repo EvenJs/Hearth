@@ -239,3 +239,29 @@ export function resolveItemTypes(
   });
   return { types, learn };
 }
+
+// R21.6：详情页改一件正数商品的类型。只改这一件和紧跟在后面的负数行（R21.4），别的件原样（旧小票不自动补）
+// 和原来存的类型比，不一样就学；原来没类型也算改了。负数行、下标越界 → ok: false
+export function changeItemType<T extends { name: string; amountCents: number; type?: ItemType }>(
+  items: readonly T[],
+  index: number,
+  type: ItemType,
+): { ok: true; items: T[]; learn: { name: string; type: ItemType } | null } | { ok: false } {
+  const target = items[index];
+  if (!Number.isInteger(index) || target === undefined || target.amountCents < 0) {
+    return { ok: false };
+  }
+  let following = true;
+  const next = items.map((item, i) => {
+    if (i < index) return item;
+    if (i === index) return { ...item, type };
+    if (following && item.amountCents < 0) return { ...item, type };
+    following = false;
+    return item;
+  });
+  return {
+    ok: true,
+    items: next,
+    learn: target.type === type ? null : { name: target.name, type },
+  };
+}

@@ -9,6 +9,7 @@ import { db } from '@/db';
 import { category, financialAccount, member, receipt, transaction } from '@/db/schema';
 import {
   assignItemTypes,
+  changeItemType,
   ITEM_TYPE_KEYS,
   resolveItemTypes,
   type ItemType,
@@ -74,6 +75,8 @@ export type ReceiptDraft = {
   check: ReceiptCheck; // R20.2 能不能保存
   // R21.4：和 receipt.items 一一对应。source 给界面判断用户改没改；保存时服务器自己再比一次（R21.5）
   itemTypes: ItemTypeMatch[];
+  // R21.3：本家庭的学习表（name_key → 类型），核对界面手动加的行、改了名字的行在浏览器里按名字认
+  learnedItemTypes: [string, ItemType][];
   categories: ReceiptCategoryOption[]; // 商品能选的分类（R16.3 范围内的支出二级）
   // 日期、总额读不出来时为 null，用户填好后再调 getReceiptCandidates
   candidates: ReceiptCandidatesResult | null;
@@ -276,13 +279,15 @@ export async function scanReceipt(
     await lastManualAccountId(ctx, m.accounts),
   );
 
+  const learned = await getLearnedItemTypes(ctx);
   return {
     read,
     reader: readerId,
     receipt: receiptValue,
     errors,
     check: checkReceipt(receiptValue),
-    itemTypes: assignItemTypes(receiptValue.items, await getLearnedItemTypes(ctx)),
+    itemTypes: assignItemTypes(receiptValue.items, learned),
+    learnedItemTypes: [...learned],
     categories,
     candidates,
     account,
@@ -812,6 +817,7 @@ export type TransactionReceiptItem = {
   // 存的分类 `一级 / 二级`（归档了的也照样显示）；null 时 follow 说明保存时跟了谁（R20.3 第 1 步）
   categoryLabel: string | null;
   follow: 'main' | 'previous' | null;
+  type: ItemType | null; // R21.6：存的商品类型；M7.6 以前存的旧小票没有 → null（"未分"）
 };
 
 export type TransactionReceipt = {
@@ -865,10 +871,53 @@ export async function getTransactionReceipt(
         // R20.3 第 1 步：负数跟上一件，第一行是负数跟主分类
         follow:
           categoryLabel !== null ? null : i.amountCents < 0 && index > 0 ? 'previous' : 'main',
+        type: i.type ?? null,
       };
     }),
     discounts: stored.discounts,
   };
+}
+
+export type SetReceiptItemTypeResult =
+  | { ok: true }
+  | { ok: false; code: 'invalid' | 'not_found'; message: string };
+
+const setItemTypeSchema = z.object({
+  index: z.number().int().nonnegative(),
+  type: z.enum(ITEM_TYPE_KEYS),
+});
+
+// R21.6 交易详情改一件商品的类型：只改 parsed_json 里这一件（和紧跟的负数行）的 type，并按 R21.5 学习
+// 不碰拆分和交易。和原来存的类型比，不一样才学（旧小票没类型也算改了）。一个事务
+export async function setReceiptItemType(
+  ctx: HouseholdContext,
+  receiptId: string,
+  index: number,
+  type: ItemType,
+): Promise<SetReceiptItemTypeResult> {
+  if (!z.uuid().safeParse(receiptId).success) return RECEIPT_NOT_FOUND;
+  const input = setItemTypeSchema.safeParse({ index, type });
+  if (!input.success) return INVALID;
+
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select()
+      .from(receipt)
+      .where(and(eq(receipt.id, receiptId), eq(receipt.householdId, ctx.householdId)))
+      .for('update');
+    if (!row) return RECEIPT_NOT_FOUND;
+
+    const stored = parsedJsonSchema.parse(row.parsedJson);
+    const changed = changeItemType(stored.items, input.data.index, input.data.type);
+    if (!changed.ok) return INVALID;
+
+    await tx
+      .update(receipt)
+      .set({ parsedJson: { ...stored, items: changed.items } })
+      .where(and(eq(receipt.id, receiptId), eq(receipt.householdId, ctx.householdId)));
+    if (changed.learn) await learnItemTypes(ctx, tx, [changed.learn]);
+    return { ok: true };
+  });
 }
 
 // ---------- 没挂上的小票重新挂（M6.7-8，R20.4、R20.5、R20.7） ----------

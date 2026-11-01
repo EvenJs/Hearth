@@ -20,6 +20,7 @@ import {
   previewReceipt,
   saveReceipt,
   scanReceipt,
+  setReceiptItemType,
   type SaveReceiptInput,
 } from '@/server/receipts';
 import { addSplit, updateSplit } from '@/server/splits';
@@ -1377,5 +1378,163 @@ describeDb('商品类型：scanReceipt 和 saveReceipt（R21.4、R21.5、R21.8�
         note: null,
       },
     ]);
+  });
+});
+
+// ---------- M7.6-6 详情页改类型（R21.6） ----------
+// 期望值来自 R21.6 和 fixtures/cases/11-item-types.md D-1 ~ D-4
+
+type StoredJson = {
+  items: { name: string; amountCents: number; category: string | null; type?: string }[];
+};
+
+async function storedJson(receiptId: string) {
+  const [row] = await db.select().from(schema.receipt).where(eq(schema.receipt.id, receiptId));
+  return row.parsedJson as StoredJson;
+}
+
+// R-A 做完；old = true 时把 parsed_json 的 type 去掉，当作 M7.6 以前存的旧小票
+async function afterRA(old: boolean) {
+  await importFixture(t, 'ANZ Joint', 'anz/joint-2026-09.csv');
+  const n19 = await joint19();
+  const r = await saveOk({ target: { kind: 'transaction', transactionId: n19.id } });
+  if (old) {
+    const json = await storedJson(r.receiptId);
+    await db
+      .update(schema.receipt)
+      .set({
+        parsedJson: {
+          ...json,
+          items: json.items.map(({ name, amountCents, category }) => ({ name, amountCents, category })),
+        },
+      })
+      .where(eq(schema.receipt.id, r.receiptId));
+  }
+  await db.delete(schema.itemTypeRule);
+  const before = {
+    json: await storedJson(r.receiptId),
+    tx: await getTransaction(n19.id),
+  };
+  const index = (name: string) => before.json.items.findIndex((i) => i.name === name);
+  return { n19, receiptId: r.receiptId, before, index };
+}
+
+describeDb('商品类型：详情页改类型（R21.6）', () => {
+  beforeEach(async () => {
+    await resetBusinessTables();
+    t = await createTestHousehold();
+  });
+
+  it('R21.6: getTransactionReceipt returns the stored type; an old receipt gives null', async () => {
+    const typed = await afterRA(false);
+    expect((await getTransactionReceipt(t.ctx, typed.n19.id))!.items.map((i) => i.type)).toEqual([
+      'dairy_egg',
+      'fruit',
+      'fruit',
+      'fruit',
+      'household',
+      'household',
+      'household',
+      'pantry',
+      'dairy_egg',
+    ]);
+
+    await resetBusinessTables();
+    t = await createTestHousehold();
+    const old = await afterRA(true);
+    const shown = await getTransactionReceipt(t.ctx, old.n19.id);
+    expect(shown!.items.every((i) => i.type === null)).toBe(true);
+  });
+
+  it('R21.6 D-1: old receipt, TASTY CHEESE → dairy_egg: only that item gains a type; splits and transaction as R-A; learned', async () => {
+    const { n19, receiptId, before, index } = await afterRA(true);
+    const cheese = index('TASTY CHEESE');
+
+    expect(await setReceiptItemType(t.ctx, receiptId, cheese, 'dairy_egg')).toEqual({ ok: true });
+
+    expect(await storedJson(receiptId)).toEqual({
+      ...before.json,
+      items: before.json.items.map((i, n) => (n === cheese ? { ...i, type: 'dairy_egg' } : i)),
+    });
+    expect(await splitShape(n19.id)).toEqual(R_A_SPLITS);
+    expect(await getTransaction(n19.id)).toEqual(before.tx);
+    expect((await learnedRows()).map((r) => [r.nameKey, r.itemType])).toEqual([
+      ['TASTY CHEESE', 'dairy_egg'],
+    ]);
+  });
+
+  it('R21.6 D-2: old receipt, KIWIFRUIT GOLD → fruit: it and the -0.80 get fruit, the others stay untyped', async () => {
+    const { receiptId, index } = await afterRA(true);
+    const kiwi = index('KIWIFRUIT GOLD');
+
+    expect(await setReceiptItemType(t.ctx, receiptId, kiwi, 'fruit')).toEqual({ ok: true });
+
+    expect((await storedJson(receiptId)).items.map((i) => i.type)).toEqual(
+      Array.from({ length: 9 }, (_, n) => (n === kiwi || n === kiwi + 1 ? 'fruit' : undefined)),
+    );
+  });
+
+  it('R21.6 D-3: SHAMPOO 400ML → other: learned, splits unchanged; the next coles-a scan gives other (learned)', async () => {
+    const { n19, receiptId, index } = await afterRA(false);
+
+    expect(await setReceiptItemType(t.ctx, receiptId, index('SHAMPOO 400ML'), 'other')).toEqual({
+      ok: true,
+    });
+
+    expect((await learnedRows()).map((r) => [r.nameKey, r.itemType])).toEqual([
+      ['SHAMPOO 400ML', 'other'],
+    ]);
+    expect(await splitShape(n19.id)).toEqual(R_A_SPLITS);
+
+    const draft = await scanReceipt(t.ctx, IMAGE, fakeReader('coles-a.json').reader);
+    const shampoo = draft.receipt.items.findIndex((i) => i.name === 'SHAMPOO 400ML');
+    expect(draft.itemTypes[shampoo]).toEqual({ type: 'other', source: 'learned' });
+  });
+
+  it('R21.6 D-4: MILK 3L picked as dairy_egg (same as stored) → nothing learned, parsed_json unchanged', async () => {
+    const { receiptId, before, index } = await afterRA(false);
+
+    expect(await setReceiptItemType(t.ctx, receiptId, index('MILK 3L'), 'dairy_egg')).toEqual({
+      ok: true,
+    });
+
+    expect(await storedJson(receiptId)).toEqual(before.json);
+    expect(await db.$count(schema.itemTypeRule)).toBe(0);
+  });
+
+  it('R21.4: the negative line, an index out of range or a bad type → invalid, nothing written', async () => {
+    const { receiptId, before, index } = await afterRA(false);
+    const kiwi = index('KIWIFRUIT GOLD');
+
+    for (const [i, type] of [
+      [kiwi + 1, 'meat'],
+      [9, 'meat'],
+      [-1, 'meat'],
+      [0.5, 'meat'],
+      [0, 'untyped'],
+    ] as const) {
+      expect(
+        await setReceiptItemType(t.ctx, receiptId, i, type as Parameters<typeof setReceiptItemType>[3]),
+      ).toMatchObject({ ok: false, code: 'invalid' });
+    }
+    expect(await storedJson(receiptId)).toEqual(before.json);
+    expect(await db.$count(schema.itemTypeRule)).toBe(0);
+  });
+
+  it("another household's receipt → not_found, nothing written", async () => {
+    const { receiptId, before } = await afterRA(false);
+    await db.delete(schema.householdUser).where(eq(schema.householdUser.userId, TEST_USER.id));
+    const other = await createTestHousehold();
+
+    expect(await setReceiptItemType(other.ctx, receiptId, 0, 'snack')).toMatchObject({
+      ok: false,
+      code: 'not_found',
+    });
+    expect(await setReceiptItemType(other.ctx, 'not-a-uuid', 0, 'snack')).toMatchObject({
+      ok: false,
+      code: 'not_found',
+    });
+    expect(await storedJson(receiptId)).toEqual(before.json);
+    expect(await db.$count(schema.itemTypeRule)).toBe(0);
   });
 });
