@@ -700,11 +700,13 @@ function sameSplit(a: EditSplit, b: EditSplit): boolean {
     a.categorySource === b.categorySource &&
     a.memberId === b.memberId &&
     a.memberSource === b.memberSource &&
-    a.isPreTax === b.isPreTax
+    a.isPreTax === b.isPreTax &&
+    a.isOneOff === b.isOneOff
   );
 }
 
 // 写回一个拆分可以改的字段（分类、归属人、税前），带 household_id
+// R22.2：isOneOff 不带（undefined）就不写；改到非支出分类时 changeCategory 给 null，这里写成 null
 export async function writeSplit(tx: DbTx, ctx: HouseholdContext, s: EditSplit): Promise<void> {
   await tx
     .update(transactionSplit)
@@ -714,6 +716,7 @@ export async function writeSplit(tx: DbTx, ctx: HouseholdContext, s: EditSplit):
       memberId: s.memberId,
       memberSource: s.memberSource,
       isPreTax: s.isPreTax,
+      ...(s.isOneOff !== undefined ? { isOneOff: s.isOneOff } : {}),
     })
     .where(and(eq(transactionSplit.id, s.id), eq(transactionSplit.householdId, ctx.householdId)));
 }
@@ -895,7 +898,8 @@ async function resolveSuggestionInDb(
         .where(
           and(eq(transaction.id, side.transactionId), eq(transaction.householdId, ctx.householdId)),
         );
-      for (const s of side.splits) await writeSplit(tx, ctx, s);
+      // R22.2：确认后分类是内部转账，一次性标记清掉（拒绝时 splits 是空的）
+      for (const s of side.splits) await writeSplit(tx, ctx, { ...s, isOneOff: null });
     }
     return { ok: true };
   });

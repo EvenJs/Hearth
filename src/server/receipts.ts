@@ -356,9 +356,12 @@ export type ReceiptWriteFailure =
   // R20.3 第 4、5 步：差额是负数、某组合计不是正数、挂在收入上
   | { ok: false; code: 'split_failed'; message: string };
 
+// oneOffCleared：R22.2 原来有拆分标了一次性，小票重排后清掉了，界面提示一句
 export type SaveReceiptResult =
-  { ok: true; receiptId: string; transactionId: string } | ReceiptWriteFailure;
-export type AttachReceiptResult = { ok: true; transactionId: string } | ReceiptWriteFailure;
+  | { ok: true; receiptId: string; transactionId: string; oneOffCleared: boolean }
+  | ReceiptWriteFailure;
+export type AttachReceiptResult =
+  { ok: true; transactionId: string; oneOffCleared: boolean } | ReceiptWriteFailure;
 export type DeleteReceiptResult = { ok: true } | { ok: false; code: 'not_found'; message: string };
 
 const INVALID = { ok: false, code: 'invalid', message: '参数不合法' } as const;
@@ -489,17 +492,19 @@ async function attachInTx(
   target: z.output<typeof targetSchema>,
   confirmOverwrite: boolean,
   today: string,
-): Promise<{ ok: true; transactionId: string } | ReceiptWriteFailure> {
+): Promise<{ ok: true; transactionId: string; oneOffCleared: boolean } | ReceiptWriteFailure> {
   const plan = await planAttach(tx, ctx, r, target, today);
   if (!plan.ok) return plan;
+  // R22.2：小票保存后所有拆分都是 null，主拆分也清（金额和分类都重排了）
+  const rows = plan.rows.map((s) => ({ ...s, isOneOff: null }));
 
   if (plan.kind === 'new') {
     const [row] = await tx
       .insert(transaction)
       .values({ ...plan.transaction, householdId: ctx.householdId, createdBy: ctx.userId })
       .returning({ id: transaction.id });
-    await writeSplits(tx, ctx, { ...plan.draft, id: row.id }, plan.rows);
-    return { ok: true, transactionId: row.id };
+    await writeSplits(tx, ctx, { ...plan.draft, id: row.id }, rows);
+    return { ok: true, transactionId: row.id, oneOffCleared: false };
   }
 
   // R20.6：已经改过，没确认覆盖就不写
@@ -513,8 +518,12 @@ async function attachInTx(
     };
   }
   // 原来的非主拆分不在新列表里，writeSplits 会删掉
-  await writeSplits(tx, ctx, plan.loaded, plan.rows);
-  return { ok: true, transactionId: plan.loaded.id };
+  await writeSplits(tx, ctx, plan.loaded, rows);
+  return {
+    ok: true,
+    transactionId: plan.loaded.id,
+    oneOffCleared: plan.loaded.splits.some((s) => s.isOneOff === true), // 只有 false 的不提示
+  };
 }
 
 // parsed_json（schema）：用户核对后的版本。不含卡号（cardLast4 在这里去掉）、人名
@@ -591,7 +600,12 @@ export async function saveReceipt(
         createdBy: ctx.userId,
       })
       .returning({ id: receipt.id });
-    return { ok: true, receiptId: row.id, transactionId: attached.transactionId };
+    return {
+      ok: true,
+      receiptId: row.id,
+      transactionId: attached.transactionId,
+      oneOffCleared: attached.oneOffCleared,
+    };
   });
 }
 
@@ -769,7 +783,11 @@ export async function attachReceipt(
       .update(receipt)
       .set({ transactionId: attached.transactionId })
       .where(and(eq(receipt.id, receiptId), eq(receipt.householdId, ctx.householdId)));
-    return { ok: true, transactionId: attached.transactionId };
+    return {
+      ok: true,
+      transactionId: attached.transactionId,
+      oneOffCleared: attached.oneOffCleared,
+    };
   });
 }
 
@@ -879,8 +897,7 @@ export async function getTransactionReceipt(
 }
 
 export type SetReceiptItemTypeResult =
-  | { ok: true }
-  | { ok: false; code: 'invalid' | 'not_found'; message: string };
+  { ok: true } | { ok: false; code: 'invalid' | 'not_found'; message: string };
 
 const setItemTypeSchema = z.object({
   index: z.number().int().nonnegative(),

@@ -628,7 +628,7 @@ async function runImport(ctx: HouseholdContext, p: PreparedImport): Promise<Impo
         if (exception.kind === 'transfer') {
           await tx
             .update(transactionSplit)
-            .set(exception.primarySplit)
+            .set({ ...exception.primarySplit, isOneOff: null }) // R22.2：改成内部转账，标记清掉
             .where(
               and(
                 eq(transactionSplit.transactionId, pending.id),
