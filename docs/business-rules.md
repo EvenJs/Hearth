@@ -38,3 +38,4 @@
 | R19. 分类管理（2026-10-25 新增） | [`rules/R19-category-admin.md`](rules/R19-category-admin.md) | R19.1、R19.2、R19.3、R19.4、R19.5 |
 | R20. 小票识别（2026-10-27 新增） | [`rules/R20-receipt.md`](rules/R20-receipt.md) | R20.1、R20.1a、R20.1b、R20.2、R20.3、R20.4、R20.5、R20.6、R20.7、R20.8 |
 | R21. 小票商品类型（2026-11-01 新增） | [`rules/R21-item-type.md`](rules/R21-item-type.md) | R21.1、R21.2、R21.3、R21.4、R21.5、R21.6、R21.7、R21.8、R21.9 |
+| R22. 月均支出和一次性开销（F11，2026-11-01 新增） | [`rules/R22-monthly-average.md`](rules/R22-monthly-average.md) | R22.1、R22.2、R22.3、R22.4、R22.5、R22.6、R22.7、R22.8、R22.9、R22.10、R22.11 |
