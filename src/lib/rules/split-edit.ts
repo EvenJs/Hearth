@@ -4,6 +4,7 @@
 // 纯函数，不 import 数据库和 Next.js
 import { bySystemKey, classify } from './classify';
 import { recomputeMember, type MemberContext } from './member';
+import { canMarkOneOff, type OneOffFlag } from './one-off';
 import type { Category, CategoryRule, CategorySource, MemberSource, TransferStatus } from './types';
 
 // ---------- 类型 ----------
@@ -16,6 +17,8 @@ export type EditSplit = {
   memberId: string;
   memberSource: MemberSource;
   isPreTax: boolean;
+  // R22.1。不带 = 调用方没读这一列；改到非支出分类时一律给 null（R22.2）
+  isOneOff?: OneOffFlag;
 };
 
 // 拆分所属交易的字段：R5 重算要账户和卡号，R16.2 要转账状态
@@ -46,6 +49,7 @@ function pickSplit(s: EditSplit): EditSplit {
     memberId: s.memberId,
     memberSource: s.memberSource,
     isPreTax: s.isPreTax,
+    isOneOff: s.isOneOff,
   };
 }
 
@@ -92,6 +96,7 @@ export function typeOfCategory(c: Category): TransactionType {
 // ---------- R16.4、R16.2、R5.1 ----------
 
 // 分类改变后的字段：is_pre_tax 按新分类默认（R7），归属人按 R5.1 重算（manual 不动）
+// R22.2：新分类还是支出口径 → 一次性标记不动；不是 → 清成 null
 function withCategory(
   target: EditTarget,
   category: Category,
@@ -113,6 +118,7 @@ function withCategory(
     categoryId: category.id,
     categorySource,
     isPreTax: category.isPreTaxDefault,
+    isOneOff: canMarkOneOff(category) ? target.isOneOff : null,
     ...member,
   };
 }

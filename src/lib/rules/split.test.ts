@@ -86,6 +86,7 @@ describe('R15.5 例子', () => {
       memberSource: 'category',
       isPreTax: false,
       note: null,
+      isOneOff: null, // R22.2：新拆分默认 null
     });
   });
 
@@ -240,5 +241,84 @@ describe('removeSplit（R15.3）', () => {
 
   it('R15.3: unknown split id', () => {
     expect(removeSplit(coles(), 'nope').ok).toBe(false);
+  });
+});
+
+describe('一次性标记跟着拆分（R22.2，用例 O）', () => {
+  const FURNITURE = cat('Home & utilities / Furniture & appliances');
+  const HOUSEHOLD = cat('Home & utilities / Household supplies');
+
+  // 用例 O 的交易 T：2026-10-10，-800.00，只有主拆分 Furniture & appliances，Home，标记 true
+  function t(): SplitTx {
+    return {
+      accountId: joint.id,
+      cardLast4: null,
+      amountCents: -80000,
+      splits: [
+        {
+          id: 'split:primary',
+          isPrimary: true,
+          amountCents: -80000,
+          categoryId: FURNITURE,
+          categorySource: 'manual',
+          memberId: mem('Home'),
+          memberSource: 'category',
+          isPreTax: false,
+          note: null,
+          isOneOff: true,
+        },
+      ],
+    };
+  }
+
+  const flags = (tx: SplitTx) => tx.splits.map((s) => [s.amountCents, s.isOneOff]);
+
+  // O-1：拆出 200.00 → Household supplies，不勾
+  const o1 = apply(t(), ok(addSplit(t(), { amountCents: 20000, categoryId: HOUSEHOLD }, h)));
+
+  it('R22.2 O-1: split off 200.00 unticked → new split null, primary stays true', () => {
+    expect(flags(o1)).toEqual([
+      [-60000, true],
+      [-20000, null],
+    ]);
+  });
+
+  it('R22.2 O-2: split off 200.00 ticked in the dialog → new split true', () => {
+    const splits = ok(
+      addSplit(t(), { amountCents: 20000, categoryId: HOUSEHOLD, isOneOff: true }, h),
+    );
+    expect(splits.map((s) => [s.amountCents, s.isOneOff])).toEqual([
+      [-60000, true],
+      [-20000, true],
+    ]);
+  });
+
+  it('R22.2 O-3: split off to Uncategorised → null even if ticked (no checkbox)', () => {
+    const splits = ok(
+      addSplit(
+        t(),
+        { amountCents: 20000, categoryId: h.systemCategory('uncategorized').id, isOneOff: true },
+        h,
+      ),
+    );
+    expect(splits.map((s) => [s.amountCents, s.isOneOff])).toEqual([
+      [-60000, true],
+      [-20000, null],
+    ]);
+  });
+
+  // O-4：接 O-1，把 Household supplies 那行改成 250.00
+  const o4 = apply(o1, ok(updateSplitAmount(o1, 'split:new', 25000)));
+
+  it('R22.2 O-4: change non-primary amount → both flags unchanged', () => {
+    expect(flags(o4)).toEqual([
+      [-55000, true],
+      [-25000, null],
+    ]);
+  });
+
+  it('R22.2 O-5: delete the Household supplies split → primary back to -800.00, still true', () => {
+    const after = apply(o4, ok(removeSplit(o4, 'split:new')));
+    expect(flags(after)).toEqual([[-80000, true]]);
   });
 });

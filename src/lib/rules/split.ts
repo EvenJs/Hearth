@@ -3,6 +3,7 @@
 // 纯函数，不 import 数据库和 Next.js
 import { resolveMember, type MemberContext } from './member';
 import { formatAud } from './money';
+import { canMarkOneOff, type OneOffFlag } from './one-off';
 import type { CategorySource, MemberSource } from './types';
 
 export type SplitRow = {
@@ -15,6 +16,7 @@ export type SplitRow = {
   memberSource: MemberSource;
   isPreTax: boolean;
   note: string | null;
+  isOneOff?: OneOffFlag; // R22.1。不带 = 调用方没读这一列
 };
 
 // 拆分需要的交易字段
@@ -32,6 +34,7 @@ export type AddSplitInput = {
   categoryId: string;
   memberId?: string | null; // 不选就按 R5 算
   note?: string | null;
+  isOneOff?: OneOffFlag; // R22.2：拆分对话框里勾的，不勾就是 null
 };
 
 function fail(message: string): SplitResult {
@@ -90,6 +93,8 @@ export function addSplit(tx: SplitTx, input: AddSplitInput, ctx: MemberContext):
     memberSource: member.memberSource,
     isPreTax: category.isPreTaxDefault,
     note: input.note ?? null,
+    // R22.2：新拆分默认 null，非支出分类没有勾选框，永远 null；主拆分的标记不变
+    isOneOff: canMarkOneOff(category) ? (input.isOneOff ?? null) : null,
   };
 
   return {

@@ -88,6 +88,7 @@ describe('changeCategory（R16.4、R5.1）', () => {
       memberId: mem('Female'),
       memberSource: 'manual',
       isPreTax: false,
+      isOneOff: null, // R22.2：改成未分类，标记清成 null
     });
   });
 
@@ -458,5 +459,85 @@ describe('planReapply（R7.2）', () => {
     const r = planReapply([unknownShop(), coles(), bankFee(), multi], rules, ctx);
     expect(r.updates.map((u) => u.transactionId)).toEqual(['15']);
     expect(r.skipped).toBe(1);
+  });
+
+  it('R22.2 O-11: reapply moves Supermarket (false) to Butcher → flag stays false', () => {
+    const rules = [...h.rules, rule('COLES 0559', cat('Groceries / Butcher'), 0)];
+    const [u] = planReapply([coles({ isOneOff: false })], rules, ctx).updates;
+    expect(u.split).toMatchObject({ categoryId: cat('Groceries / Butcher'), isOneOff: false });
+  });
+
+  it('R22.2: reapply moves a split (true) to Uncategorised → flag cleared to null', () => {
+    const rules = h.rules.filter((r) => r.keyword !== 'COLES');
+    const [u] = planReapply([coles({ isOneOff: true })], rules, ctx).updates;
+    expect(u.split).toMatchObject({ categoryId: UNCATEGORIZED, isOneOff: null });
+  });
+});
+
+describe('一次性标记跟着改分类（R22.2，用例 O）', () => {
+  const FURNITURE = cat('Home & utilities / Furniture & appliances');
+
+  // 用例 O 的交易 T：-800.00，主拆分 Furniture & appliances，Home，标记 true
+  function t(): EditTarget {
+    return {
+      id: 'split:T',
+      accountId: joint.id,
+      cardLast4: null,
+      transferStatus: 'none',
+      categoryId: FURNITURE,
+      categorySource: 'manual',
+      memberId: mem('Home'),
+      memberSource: 'category',
+      isPreTax: false,
+      isOneOff: true,
+    };
+  }
+
+  it('R22.2 O-6: to Renovations & maintenance (still expense) → stays true', () => {
+    const r = ok(changeCategory(t(), cat('Home & utilities / Renovations & maintenance'), ctx));
+    expect(r.split.isOneOff).toBe(true);
+  });
+
+  it('R22.2 O-7, O-8: to Uncategorised → null; back to Furniture → stays null', () => {
+    const step7 = reload(t(), ok(changeCategory(t(), UNCATEGORIZED, ctx)).split);
+    expect(step7.isOneOff).toBeNull();
+    const r = ok(changeCategory(step7, FURNITURE, ctx));
+    expect(r.split.isOneOff).toBeNull();
+  });
+
+  it('R22.2 O-9: to Income / Other → null', () => {
+    const r = ok(changeCategory(t(), cat('Income / Other'), ctx));
+    expect(r.split.isOneOff).toBeNull();
+  });
+
+  it('R22.2: false is cleared to null too when moved to income', () => {
+    const r = ok(changeCategory({ ...t(), isOneOff: false }, cat('Income / Other'), ctx));
+    expect(r.split.isOneOff).toBeNull();
+  });
+
+  it('R22.2: to Cash withdrawal (expense) → stays true', () => {
+    const r = ok(changeCategory(t(), h.systemCategory('cash_withdrawal').id, ctx));
+    expect(r.split.isOneOff).toBe(true);
+  });
+
+  it('R22.2 O-10: change member → stays true', () => {
+    expect(changeMember(t(), mem('Female')).isOneOff).toBe(true);
+  });
+
+  it('R22.2: same category → returned as is, flag kept', () => {
+    const r = ok(changeCategory(t(), FURNITURE, ctx));
+    expect(r.changed).toBe(false);
+    expect(r.split.isOneOff).toBe(true);
+  });
+
+  it('R22.2 O-12: batch change Supermarket (true) to Uncategorised → null', () => {
+    const r = ok(
+      changeCategory(
+        { ...t(), categoryId: cat('Groceries / Supermarket'), isOneOff: true },
+        UNCATEGORIZED,
+        ctx,
+      ),
+    );
+    expect(r.split.isOneOff).toBeNull();
   });
 });
