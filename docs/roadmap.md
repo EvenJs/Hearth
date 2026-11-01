@@ -337,6 +337,28 @@
 
 ---
 
+## M7.8：装到手机主屏（PWA，2026-11-01 加）
+
+> 不在原来的路线图里。手机上从主屏点开就能记一笔（F3），不用每次开浏览器找网址。只做"能安装"：不做离线、不做推送、不写 service worker，打开时照常联网拿数据。不加依赖，不碰数据库和规则。
+
+**做什么**
+
+- `src/app/manifest.ts`（Next.js 原生支持）：名字、`display: standalone`、`start_url`、主题色、图标
+- 图标：用现有的 `src/app/icon.png`（1024）出 192、512 两张给 manifest，`src/app/apple-icon.png`（180）给 iOS
+- 根 layout 的 metadata 加 `appleWebApp`，viewport 加 `themeColor`
+- `src/proxy.ts` 的 matcher 放行 manifest 和图标，不然没登录时会被跳到 `/login`
+- 检查 standalone 模式下（没有地址栏和返回键）每个页面都能回到首页
+
+**验收**
+
+- [ ] iPhone Safari "添加到主屏幕"后，图标和名字正确，打开没有地址栏
+- [ ] 从主屏打开登录一次后，下次打开还是登录状态
+- [ ] 主屏打开 → 点 + → 保存一笔，不超过 10 秒（和 M6 一样）
+- [ ] 每个页面都能回到首页，不会卡住
+- [ ] 电脑上的使用不受影响
+
+---
+
 ## M8：收尾
 
 **做什么**
