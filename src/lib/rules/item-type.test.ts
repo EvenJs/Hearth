@@ -7,6 +7,7 @@ import {
   assignItemTypes,
   matchItemType,
   normalizeItemName,
+  resolveItemTypes,
   type ItemType,
   type LearnedItemTypes,
 } from './item-type';
@@ -183,5 +184,88 @@ describe('R21.4 assignItemTypes', () => {
       { type: 'pantry', source: 'learned' },
       { type: 'pantry', source: 'follow' },
     ]);
+  });
+});
+
+// 期望值来自 R21.4、R21.5 和 fixtures/cases/11-item-types.md L-1 ~ L-7
+describe('R21.4 + R21.5 resolveItemTypes', () => {
+  // 小票 X
+  const X = [
+    { name: 'CHICKEN STOCK', amountCents: 400 },
+    { name: 'BANANA 1KG', amountCents: 300 },
+  ];
+
+  it('R21.5: nothing submitted → automatic types, nothing learned', () => {
+    const r = fixture('coles-a.json');
+    expect(resolveItemTypes(r.items, undefined, EMPTY)).toEqual({
+      types: assignItemTypes(r.items, EMPTY).map((m) => m.type),
+      learn: [],
+    });
+  });
+
+  it('R21.5 L-1: only the item whose type differs from the automatic one is learned', () => {
+    expect(resolveItemTypes(X, ['pantry', 'fruit'], EMPTY)).toEqual({
+      types: ['pantry', 'fruit'],
+      learn: [{ name: 'CHICKEN STOCK', type: 'pantry' }],
+    });
+  });
+
+  it('R21.5 L-3: same as the learned type → nothing learned', () => {
+    const l = learned([['CHICKEN STOCK', 'pantry']]);
+    expect(resolveItemTypes(X, ['pantry', 'fruit'], l).learn).toEqual([]);
+  });
+
+  it('R21.5 L-4: changed away from a learned type (to other) → learned again', () => {
+    const l = learned([['CHICKEN STOCK', 'pantry']]);
+    expect(resolveItemTypes(X, ['other', 'fruit'], l)).toEqual({
+      types: ['other', 'fruit'],
+      learn: [{ name: 'CHICKEN STOCK', type: 'other' }],
+    });
+  });
+
+  it('R21.5 L-5: same name changed twice in one receipt → both in item order (later one wins when written)', () => {
+    const items = [
+      { name: 'CHICKEN STOCK', amountCents: 400 },
+      { name: 'CHICKEN STOCK', amountCents: 400 },
+    ];
+    expect(resolveItemTypes(items, ['pantry', 'snack'], EMPTY).learn).toEqual([
+      { name: 'CHICKEN STOCK', type: 'pantry' },
+      { name: 'CHICKEN STOCK', type: 'snack' },
+    ]);
+  });
+
+  it('R21.4 L-6: coles-a, KIWIFRUIT GOLD → snack; the -0.80 follows it and is not learned', () => {
+    const r = fixture('coles-a.json');
+    const submitted = assignItemTypes(r.items, EMPTY).map((m) => m.type);
+    const kiwi = r.items.findIndex((i) => i.name === 'KIWIFRUIT GOLD');
+    submitted[kiwi] = 'snack';
+
+    const result = resolveItemTypes(r.items, submitted, EMPTY);
+    expect(result.types[kiwi]).toBe('snack');
+    expect(r.items[kiwi + 1]).toMatchObject({ name: 'KIWIFRUIT 4 FOR $6', amountCents: -80 });
+    expect(result.types[kiwi + 1]).toBe('snack');
+    expect(result.learn).toEqual([{ name: 'KIWIFRUIT GOLD', type: 'snack' }]);
+  });
+
+  it('R21.4 L-7: the type submitted for a negative line is ignored and recalculated', () => {
+    const r = fixture('coles-a.json');
+    const submitted = assignItemTypes(r.items, EMPTY).map((m) => m.type);
+    const kiwi = r.items.findIndex((i) => i.name === 'KIWIFRUIT GOLD');
+    submitted[kiwi + 1] = 'meat';
+
+    const result = resolveItemTypes(r.items, submitted, EMPTY);
+    expect(result.types[kiwi + 1]).toBe('fruit');
+    expect(result.learn).toEqual([]);
+  });
+
+  it('R21.4: a first-line negative is other whatever was submitted', () => {
+    const items = [
+      { name: 'PROMO', amountCents: -100 },
+      { name: 'BANANA 1KG', amountCents: 300 },
+    ];
+    expect(resolveItemTypes(items, ['fruit', 'fruit'], EMPTY)).toEqual({
+      types: ['other', 'fruit'],
+      learn: [],
+    });
   });
 });

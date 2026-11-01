@@ -217,3 +217,25 @@ export function assignItemTypes(
     return match;
   });
 }
+
+// R21.4、R21.5：保存时用户提交的类型 → 存的类型 + 要学的
+// 正数商品用提交的；和当时学习表自动给的不一样才学（不信客户端说的"改没改"）
+// 负数商品不管提交了什么，都跟前面最近的正数商品（第一行负数 → other），不学
+// submitted 为 undefined（没传类型）→ 全用自动的，不学
+export function resolveItemTypes(
+  items: readonly { name: string; amountCents: number | null }[],
+  submitted: readonly ItemType[] | undefined,
+  learned: LearnedItemTypes,
+): { types: ItemType[]; learn: { name: string; type: ItemType }[] } {
+  const auto = assignItemTypes(items, learned);
+  const learn: { name: string; type: ItemType }[] = [];
+  let previous: ItemType | null = null;
+  const types = items.map((item, i): ItemType => {
+    if (item.amountCents !== null && item.amountCents < 0) return previous ?? 'other';
+    const type = submitted?.[i] ?? auto[i].type;
+    if (type !== auto[i].type) learn.push({ name: item.name, type });
+    previous = type;
+    return type;
+  });
+  return { types, learn };
+}

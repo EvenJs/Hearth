@@ -378,11 +378,13 @@ describeDb('saveReceipt（R20.3、R20.4、R20.6、R20.7）', () => {
     });
     expect(row.parsedJson).toEqual({
       items: expect.arrayContaining([
-        { name: 'KIWIFRUIT 4 FOR $6', amountCents: -80, category: null },
+        // R21.8：没传类型 → 自动给的（T-2）
+        { name: 'KIWIFRUIT 4 FOR $6', amountCents: -80, category: null, type: 'fruit' },
         {
           name: 'SHAMPOO 400ML',
           amountCents: 1200,
           category: t.h.category('Personal & medical / Cosmetics & toiletries').id,
+          type: 'household',
         },
       ]),
       discounts: [],
@@ -1055,5 +1057,325 @@ describeDb('交易详情的小票、没挂上的小票重新挂（M6.7-8，R20.7
         accountId: t.h.account('ANZ Joint').id,
       }),
     ).toMatchObject({ ok: false, code: 'not_found' });
+  });
+});
+
+// ---------- M7.6-5 商品类型接进保存（R21.4、R21.5、R21.8） ----------
+// 期望值来自 R21 和 fixtures/cases/11-item-types.md L-1 ~ L-9、P-1
+
+// 小票 X：CHICKEN STOCK 4.00、BANANA 1KG 3.00，总额 7.00，现金
+const X_RAW: SaveReceiptInput['receipt'] = {
+  merchant: 'TEST GROCER',
+  date: '15/09/2026',
+  total: '7.00',
+  items: [
+    { name: 'CHICKEN STOCK', amount: '4.00', category: null },
+    { name: 'BANANA 1KG', amount: '3.00', category: null },
+  ],
+  discounts: [],
+  payment: { method: 'cash', cardLast4: null },
+};
+
+function rawReader(r: SaveReceiptInput['receipt']): ReceiptReader {
+  return {
+    id: 'llm',
+    input: 'image',
+    read: async () => ({ ok: true, raw: rawReceiptSchema.parse(r), reader: FAKE_READER_ID }),
+  };
+}
+
+// 扫 X，按用户改过的类型保存成 ANZ Joint 上的新交易
+async function saveX(
+  target: DbTestHousehold,
+  itemTypes: NonNullable<SaveReceiptInput['itemTypes']>,
+  receipt: SaveReceiptInput['receipt'] = X_RAW,
+) {
+  const r = await saveReceipt(target.ctx, {
+    reader: FAKE_READER_ID,
+    receipt,
+    itemTypes,
+    target: { kind: 'new', accountId: target.h.account('ANZ Joint').id },
+  });
+  if (!r.ok) throw new Error(`保存失败: ${r.code} ${r.message}`);
+  return r;
+}
+
+async function learnedRows() {
+  return db
+    .select({
+      householdId: schema.itemTypeRule.householdId,
+      nameKey: schema.itemTypeRule.nameKey,
+      itemType: schema.itemTypeRule.itemType,
+      updatedAt: schema.itemTypeRule.updatedAt,
+    })
+    .from(schema.itemTypeRule)
+    .orderBy(schema.itemTypeRule.nameKey);
+}
+
+async function storedItems(receiptId: string) {
+  const [row] = await db.select().from(schema.receipt).where(eq(schema.receipt.id, receiptId));
+  return (row.parsedJson as { items: { name: string; type?: string }[] }).items.map((i) => [
+    i.name,
+    i.type,
+  ]);
+}
+
+describeDb('商品类型：scanReceipt 和 saveReceipt（R21.4、R21.5、R21.8）', () => {
+  beforeEach(async () => {
+    await resetBusinessTables();
+    t = await createTestHousehold();
+  });
+
+  it('R21.4: scanReceipt gives every item a type with its source (coles-a, T-2)', async () => {
+    const draft = await scanReceipt(t.ctx, IMAGE, fakeReader('coles-a.json').reader);
+    expect(draft.receipt.items.map((i, n) => [i.name, draft.itemTypes[n]])).toEqual([
+      ['MILK 3L', { type: 'dairy_egg', source: 'preset' }],
+      ['BANANAS PERKG', { type: 'fruit', source: 'preset' }],
+      ['KIWIFRUIT GOLD', { type: 'fruit', source: 'preset' }],
+      ['KIWIFRUIT 4 FOR $6', { type: 'fruit', source: 'follow' }],
+      ['PAPER TOWEL 2PK', { type: 'household', source: 'preset' }],
+      ['DISHWASHING LIQUID', { type: 'household', source: 'preset' }],
+      ['SHAMPOO 400ML', { type: 'household', source: 'preset' }],
+      ['WHITE BREAD', { type: 'pantry', source: 'preset' }],
+      ['TASTY CHEESE', { type: 'dairy_egg', source: 'preset' }],
+    ]);
+  });
+
+  it('R21.4: reader none → no items, no types', async () => {
+    const draft = await scanReceipt(t.ctx, IMAGE, null);
+    expect(draft.itemTypes).toEqual([]);
+  });
+
+  it('R21.5 L-1 + L-2: change CHICKEN STOCK to pantry → learned; the next `chicken  stock` is pantry (learned)', async () => {
+    const draft = await scanReceipt(t.ctx, IMAGE, rawReader(X_RAW));
+    expect(draft.itemTypes).toEqual([
+      { type: 'meat', source: 'preset' },
+      { type: 'fruit', source: 'preset' },
+    ]);
+
+    const r = await saveX(t, ['pantry', 'fruit']);
+    expect(await storedItems(r.receiptId)).toEqual([
+      ['CHICKEN STOCK', 'pantry'],
+      ['BANANA 1KG', 'fruit'],
+    ]);
+    expect(await learnedRows()).toEqual([
+      {
+        householdId: t.ctx.householdId,
+        nameKey: 'CHICKEN STOCK',
+        itemType: 'pantry',
+        updatedAt: expect.any(Date),
+      },
+    ]);
+
+    const next = await scanReceipt(
+      t.ctx,
+      IMAGE,
+      rawReader({ ...X_RAW, items: [{ name: 'chicken  stock', amount: '7.00', category: null }] }),
+    );
+    expect(next.itemTypes).toEqual([{ type: 'pantry', source: 'learned' }]);
+  });
+
+  it('R21.5 L-3: after L-1, X saved again unchanged → learning table unchanged', async () => {
+    await saveX(t, ['pantry', 'fruit']);
+    const before = await learnedRows();
+
+    const draft = await scanReceipt(t.ctx, IMAGE, rawReader(X_RAW));
+    await saveX(
+      t,
+      draft.itemTypes.map((m) => m.type),
+    );
+    expect(await learnedRows()).toEqual(before);
+  });
+
+  it('R21.5 L-4: after L-1, CHICKEN STOCK changed to other → still one row, now other', async () => {
+    await saveX(t, ['pantry', 'fruit']);
+    await saveX(t, ['other', 'fruit']);
+    expect((await learnedRows()).map((r) => [r.nameKey, r.itemType])).toEqual([
+      ['CHICKEN STOCK', 'other'],
+    ]);
+  });
+
+  it('R21.5 L-5: CHICKEN STOCK twice in one receipt, pantry then snack → one row snack', async () => {
+    await saveX(t, ['pantry', 'snack'], {
+      ...X_RAW,
+      items: [
+        { name: 'CHICKEN STOCK', amount: '4.00', category: null },
+        { name: 'CHICKEN STOCK', amount: '3.00', category: null },
+      ],
+    });
+    expect((await learnedRows()).map((r) => [r.nameKey, r.itemType])).toEqual([
+      ['CHICKEN STOCK', 'snack'],
+    ]);
+  });
+
+  it('R21.4 + R21.5 L-6 + L-7: KIWIFRUIT GOLD → snack, client sends meat for -0.80 → stored snack; only KIWIFRUIT GOLD learned', async () => {
+    await importFixture(t, 'ANZ Joint', 'anz/joint-2026-09.csv');
+    const n19 = await joint19();
+    const draft = await scanReceipt(t.ctx, IMAGE, fakeReader('coles-a.json').reader);
+    const itemTypes = draft.itemTypes.map((m) => m.type);
+    const kiwi = draft.receipt.items.findIndex((i) => i.name === 'KIWIFRUIT GOLD');
+    itemTypes[kiwi] = 'snack';
+    itemTypes[kiwi + 1] = 'meat';
+
+    const r = await saveOk({ itemTypes, target: { kind: 'transaction', transactionId: n19.id } });
+
+    const stored = await storedItems(r.receiptId);
+    expect(stored[kiwi]).toEqual(['KIWIFRUIT GOLD', 'snack']);
+    expect(stored[kiwi + 1]).toEqual(['KIWIFRUIT 4 FOR $6', 'snack']);
+    expect((await learnedRows()).map((x) => [x.nameKey, x.itemType])).toEqual([
+      ['KIWIFRUIT GOLD', 'snack'],
+    ]);
+  });
+
+  it('R21.5: no itemTypes sent → automatic types stored, nothing learned', async () => {
+    const r = await saveReceipt(t.ctx, {
+      reader: FAKE_READER_ID,
+      receipt: X_RAW,
+      target: { kind: 'new', accountId: t.h.account('ANZ Joint').id },
+    });
+    if (!r.ok) throw new Error(r.message);
+    expect(await storedItems(r.receiptId)).toEqual([
+      ['CHICKEN STOCK', 'meat'],
+      ['BANANA 1KG', 'fruit'],
+    ]);
+    expect(await db.$count(schema.itemTypeRule)).toBe(0);
+  });
+
+  it('R21.5: itemTypes not one per item → invalid, nothing written', async () => {
+    const r = await saveReceipt(t.ctx, {
+      reader: FAKE_READER_ID,
+      receipt: X_RAW,
+      itemTypes: ['pantry'],
+      target: { kind: 'new', accountId: t.h.account('ANZ Joint').id },
+    });
+    expect(r).toMatchObject({ ok: false, code: 'invalid' });
+    expect(await db.$count(schema.receipt)).toBe(0);
+    expect(await db.$count(schema.itemTypeRule)).toBe(0);
+  });
+
+  it('R21.5: a save that fails a check (R-C split_failed) learns nothing', async () => {
+    const id = await insertPending(t, {
+      account: 'ANZ Joint',
+      date: '2026-09-01',
+      amountCents: -5000,
+      category: 'Groceries / Supermarket',
+      member: 'Home',
+    });
+    const draft = await scanReceipt(t.ctx, IMAGE, fakeReader('coles-a.json').reader);
+    const itemTypes = draft.itemTypes.map(() => 'other' as const);
+
+    const r = await save({ itemTypes, target: { kind: 'transaction', transactionId: id } });
+    expect(r).toMatchObject({ ok: false, code: 'split_failed' });
+    expect(await db.$count(schema.itemTypeRule)).toBe(0);
+  });
+
+  it('R21.5 L-8: an error while writing the receipt (after learning) rolls back the learning table too', async () => {
+    const original = db.transaction.bind(db);
+    type Tx = Parameters<Parameters<typeof original>[0]>[0];
+    vi.spyOn(db, 'transaction').mockImplementation((fn, config) =>
+      original((tx) => {
+        const failing = new Proxy(tx, {
+          get(target, prop, receiver) {
+            if (prop === 'insert') {
+              return (table: Parameters<Tx['insert']>[0]) => {
+                if (table === schema.receipt) throw new Error('故意抛错');
+                return target.insert(table);
+              };
+            }
+            const value = Reflect.get(target, prop, receiver);
+            return typeof value === 'function' ? value.bind(target) : value;
+          },
+        });
+        return fn(failing);
+      }, config),
+    );
+
+    await expect(saveX(t, ['pantry', 'fruit'])).rejects.toThrow('故意抛错');
+    vi.restoreAllMocks();
+
+    expect(await db.$count(schema.receipt)).toBe(0);
+    expect(await db.$count(schema.transaction)).toBe(0);
+    expect(await db.$count(schema.itemTypeRule)).toBe(0);
+  });
+
+  it('R21.5 L-9: after L-1, another household scanning X still gets CHICKEN STOCK meat', async () => {
+    await saveX(t, ['pantry', 'fruit']);
+    await db.delete(schema.householdUser).where(eq(schema.householdUser.userId, TEST_USER.id));
+    const other = await createTestHousehold();
+
+    const draft = await scanReceipt(other.ctx, IMAGE, rawReader(X_RAW));
+    expect(draft.itemTypes[0]).toEqual({ type: 'meat', source: 'preset' });
+  });
+
+  it('R21.8 P-1: R-A with every item changed to other → splits exactly R20.8', async () => {
+    await importFixture(t, 'ANZ Joint', 'anz/joint-2026-09.csv');
+    const n19 = await joint19();
+    const txBefore = await getTransaction(n19.id);
+    const itemTypes = raw('coles-a.json').items.map(() => 'other' as const);
+
+    await saveOk({ itemTypes, target: { kind: 'transaction', transactionId: n19.id } });
+
+    expect(await splitShape(n19.id)).toEqual(R_A_SPLITS);
+    expect(await getTransaction(n19.id)).toEqual(txBefore);
+  });
+
+  it('R21.8 P-1: R-B (grocer-b on -32.33) with and without changed types → same splits', async () => {
+    const pending = () =>
+      insertPending(t, {
+        account: 'ANZ Joint',
+        date: '2026-09-25',
+        amountCents: -3233,
+        category: 'Groceries / Supermarket',
+        member: 'Home',
+      });
+    const plain = await pending();
+    const typed = await pending();
+    const receiptB = raw('grocer-b.json');
+
+    // insertPending 的主拆分算手动改过分类（R20.6），两次都确认覆盖
+    await saveOk({
+      receipt: receiptB,
+      confirmOverwrite: true,
+      target: { kind: 'transaction', transactionId: plain },
+    });
+    await saveOk({
+      receipt: receiptB,
+      confirmOverwrite: true,
+      itemTypes: receiptB.items.map(() => 'snack' as const),
+      target: { kind: 'transaction', transactionId: typed },
+    });
+
+    const shape = await splitShape(typed);
+    expect(shape.map((s) => s.amountCents)).toEqual([-1939, -970, -324]);
+    expect(shape).toEqual(await splitShape(plain));
+  });
+
+  it('R21.8 P-1: R-E with changed types → same new pending transaction and split as R-E', async () => {
+    const receiptE = raw('coles-e.json');
+    const r = await saveOk({
+      receipt: receiptE,
+      itemTypes: receiptE.items.map(() => 'other' as const),
+      target: { kind: 'new', accountId: t.h.account('ANZ Joint').id },
+    });
+
+    expect(await getTransaction(r.transactionId)).toMatchObject({
+      accountId: t.h.account('ANZ Joint').id,
+      status: 'pending',
+      source: 'receipt',
+      date: '2026-09-28',
+      amountCents: -2345,
+      cardLast4: null,
+      merchant: 'COLES',
+    });
+    expect(await splitShape(r.transactionId)).toEqual([
+      {
+        primary: true,
+        amountCents: -2345,
+        category: 'Groceries / Supermarket',
+        member: 'Home (category)',
+        categorySource: 'rule',
+        note: null,
+      },
+    ]);
   });
 });

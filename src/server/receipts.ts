@@ -7,7 +7,13 @@ import { and, desc, eq, gte, isNull, lte } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/db';
 import { category, financialAccount, member, receipt, transaction } from '@/db/schema';
-import { ITEM_TYPE_KEYS } from '@/lib/rules/item-type';
+import {
+  assignItemTypes,
+  ITEM_TYPE_KEYS,
+  resolveItemTypes,
+  type ItemType,
+  type ItemTypeMatch,
+} from '@/lib/rules/item-type';
 import { cleanMerchant } from '@/lib/rules/merchant';
 import { addDays, todayInMelbourne } from '@/lib/rules/periods';
 import {
@@ -38,6 +44,7 @@ import type { SplitRow } from '@/lib/rules/split';
 import { isSelectableCategory } from '@/lib/rules/split-edit';
 import type { Card, TransferStatus } from '@/lib/rules/types';
 import type { HouseholdContext } from './context';
+import { getLearnedItemTypes, learnItemTypes } from './item-types';
 import { lastManualAccountId, loadManualContext, type QuickAddCategory } from './manual';
 import { getReceiptReader, type ReceiptInput, type ReceiptReader } from './receipt-readers';
 import { lockTransaction, writeSplits, type LoadedTx } from './splits';
@@ -65,6 +72,8 @@ export type ReceiptDraft = {
   receipt: NormalizedReceipt; // payment.cardLast4 只在内存里，保存时去掉
   errors: ReceiptFieldErrors; // 每个字段的整理错误，标在对应那行
   check: ReceiptCheck; // R20.2 能不能保存
+  // R21.4：和 receipt.items 一一对应。source 给界面判断用户改没改；保存时服务器自己再比一次（R21.5）
+  itemTypes: ItemTypeMatch[];
   categories: ReceiptCategoryOption[]; // 商品能选的分类（R16.3 范围内的支出二级）
   // 日期、总额读不出来时为 null，用户填好后再调 getReceiptCandidates
   candidates: ReceiptCandidatesResult | null;
@@ -273,6 +282,7 @@ export async function scanReceipt(
     receipt: receiptValue,
     errors,
     check: checkReceipt(receiptValue),
+    itemTypes: assignItemTypes(receiptValue.items, await getLearnedItemTypes(ctx)),
     categories,
     candidates,
     account,
@@ -297,14 +307,20 @@ const readerSchema = z.string().regex(/^(manual|text|llm:[\w./:@-]{1,100})$/);
 
 // 核对后的小票用和 reader 原始结果一样的字符串格式（R20.1），服务器重新跑 normalizeReceipt、checkReceipt
 // （R20.2：手动填的商品走同样的整理和校验），不信客户端算的结果
-const saveSchema = z.object({
-  reader: readerSchema,
-  receipt: rawReceiptSchema.refine((r) => r.items.length <= 200 && r.discounts.length <= 50, {
-    message: '商品太多',
-  }),
-  target: targetSchema,
-  confirmOverwrite: z.boolean().default(false),
-});
+// itemTypes：R21.4 和 receipt.items 一一对应，负数行传了也不用。不传 → 全用自动的，不学
+const saveSchema = z
+  .object({
+    reader: readerSchema,
+    receipt: rawReceiptSchema.refine((r) => r.items.length <= 200 && r.discounts.length <= 50, {
+      message: '商品太多',
+    }),
+    itemTypes: z.array(z.enum(ITEM_TYPE_KEYS)).optional(),
+    target: targetSchema,
+    confirmOverwrite: z.boolean().default(false),
+  })
+  .refine((v) => v.itemTypes === undefined || v.itemTypes.length === v.receipt.items.length, {
+    message: '商品类型和商品对不上',
+  });
 
 export type SaveReceiptInput = z.input<typeof saveSchema>;
 
@@ -498,12 +514,14 @@ async function attachInTx(
 
 // parsed_json（schema）：用户核对后的版本。不含卡号（cardLast4 在这里去掉）、人名
 // items[].category 存分类 id，null = 跟主分类（R20.3 第 1 步），重新挂到别的交易时按那笔的主分类走
-function toParsedJson(r: NormalizedReceipt) {
+// items[].type：R21.4 resolveItemTypes 的结果，和 items 一一对应
+function toParsedJson(r: NormalizedReceipt, types: readonly ItemType[]) {
   return {
-    items: r.items.map((i) => ({
+    items: r.items.map((i, index) => ({
       name: i.name,
       amountCents: i.amountCents,
       category: i.categoryId,
+      type: types[index],
     })),
     discounts: r.discounts.map((d) => ({ label: d.label, amountCents: d.amountCents })),
     payment: r.payment.method,
@@ -547,6 +565,14 @@ export async function saveReceipt(
     const attached = await attachInTx(tx, ctx, r, target, confirmOverwrite, today);
     if (!attached.ok) return attached;
 
+    // R21.5：用事务里当时的学习表比，和自动给的不一样才学。类型不进 planReceiptSplits（R21.8）
+    const types = resolveItemTypes(
+      r.items,
+      parsed.data.itemTypes,
+      await getLearnedItemTypes(ctx, tx),
+    );
+    await learnItemTypes(ctx, tx, types.learn);
+
     const [row] = await tx
       .insert(receipt)
       .values({
@@ -555,7 +581,7 @@ export async function saveReceipt(
         merchant: r.merchant,
         receiptDate: r.date!,
         totalCents: r.totalCents!,
-        parsedJson: toParsedJson(r),
+        parsedJson: toParsedJson(r, types.types),
         reader,
         createdBy: ctx.userId,
       })
