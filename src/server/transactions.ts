@@ -30,6 +30,7 @@ import {
   transaction,
   transactionSplit,
 } from '@/db/schema';
+import { needsOneOffHint, type OneOffFlag } from '@/lib/rules/one-off';
 import { periodRange } from '@/lib/rules/periods';
 import {
   changeCategory,
@@ -45,6 +46,7 @@ import { resolveSuggestion, type SuggestionTx } from '@/lib/rules/transfer';
 import type {
   Account,
   Card,
+  Category,
   CategoryKind,
   CategorySource,
   MemberSource,
@@ -84,6 +86,7 @@ export type SplitView = {
   memberSource: MemberSource;
   isPreTax: boolean;
   note: string | null;
+  isOneOff: OneOffFlag; // R22.1
 };
 
 export type TransactionListItem = {
@@ -127,6 +130,7 @@ export type TransactionDetail = TransactionListItem & {
   } | null;
   // R17.6：和这笔"可能重复"的其他交易（M6-5 详情页列出来，点了跳过去）
   possibleDuplicates: DuplicatePartner[];
+  oneOffHint: boolean; // R22.3：大额未标，详情页问"这笔是一次性开销吗？"
 };
 
 export type DuplicatePartner = {
@@ -281,6 +285,7 @@ async function loadSplits(
       memberSource: transactionSplit.memberSource,
       isPreTax: transactionSplit.isPreTax,
       note: transactionSplit.note,
+      isOneOff: transactionSplit.isOneOff,
       categoryId: category.id,
       categoryNameEn: category.nameEn,
       categoryNameZh: category.nameZh,
@@ -338,9 +343,32 @@ async function loadSplits(
       memberSource: r.memberSource as MemberSource,
       isPreTax: r.isPreTax,
       note: r.note,
+      isOneOff: r.isOneOff,
     });
   }
   return out;
+}
+
+// R22.3：needsOneOffHint 只用分类的 id、parentId、kind、systemKey，从拆分上的分类引用拼出来，不再查一次库
+function oneOffHintOf(splits: readonly SplitView[]): boolean {
+  const categories: Category[] = splits.map((s) => ({
+    id: s.category.id,
+    parentId: s.category.parent?.id ?? null,
+    nameEn: s.category.nameEn,
+    kind: s.category.kind,
+    systemKey: s.category.systemKey,
+    defaultMemberId: null,
+    isPreTaxDefault: false,
+    isOther: false,
+  }));
+  return needsOneOffHint(
+    splits.map((s) => ({
+      amountCents: s.amountCents,
+      categoryId: s.category.id,
+      isOneOff: s.isOneOff,
+    })),
+    categories,
+  );
 }
 
 // ---------- 列表 ----------
@@ -531,9 +559,11 @@ export async function getTransaction(
   ]);
   const partners = await loadDuplicatePartners(ctx, duplicates.groups.get(row.id) ?? []);
 
+  const txSplits = splits.get(row.id) ?? [];
   return {
-    ...toItem(row, splits.get(row.id) ?? [], partners),
+    ...toItem(row, txSplits, partners),
     possibleDuplicates: partners,
+    oneOffHint: oneOffHintOf(txSplits),
     balanceCents: row.balanceCents,
     note: row.note,
     confirmedAt: row.confirmedAt,

@@ -153,6 +153,8 @@ function AttachForm({
       setConfirmMessage(null);
       const id = r.transactionId;
       toast.success(`小票已挂上 · ${formatAud(receipt.totalCents)}`, {
+        // R22.2：小票重排拆分清掉了"是"的标记
+        description: r.oneOffCleared ? '一次性标记已清掉，需要的话重新勾' : undefined,
         action: { label: '查看交易', onClick: () => router.push(`/transactions/${id}`) },
       });
       onDone();

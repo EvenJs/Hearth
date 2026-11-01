@@ -18,7 +18,8 @@ export type OneOffSplit = {
 };
 
 // R22.1：只有支出口径（R10）的拆分能标，正数（退款）也能标
-export function canMarkOneOff(c: Category): boolean {
+// 只看 kind、systemKey，详情页拿拆分上的分类引用直接判断
+export function canMarkOneOff(c: Pick<Category, 'kind' | 'systemKey'>): boolean {
   return bucketOf(c) === 'expense';
 }
 

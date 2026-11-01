@@ -196,6 +196,27 @@ describeDb('M7.7-4 一次性标记（R22.1、R22.2、R22.3）', () => {
     });
   });
 
+  it('R22.3: answering "yes" sets null expense splits to true, leaves marked and non-expense ones', async () => {
+    const id = await coles();
+    const primary = await primaryOf(id);
+    const seen = await addSupplies(id, 1500);
+    const fresh = await addSupplies(id, 700);
+    const income = await addSplit(t.ctx, id, {
+      amountCents: 500,
+      categoryId: t.h.category(INTEREST).id,
+    });
+    if (!income.ok) throw new Error(income.message);
+    await setSplitOneOff(t.ctx, seen, false);
+
+    expect(await dismissOneOffHint(t.ctx, id, true)).toEqual({ ok: true });
+    expect(await flags(id)).toEqual({
+      [primary.id]: true,
+      [seen]: false,
+      [fresh]: true,
+      [income.splitId]: null,
+    });
+  });
+
   it('another household cannot mark or dismiss', async () => {
     const id = await coles();
     const primary = await primaryOf(id);

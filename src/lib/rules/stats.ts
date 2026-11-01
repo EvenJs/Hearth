@@ -19,7 +19,7 @@ export type Metric = 'income' | 'expense';
 // R10：一笔拆分算哪一类
 export type Bucket = Metric | 'uncategorized' | 'excluded';
 
-export function bucketOf(c: Category): Bucket {
+export function bucketOf(c: Pick<Category, 'kind' | 'systemKey'>): Bucket {
   if (c.kind === 'income') return 'income';
   if (c.kind === 'expense') return 'expense';
   switch (c.systemKey) {

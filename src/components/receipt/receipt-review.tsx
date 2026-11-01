@@ -204,6 +204,8 @@ export function ReceiptReview({ variant, draft, fixedTransactionId, onClose }: P
       setConfirmMessage(null);
       const id = r.transactionId;
       toast.success(`小票已保存 · ${formatAud(totalCents ?? 0)}`, {
+        // R22.2：小票重排拆分清掉了"是"的标记
+        description: r.oneOffCleared ? '一次性标记已清掉，需要的话重新勾' : undefined,
         action: { label: '查看交易', onClick: () => router.push(`/transactions/${id}`) },
       });
       onClose();

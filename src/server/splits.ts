@@ -374,12 +374,14 @@ export async function setSplitOneOff(
   });
 }
 
-// R22.3 大额提示点"不是一次性"：这笔交易所有 null 的支出拆分设成 false，已经标过的不动
+// R22.3 大额提示点"是"（value = true）或"不是一次性"（false）：
+// 这笔交易所有 null 的支出拆分设成 value，已经标过的不动
 export async function dismissOneOffHint(
   ctx: HouseholdContext,
   transactionId: string,
+  value = false,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
-  if (!z.uuid().safeParse(transactionId).success) return INVALID;
+  if (!z.uuid().safeParse(transactionId).success || typeof value !== 'boolean') return INVALID;
 
   return db.transaction(async (tx) => {
     const t = await lockTransaction(tx, ctx, transactionId);
@@ -396,7 +398,7 @@ export async function dismissOneOffHint(
     if (ids.length > 0) {
       await tx
         .update(transactionSplit)
-        .set({ isOneOff: false })
+        .set({ isOneOff: value })
         .where(
           and(inArray(transactionSplit.id, ids), eq(transactionSplit.householdId, ctx.householdId)),
         );
