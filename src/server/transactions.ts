@@ -3,7 +3,8 @@
 // F8 建议转账（M4-5）：确认、拒绝，两边一起改（R6.3）
 // 筛选条件的含义见 src/lib/transactions/filters.ts；这里只负责拼查询，每个查询都带 household_id
 // 交易本身的条件（时间、账户、状态、商家、金额范围、建议转账）放在 transaction 上
-// 拆分上的条件（分类、归属人、类型、是否税前、未分类）用 EXISTS：只要有一个拆分命中就列出（R16.5）
+// 拆分上的条件（分类、归属人、类型、是否税前、一次性、未分类）用 EXISTS：只要有一个拆分命中就列出（R16.5、R22.4）
+// 大额未标（R22.3）按交易算，用一个分组求和的子查询，挂在 transaction 上
 import {
   and,
   asc,
@@ -30,7 +31,7 @@ import {
   transaction,
   transactionSplit,
 } from '@/db/schema';
-import { needsOneOffHint, type OneOffFlag } from '@/lib/rules/one-off';
+import { needsOneOffHint, ONE_OFF_HINT_CENTS, type OneOffFlag } from '@/lib/rules/one-off';
 import { periodRange } from '@/lib/rules/periods';
 import {
   changeCategory,
@@ -104,6 +105,7 @@ export type TransactionListItem = {
   splits: SplitView[]; // 主拆分在前，其他按金额绝对值从大到小
   possibleDuplicate: boolean; // R17.6：现在还要显示"可能重复"
   duplicatePartners: DuplicatePartner[]; // R17.6：和哪几笔可能重复（M6-6 标签上展开）
+  oneOffHint: boolean; // R22.3：大额未标。列表行上"一次性？"，详情页问"这笔是一次性开销吗？"
 };
 
 export type TransactionList = {
@@ -130,7 +132,6 @@ export type TransactionDetail = TransactionListItem & {
   } | null;
   // R17.6：和这笔"可能重复"的其他交易（M6-5 详情页列出来，点了跳过去）
   possibleDuplicates: DuplicatePartner[];
-  oneOffHint: boolean; // R22.3：大额未标，详情页问"这笔是一次性开销吗？"
 };
 
 export type DuplicatePartner = {
@@ -172,6 +173,7 @@ function transactionConditions(
   if (f.minCents !== undefined) c.push(sql`abs(${transaction.amountCents}) >= ${f.minCents}`);
   if (f.maxCents !== undefined) c.push(sql`abs(${transaction.amountCents}) <= ${f.maxCents}`);
   if (f.quick === 'suggested') c.push(eq(transaction.transferStatus, 'suggested'));
+  if (f.quick === 'one_off_hint') c.push(oneOffHintCondition(ctx));
   // R17.6：pending 和银行那笔都列出来，方便比对（M6-6）
   if (f.quick === 'duplicates') {
     const ids = extra.duplicateIds ?? [];
@@ -198,6 +200,26 @@ function typeCondition(type: TransactionType): SQL {
   }
 }
 
+// R22.3 大额未标，和 needsOneOffHint 同一个口径：这笔交易支出口径的拆分全是 null（count 只数非 null），
+// 且合计 ≤ −阈值。没有支出拆分时合计是 0，不提示
+function oneOffHintCondition(ctx: HouseholdContext): SQL {
+  const hint = db
+    .select({
+      hint: sql`coalesce(sum(${transactionSplit.amountCents}), 0) <= ${-ONE_OFF_HINT_CENTS}
+        and count(${transactionSplit.isOneOff}) = 0`,
+    })
+    .from(transactionSplit)
+    .innerJoin(category, splitCategoryJoin(ctx))
+    .where(
+      and(
+        eq(transactionSplit.householdId, ctx.householdId),
+        eq(transactionSplit.transactionId, transaction.id),
+        typeCondition('expense'),
+      ),
+    );
+  return sql`(${hint})`;
+}
+
 // 拆分上的条件。用的时候 transaction_split 要 join category（category 也带 household_id）
 function splitConditions(ctx: HouseholdContext, f: TransactionFilters): SQL[] {
   const c: SQL[] = [eq(transactionSplit.householdId, ctx.householdId)];
@@ -206,6 +228,9 @@ function splitConditions(ctx: HouseholdContext, f: TransactionFilters): SQL[] {
   if (f.memberId) c.push(eq(transactionSplit.memberId, f.memberId));
   if (f.type) c.push(typeCondition(f.type));
   if (f.isPreTax !== undefined) c.push(eq(transactionSplit.isPreTax, f.isPreTax));
+  // R22.4：否 = null 或 false，包括收入、转账、未分类的拆分
+  if (f.oneOff === true) c.push(sql`${transactionSplit.isOneOff} is true`);
+  if (f.oneOff === false) c.push(sql`${transactionSplit.isOneOff} is not true`);
   if (f.quick === 'uncategorized') c.push(eq(category.systemKey, 'uncategorized'));
   return c;
 }
@@ -390,7 +415,7 @@ const listColumns = {
 
 type ListRow = Omit<
   TransactionListItem,
-  'account' | 'splits' | 'possibleDuplicate' | 'duplicatePartners'
+  'account' | 'splits' | 'possibleDuplicate' | 'duplicatePartners' | 'oneOffHint'
 > & {
   accountId: string;
   accountName: string;
@@ -416,6 +441,7 @@ function toItem(
     splits,
     possibleDuplicate: duplicatePartners.length > 0,
     duplicatePartners,
+    oneOffHint: oneOffHintOf(splits), // 只算这一页的行，筛选和笔数用 oneOffHintCondition
   };
 }
 
@@ -483,21 +509,27 @@ export async function listTransactions(
 
 // ---------- 快捷条件的笔数 ----------
 
-export type QuickFilterCounts = { uncategorized: number; suggested: number };
+export type QuickFilterCounts = { uncategorized: number; suggested: number; oneOffHint: number };
 
 // F8 快捷条件 chip 上的数字（M4-7）：全部数据，不跟着当前筛选变，方便一眼看到还有多少要处理
-// 和列表用同样的条件：未分类 = 有一个拆分是未分类（R16.5），建议转账 = transfer_status = suggested
+// 和列表用同样的条件：未分类 = 有一个拆分是未分类（R16.5），建议转账 = transfer_status = suggested，
+// 大额未标 = R22.3
 export async function countQuickFilters(ctx: HouseholdContext): Promise<QuickFilterCounts> {
   const countWhere = (f: TransactionFilters) =>
     db
       .select({ count: sql<number>`count(*)`.mapWith(Number) })
       .from(transaction)
       .where(listWhere(ctx, f, '')); // 没有时间段，today 用不到
-  const [[uncategorized], [suggested]] = await Promise.all([
+  const [[uncategorized], [suggested], [oneOffHint]] = await Promise.all([
     countWhere({ quick: 'uncategorized' }),
     countWhere({ quick: 'suggested' }),
+    countWhere({ quick: 'one_off_hint' }),
   ]);
-  return { uncategorized: uncategorized.count, suggested: suggested.count };
+  return {
+    uncategorized: uncategorized.count,
+    suggested: suggested.count,
+    oneOffHint: oneOffHint.count,
+  };
 }
 
 // ---------- 详情 ----------
@@ -563,7 +595,6 @@ export async function getTransaction(
   return {
     ...toItem(row, txSplits, partners),
     possibleDuplicates: partners,
-    oneOffHint: oneOffHintOf(txSplits),
     balanceCents: row.balanceCents,
     note: row.note,
     confirmedAt: row.confirmedAt,

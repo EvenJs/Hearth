@@ -112,7 +112,7 @@ function FilterForm({ filters, options }: Props) {
         pending && 'opacity-60',
       )}
     >
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
         <Field label="时间段">
           <Select value={periodValue} onValueChange={onPeriodChange}>
             <SelectTrigger className="w-full">
@@ -228,6 +228,23 @@ function FilterForm({ filters, options }: Props) {
               <SelectItem value={ALL}>不限</SelectItem>
               <SelectItem value="1">税前</SelectItem>
               <SelectItem value="0">非税前</SelectItem>
+            </SelectContent>
+          </Select>
+        </Field>
+
+        {/* R22.4：否 = 没标或确认不是 */}
+        <Field label="一次性">
+          <Select
+            value={filters.oneOff === undefined ? ALL : filters.oneOff ? '1' : '0'}
+            onValueChange={selectChange('oneoff')}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>不限</SelectItem>
+              <SelectItem value="1">是</SelectItem>
+              <SelectItem value="0">否</SelectItem>
             </SelectContent>
           </Select>
         </Field>

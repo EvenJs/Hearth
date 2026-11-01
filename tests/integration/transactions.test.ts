@@ -296,20 +296,32 @@ describeDb('M4-2 listTransactions / getTransaction', () => {
 
   it('countQuickFilters: joint → 4 uncategorized, 0 suggested', async () => {
     await importFixture('ANZ Joint', 'anz/joint-2026-09.csv');
-    expect(await countQuickFilters(t.ctx)).toEqual({ uncategorized: 4, suggested: 0 });
+    expect(await countQuickFilters(t.ctx)).toEqual({
+      uncategorized: 4,
+      suggested: 0,
+      oneOffHint: 0,
+    });
   });
 
   it('countQuickFilters: joint + me → 5 uncategorized, 2 suggested; other household sees 0', async () => {
     await importFixture('ANZ Joint', 'anz/joint-2026-09.csv');
     await importFixture('ANZ Male', 'anz/me-2026-09.csv');
-    expect(await countQuickFilters(t.ctx)).toEqual({ uncategorized: 5, suggested: 2 });
+    expect(await countQuickFilters(t.ctx)).toEqual({
+      uncategorized: 5,
+      suggested: 2,
+      oneOffHint: 0,
+    });
 
     const [other] = await db
       .insert(schema.household)
       .values({ name: 'Other Household' })
       .returning({ id: schema.household.id });
     const otherCtx: HouseholdContext = { ...t.ctx, householdId: other.id, memberId: null };
-    expect(await countQuickFilters(otherCtx)).toEqual({ uncategorized: 0, suggested: 0 });
+    expect(await countQuickFilters(otherCtx)).toEqual({
+      uncategorized: 0,
+      suggested: 0,
+      oneOffHint: 0,
+    });
   });
 
   // ---------- 详情 ----------
