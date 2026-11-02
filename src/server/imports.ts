@@ -28,6 +28,7 @@ import {
 import { ANZ_PLUS_PDF_ONLY, checkPdfFile } from '@/lib/import/import-input';
 import { identifyBankStatement, parseBankStatement } from '@/lib/import/index';
 import { processFile, processRows, type HouseholdConfig } from '@/lib/import/process';
+import { findBalanceDuplicates, type BalanceCandidate } from '@/lib/rules/dedupe';
 import { todayInMelbourne } from '@/lib/rules/periods';
 import { bySystemKey } from '@/lib/rules/classify';
 import { confirmPendingTransfer, findPendingMatches, isMatchCandidate } from '@/lib/rules/pending';
@@ -552,7 +553,33 @@ async function runImport(ctx: HouseholdContext, p: PreparedImport): Promise<Impo
         );
       for (const f of found) if (f.key) existing.add(f.key);
     }
-    const fresh = rows.filter((r) => !existing.has(r.dedupeKey));
+    let fresh = rows.filter((r) => !existing.has(r.dedupeKey));
+
+    // R4.3：CBA 对账单再按 (date, amount_cents, balance_cents) 查一次，已有交易不动
+    if (p.source === 'pdf' && account.bank === 'cba' && fresh.length > 0) {
+      const candidates: BalanceCandidate[] = [];
+      for (const dates of chunks([...new Set(fresh.map((r) => r.date))])) {
+        candidates.push(
+          ...(await tx
+            .select({
+              date: transaction.date,
+              amountCents: transaction.amountCents,
+              balanceCents: transaction.balanceCents,
+              dedupeKey: transaction.dedupeKey,
+            })
+            .from(transaction)
+            .where(
+              and(
+                eq(transaction.householdId, hh),
+                eq(transaction.accountId, account.id),
+                inArray(transaction.date, dates),
+              ),
+            )),
+        );
+      }
+      const skip = findBalanceDuplicates(fresh, candidates, existing);
+      fresh = fresh.filter((_, i) => !skip[i]);
+    }
     const duplicateCount = rows.length - fresh.length;
 
     // R8.2：同账户的候选，带上拆分数和主拆分的归属人（R8.3 例外要用）
