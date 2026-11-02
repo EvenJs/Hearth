@@ -81,4 +81,4 @@
 | ANZ Plus 对账单用例（R1D，M7.5） | [`cases/10-anz-plus-statement.md`](cases/10-anz-plus-statement.md) | 看各用例自己的前提 |
 | 小票商品类型用例（R21，M7.6） | [`cases/11-item-types.md`](cases/11-item-types.md) | 看各用例自己的前提 |
 | 月均支出和一次性开销用例（R22，M7.7） | [`cases/12-monthly-average.md`](cases/12-monthly-average.md) | 不用 CSV，拆分列表写在用例里；今天固定 2026-11-15 |
-| CBA 对账单用例（R1E，M8.5） | [`cases/13-cba-statement.md`](cases/13-cba-statement.md) | 看各用例自己的前提 |
+| CBA 对账单用例（R1E、R4.3，M8.5） | [`cases/13-cba-statement.md`](cases/13-cba-statement.md) | 看各用例自己的前提 |

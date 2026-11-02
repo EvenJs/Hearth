@@ -20,7 +20,7 @@
 | R1. 解析（CSV 和 PDF 对账单） | [`rules/R01-parse.md`](rules/R01-parse.md) | R1.0、R1A、R1C、R1C.1、R1D、R1D.1、R1E、R1E.1、R1B、R1B.1、R1B.2 |
 | R2. 提取和脱敏 | [`rules/R02-extract-mask.md`](rules/R02-extract-mask.md) | R2.1、R2.2、R2.3 |
 | R3. 清洗商家名 | [`rules/R03-merchant.md`](rules/R03-merchant.md) | — |
-| R4. 去重 | [`rules/R04-dedupe.md`](rules/R04-dedupe.md) | R4.1、R4.2 |
+| R4. 去重 | [`rules/R04-dedupe.md`](rules/R04-dedupe.md) | R4.1、R4.2、R4.3 |
 | R5. 归属人 | [`rules/R05-member.md`](rules/R05-member.md) | R5.1 |
 | R6. 内部转账识别 | [`rules/R06-transfer.md`](rules/R06-transfer.md) | R6.1、R6.2、R6.3、R6.4 |
 | R7. 分类 | [`rules/R07-classify.md`](rules/R07-classify.md) | R7.1、R7.2 |
