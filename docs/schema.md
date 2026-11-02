@@ -241,6 +241,7 @@ item_type            fruit | vegetable | meat | seafood | dairy_egg | pantry | s
 | member_source   | text    | not null                                      | `manual` / `category` / `card` / `account`，非 manual 时改分类会重新计算归属人（R5.1） |
 | is_pre_tax      | boolean | not null, default false                       | 税前收入，用于税后估算（R14）                                                          |
 | note            | text    | null                                          |                                                                                        |
+| is_one_off      | boolean | null                                          | M7.7-4 加（2026-11-01）。一次性开销：`null` 没看过 / `true` 是 / `false` 确认不是。只有支出口径的拆分会有非 `null` 的值（R22.1、R22.2） |
 
 索引：`(household_id, category_id)`、`(household_id, member_id)`、`(transaction_id)`
 应用层保证：同一交易所有拆分的 `amount_cents` 合计 = 交易的 `amount_cents`；至少有一行；恰好一行 `is_primary = true`。拆分规则见 R15。

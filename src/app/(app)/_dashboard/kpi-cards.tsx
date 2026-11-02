@@ -40,7 +40,17 @@ export function KpiCards({ dashboard, scope, today }: Props) {
 
       <Kpi label="支出">
         <Big href={href('expense')}>{formatAud(current.expenseCents)}</Big>
-        <Sub>&nbsp;</Sub>
+        {/* R22.10：本期支出照常含一次性，X 是 0 不显示（留空行，卡片高度不变） */}
+        <Sub>
+          {dashboard.oneOffExpenseCents === 0 ? (
+            <>&nbsp;</>
+          ) : (
+            <>
+              其中一次性{' '}
+              <span className="tabular-nums">{formatAud(dashboard.oneOffExpenseCents)}</span>
+            </>
+          )}
+        </Sub>
         <Change title={prevTitle}>{formatPercentChange(comparison.expensePercent)}</Change>
       </Kpi>
 

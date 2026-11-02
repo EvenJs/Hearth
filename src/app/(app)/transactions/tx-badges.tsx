@@ -7,6 +7,7 @@ import { categoryLabel } from './format';
 
 // 流水里的标签（docs/design/README.md 第 3 节、R16.7）
 // 未分类琥珀色、建议转账蓝色、pending 灰色带时钟、可能重复玫红（duplicate-badge.tsx）；R6.2 只配对没改的交易显示"已配对，分类是手动的"
+// R22.3 大额未标"一次性？"橙色（和快捷筛选 chip 同色），点进详情去勾
 
 const base = 'border-transparent font-normal';
 
@@ -152,6 +153,9 @@ export function TxBadges({ tx }: { tx: TransactionListItem }) {
           <Clock />
           待确认
         </Badge>
+      )}
+      {tx.oneOffHint && (
+        <Badge className={cn(base, 'bg-orange-100 text-orange-800')}>一次性？</Badge>
       )}
       {tx.transferStatus === 'suggested' && (
         <Badge className={cn(base, 'bg-blue-100 text-blue-800')}>建议转账</Badge>

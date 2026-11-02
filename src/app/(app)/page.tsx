@@ -11,11 +11,13 @@ import { getHouseholdContext } from '@/server/context';
 import { getDashboard, getPivot } from '@/server/dashboard';
 import { getItemTypeStats } from '@/server/item-types';
 import { listMembers } from '@/server/members';
+import { getMonthlyAverage } from '@/server/monthly-average';
 import { getHouseholdTax } from '@/server/tax';
 import { ExpenseCategories } from './_dashboard/expense-categories';
 import { ItemTypes } from './_dashboard/item-types';
 import { KpiCards, PendingNote } from './_dashboard/kpi-cards';
 import { MemberSwitch } from './_dashboard/member-switch';
+import { MonthlyAverage } from './_dashboard/monthly-average';
 import { PeriodPicker } from './_dashboard/period-picker';
 import { PinnedBudgets } from './_dashboard/pinned-budgets';
 import { PivotSection } from './_dashboard/pivot-section';
@@ -27,6 +29,7 @@ import { TopMerchants } from './_dashboard/top-merchants';
 // 分类占比和 Top 商家（M5-4）；汇总表（M5-5，切换写在 URL 的 grain、group、metric）；趋势（M5-6）后面加
 // 顶部置顶预算（M7-4，R11.3）固定本月、全家，不跟筛选；税务卡片（M7-6，R14.6）固定今天所在的财年
 // 商品类型统计（M7.6-7，R21.7）跟时间段、不跟归属人，放在汇总表下面
+// 月均卡片（M7.7-7，R22.8）跟归属人、不跟时间段，放在汇总表上面；KPI 支出下面"其中一次性"（R22.10）
 export default function HomePage(props: PageProps<'/'>) {
   return (
     // 读 session 和 searchParams 的部分放在 Suspense 里（cacheComponents）
@@ -63,7 +66,7 @@ async function DashboardSection({
   const memberId = members.some((m) => m.id === filters.memberId) ? filters.memberId : undefined;
   const input = { period: filters.period ?? DEFAULT_PERIOD, memberId };
   const period = periodRange(input.period, today);
-  const [dashboard, pivotData, budgets, tax, itemTypeStats] = await Promise.all([
+  const [dashboard, pivotData, budgets, tax, itemTypeStats, monthlyAverage] = await Promise.all([
     getDashboard(ctx, input, today),
     getPivot(ctx, { ...input, ...view }, today),
     // R11.3：不传时间段和归属人
@@ -72,6 +75,8 @@ async function DashboardSection({
     getHouseholdTax(ctx, financialYearOf(today)),
     // R21.7：全家，不传归属人
     getItemTypeStats(ctx, period),
+    // R22.8：跟归属人，不跟时间段
+    getMonthlyAverage(ctx, today, memberId),
   ]);
   const scope: DashboardScope = { period: dashboard.period, memberId };
 
@@ -120,6 +125,9 @@ async function DashboardSection({
           <TopMerchants dashboard={dashboard} scope={scope} />
         </div>
       </div>
+
+      {/* R22.8：月均卡片放在汇总表上面 */}
+      <MonthlyAverage data={monthlyAverage} />
 
       <PivotSection data={pivotData} scope={scope} view={view} members={members} today={today} />
 

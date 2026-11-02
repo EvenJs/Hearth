@@ -258,6 +258,7 @@ const addSplitSchema = z.object({
   categoryId: z.uuid(),
   memberId: z.uuid().nullish(), // 不选就按 R5 算
   note: noteInput,
+  isOneOff: z.boolean().optional(), // R22.2：拆分对话框里勾的
 });
 
 export async function addSplitAction(

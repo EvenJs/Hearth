@@ -23,7 +23,7 @@ import {
   setReceiptItemType,
   type SaveReceiptInput,
 } from '@/server/receipts';
-import { addSplit, updateSplit } from '@/server/splits';
+import { addSplit, setSplitOneOff, updateSplit } from '@/server/splits';
 import { readFixture, readReceiptFixture, type FixturePath } from '../helpers/fixtures';
 import {
   createTestHousehold,
@@ -643,6 +643,36 @@ describeDb('saveReceipt（R20.3、R20.4、R20.6、R20.7）', () => {
     expect(await splitShape(n19.id)).toEqual(R_A_SPLITS);
     expect(await deleteReceipt(t.ctx, r.receiptId)).toMatchObject({ ok: false, code: 'not_found' });
   });
+
+  it('R22.2: saving clears every one-off flag; oneOffCleared only when one was true', async () => {
+    await importFixture(t, 'ANZ Joint', 'anz/joint-2026-09.csv');
+    const n19 = await joint19();
+    const [primary] = await getSplits(n19.id);
+    expect((await setSplitOneOff(t.ctx, primary.id, true)).ok).toBe(true);
+
+    const r = await saveOk({ target: { kind: 'transaction', transactionId: n19.id } });
+    expect(r.oneOffCleared).toBe(true);
+    const after = await getSplits(n19.id);
+    expect(after).toHaveLength(R_A_SPLITS.length);
+    expect(after.every((s) => s.isOneOff === null)).toBe(true);
+  });
+
+  it('R22.2: only false flags → cleared too, but oneOffCleared is false', async () => {
+    await importFixture(t, 'ANZ Joint', 'anz/joint-2026-09.csv');
+    const n19 = await joint19();
+    const [primary] = await getSplits(n19.id);
+    expect((await setSplitOneOff(t.ctx, primary.id, false)).ok).toBe(true);
+
+    const r = await saveOk({ target: { kind: 'transaction', transactionId: n19.id } });
+    expect(r.oneOffCleared).toBe(false);
+    expect((await getSplits(n19.id)).every((s) => s.isOneOff === null)).toBe(true);
+  });
+
+  it('R22.2: a new transaction from a receipt has oneOffCleared false and null flags', async () => {
+    const r = await saveOk({ target: { kind: 'new', accountId: t.h.account('ANZ Joint').id } });
+    expect(r.oneOffCleared).toBe(false);
+    expect((await getSplits(r.transactionId)).every((s) => s.isOneOff === null)).toBe(true);
+  });
 });
 
 describeDb('R-U 撤销导入和重新挂（R12.1、R20.7）', () => {
@@ -686,6 +716,7 @@ describeDb('R-U 撤销导入和重新挂（R12.1、R20.7）', () => {
     ).toEqual({
       ok: true,
       transactionId: new19.id,
+      oneOffCleared: false,
     });
     expect(await splitShape(new19.id)).toEqual(R_A_SPLITS);
     expect(await listUnattachedReceipts(t.ctx)).toEqual([]);
@@ -1013,7 +1044,7 @@ describeDb('交易详情的小票、没挂上的小票重新挂（M6.7-8，R20.7
 
     expect(
       await attachReceipt(t.ctx, r.receiptId, { kind: 'transaction', transactionId: new19.id }),
-    ).toEqual({ ok: true, transactionId: new19.id });
+    ).toEqual({ ok: true, transactionId: new19.id, oneOffCleared: false });
     expect(preview.rows.map((x) => [x.amountCents, x.categoryLabel, x.isPrimary])).toEqual(
       R_A_SPLITS.map((x) => [x.amountCents, x.category, x.primary]),
     );
@@ -1405,7 +1436,11 @@ async function afterRA(old: boolean) {
       .set({
         parsedJson: {
           ...json,
-          items: json.items.map(({ name, amountCents, category }) => ({ name, amountCents, category })),
+          items: json.items.map(({ name, amountCents, category }) => ({
+            name,
+            amountCents,
+            category,
+          })),
         },
       })
       .where(eq(schema.receipt.id, r.receiptId));
@@ -1514,7 +1549,12 @@ describeDb('商品类型：详情页改类型（R21.6）', () => {
       [0, 'untyped'],
     ] as const) {
       expect(
-        await setReceiptItemType(t.ctx, receiptId, i, type as Parameters<typeof setReceiptItemType>[3]),
+        await setReceiptItemType(
+          t.ctx,
+          receiptId,
+          i,
+          type as Parameters<typeof setReceiptItemType>[3],
+        ),
       ).toMatchObject({ ok: false, code: 'invalid' });
     }
     expect(await storedJson(receiptId)).toEqual(before.json);

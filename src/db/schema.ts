@@ -372,6 +372,7 @@ export const transactionSplit = pgTable(
     memberSource: text('member_source').notNull(), // manual | category | card | account（R5.1）
     isPreTax: boolean('is_pre_tax').default(false).notNull(),
     note: text('note'),
+    isOneOff: boolean('is_one_off'), // R22.1：null 没看过 / true 是 / false 确认不是
   },
   (t) => [
     index('transaction_split_household_id_category_id_idx').on(t.householdId, t.categoryId),
