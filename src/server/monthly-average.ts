@@ -244,3 +244,23 @@ export async function getMonthlyAverage(
     members: members.map(({ id, name }) => ({ id, name })),
   };
 }
+
+// ---------- getBudgetAverage ----------
+
+// R22.11：新建预算的默认上限用近 12 个月月均，按全家（不跟归属人筛选）
+// 没有完整月时 null。各分类的值由调用方用 categoryAverage 取
+export async function getBudgetAverage(
+  ctx: HouseholdContext,
+  today: string,
+): Promise<MonthlyAverage | null> {
+  const first = await firstTransactionDate(ctx);
+  const window12 = averageWindow(today, first, 12);
+  if (window12.range === null) return null;
+
+  const [categories, members, splits] = await Promise.all([
+    loadCategories(ctx),
+    loadMembers(ctx),
+    loadSplits(ctx, window12.range.start, window12.range.end),
+  ]);
+  return monthlyAverage(splits, categories, members, window12);
+}

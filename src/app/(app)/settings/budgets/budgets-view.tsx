@@ -25,6 +25,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import type { BudgetOverview } from '@/lib/rules/budget';
+import type { MonthlyAverage } from '@/lib/rules/monthly-average';
 import { formatAud } from '@/lib/rules/money';
 import type { BudgetLevel } from '@/lib/rules/stats';
 import type { PickerSections } from '@/lib/transactions/category-picker';
@@ -43,6 +44,7 @@ type Props = {
   overview: BudgetOverview;
   refs: CategoryRefMap;
   sections: PickerSections; // 新建时的分类下拉（R11.2）
+  average: MonthlyAverage | null; // 近 12 个月月均，全家（R22.11）
 };
 
 type Dialog =
@@ -62,7 +64,7 @@ const PERCENT_TEXT: Record<BudgetLevel, string> = {
   over: 'text-destructive',
 };
 
-export function BudgetsView({ budgets, overview, refs, sections }: Props) {
+export function BudgetsView({ budgets, overview, refs, sections, average }: Props) {
   const [dialog, setDialog] = useState<Dialog | null>(null);
 
   // 对话框是一次性的：页面被 <Activity> 藏起来时关掉（docs/tech-stack.md 2 "页面状态"）
@@ -158,6 +160,7 @@ export function BudgetsView({ budgets, overview, refs, sections }: Props) {
           key={dialog.name === 'edit' ? dialog.budget.id : 'create'}
           budget={dialog.name === 'edit' ? dialog.budget : null}
           sections={sections}
+          average={average}
           onClose={() => setDialog(null)}
           onSaved={(msg) => {
             setDialog(null);

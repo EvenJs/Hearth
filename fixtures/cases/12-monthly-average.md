@@ -206,7 +206,7 @@ Personal & medical：Σ floor = 473，k = 1，余数都是 1 → s 大的 Clothi
 | Personal & medical / Other | -916 | 空 |
 | Transport & auto | 0（窗口里没有） | 空 |
 
-- 输入框下面小字：Groceries 时是"近 12 个月月均 $112.60（基于 5 个月）"；留空时不显示
+- 输入框下面小字：Groceries 时是"近 12 个月月均 $112.60（基于 5 个月）"；月均 ≤ 0 留空时小字照常显示（Holidays 是"$0.00"，Personal & medical / Other 是"-$9.16"）；没有完整月（W-4）不显示
 - 先选 Groceries（填了 113），用户把上限改成 150，再换成 Groceries / Supermarket → 上限还是 150
 - 看板选了 Male 筛选时新建 Groceries 预算 → 还是 11300（按全家）
 - 编辑已有的 Groceries 预算 → 不动原来的上限
