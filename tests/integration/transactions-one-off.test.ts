@@ -3,7 +3,6 @@
 import { beforeEach, expect, it } from 'vitest';
 import { db } from '@/db';
 import * as schema from '@/db/schema';
-import type { OneOffFlag } from '@/lib/rules/one-off';
 import type { TransactionFilters } from '@/lib/transactions/filters';
 import { dismissOneOffHint } from '@/server/splits';
 import { countQuickFilters, listTransactions } from '@/server/transactions';
@@ -13,100 +12,25 @@ import {
   resetBusinessTables,
   type DbTestHousehold,
 } from './helpers/db';
+import {
+  FURNITURE,
+  insertScenarioA,
+  insertTx,
+  SUPERMARKET,
+  type SplitRow,
+} from './helpers/one-off';
 
 // fixtures/cases/12：今天 = 2026-11-15
 const TODAY = '2026-11-15';
 
 let t: DbTestHousehold;
 
-type SplitRow = [amountCents: number, category: string, isOneOff: OneOffFlag, member?: string];
-
-// 用例的 # 写在 merchant 上，方便按名字找。拆分第一个是主拆分
-async function insertTx(
-  name: string,
-  date: string,
-  splits: SplitRow[],
-  status: 'confirmed' | 'pending' = 'confirmed',
-): Promise<string> {
-  const { ctx, h } = t;
-  return db.transaction(async (tx) => {
-    const [row] = await tx
-      .insert(schema.transaction)
-      .values({
-        householdId: ctx.householdId,
-        accountId: h.account('ANZ Joint').id,
-        date,
-        amountCents: splits.reduce((s, [a]) => s + a, 0),
-        rawDescription: name,
-        merchant: name,
-        status,
-        source: 'manual',
-        createdBy: ctx.userId,
-      })
-      .returning({ id: schema.transaction.id });
-    await tx.insert(schema.transactionSplit).values(
-      splits.map(([amountCents, category, isOneOff, memberName], i) => ({
-        householdId: ctx.householdId,
-        transactionId: row.id,
-        amountCents,
-        categoryId: h.category(category).id,
-        memberId: h.member(memberName ?? 'Home').id,
-        categorySource: 'manual',
-        memberSource: 'manual',
-        isPrimary: i === 0,
-        isPreTax: false,
-        isOneOff,
-      })),
-    );
-    return row.id;
-  });
-}
-
 const list = (filters: TransactionFilters) =>
   listTransactions(t.ctx, filters, { today: TODAY, pageSize: 200 });
 
 const names = (r: Awaited<ReturnType<typeof list>>) => r.items.map((i) => i.merchant).sort();
 
-const FURNITURE = 'Home & utilities / Furniture & appliances';
-const SUPERMARKET = 'Groceries / Supermarket';
-
 // ---------- 场景 A（A-9） ----------
-
-const SCENARIO_A: [string, string, SplitRow][] = [
-  ['#1', '2026-06-10', [300000, 'Income / Salary', null, 'Female']],
-  ['#2', '2026-06-12', [-200000, 'Home & utilities / Rent', false]],
-  ['#3', '2026-06-20', [-9998, SUPERMARKET, null]],
-  ['#4', '2026-07-01', [-200000, 'Home & utilities / Rent', false]],
-  ['#5', '2026-07-15', [-12000, SUPERMARKET, null]],
-  ['#6', '2026-07-20', [-150000, FURNITURE, true]],
-  ['#7', '2026-08-01', [-200000, 'Home & utilities / Rent', false]],
-  ['#8', '2026-08-09', [-9500, SUPERMARKET, null]],
-  ['#9', '2026-08-09', [-1303, 'Groceries / Fruit', null]],
-  ['#10', '2026-08-25', [30000, FURNITURE, true]],
-  ['#11', '2026-09-01', [-200000, 'Home & utilities / Rent', false]],
-  ['#12', '2026-09-14', [-11000, SUPERMARKET, null]],
-  ['#13', '2026-09-18', [4580, 'Personal & medical / Other', null, 'Female']],
-  ['#14', '2026-09-20', [-900, 'Entertainment & eat-out / Bubble tea', null, 'Male']],
-  ['#15', '2026-09-28', [-120000, 'Entertainment & eat-out / Holidays', true]],
-  ['#16', '2026-10-01', [-200000, 'Home & utilities / Rent', false]],
-  ['#17', '2026-10-05', [-13000, SUPERMARKET, null]],
-  ['#18', '2026-10-06', [500, SUPERMARKET, null]],
-  ['#19', '2026-10-12', [-653, 'Entertainment & eat-out / Bubble tea', null, 'Male']],
-  ['#20', '2026-10-15', [-6001, 'Personal & medical / Clothing & shoes', null, 'Female']],
-  ['#21', '2026-10-22', [-50000, 'Internal transfer', null]],
-  ['#22', '2026-10-23', [-2000, 'Uncategorised', null]],
-  ['#23', '2026-10-30', [-5002, 'Cash withdrawal', null]],
-  ['#24', '2026-11-03', [-14000, SUPERMARKET, null]],
-  ['#25', '2026-11-08', [-80000, FURNITURE, true]],
-  ['#26', '2026-11-10', [-450, 'Entertainment & eat-out / Bubble tea', null, 'Male']],
-  ['#27', '2026-11-12', [-3000, 'Transport & auto / Petrol / EV charging', null]],
-];
-
-async function insertScenarioA(): Promise<void> {
-  for (const [name, date, split] of SCENARIO_A) {
-    await insertTx(name, date, [split], name === '#20' ? 'pending' : 'confirmed');
-  }
-}
 
 const range = (start: string, end: string) => ({ start, end });
 
@@ -114,7 +38,7 @@ describeDb('M7.7-6 F8 一次性筛选（R22.4，fixtures 12 A-9）', () => {
   beforeEach(async () => {
     await resetBusinessTables();
     t = await createTestHousehold();
-    await insertScenarioA();
+    await insertScenarioA(t);
   });
 
   it('R22.4: 2026-06-01 到 2026-11-15，一次性 = 是 → #6 #10 #15 #25，合计 -320000', async () => {
@@ -192,7 +116,7 @@ describeDb('M7.7-6 F8 大额未标（R22.3，fixtures 12 H）', () => {
     t = await createTestHousehold();
     ids.clear();
     for (const [name, splits, status] of SCENARIO_H) {
-      ids.set(name, await insertTx(name, '2026-10-10', splits, status));
+      ids.set(name, await insertTx(t, name, '2026-10-10', splits, status));
     }
   });
 
