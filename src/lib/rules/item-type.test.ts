@@ -272,13 +272,19 @@ describe('R21.4 + R21.5 resolveItemTypes', () => {
 });
 
 describe('R21.6 changeItemType（详情页改类型）', () => {
+  // 存下来的小票金额都已填好；coles-a 没有 null 金额
+  const saved = (amountCents: number | null): number => {
+    if (amountCents === null) throw new Error('coles-a should have no null amounts');
+    return amountCents;
+  };
   // coles-a 存成旧小票：items 没有 type
-  const old = () => fixture('coles-a.json').items.map((i) => ({ name: i.name, amountCents: i.amountCents }));
+  const old = () =>
+    fixture('coles-a.json').items.map((i) => ({ name: i.name, amountCents: saved(i.amountCents) }));
   // coles-a 存成新小票：类型同 T-2
   const typed = () => {
     const items = fixture('coles-a.json').items;
     const types = assignItemTypes(items, EMPTY);
-    return items.map((i, index) => ({ name: i.name, amountCents: i.amountCents, type: types[index].type }));
+    return items.map((i, index) => ({ name: i.name, amountCents: saved(i.amountCents), type: types[index].type }));
   };
   const indexOf = (items: { name: string }[], name: string) => items.findIndex((i) => i.name === name);
 
