@@ -1,0 +1,70 @@
+Your Statement
+Statement 31  Page 1 of 3)
+Account Number  06 9999 10000003
+123
+Statement
+Female A Test  Period  1 Sep 2026 - 30 Sep 2026
+Enquiries 13 0000
+Closing Balance  11,561.59 CR
+Everyday Account
+Note text about your Everyday Account.
+Date  Transaction  Debit  Credit  Balance
+01 Sep 2026 OPENING BALANCE  10,000.00 CR
+01 Sep Salary EXAMPLE SCHOOL
+Wages 01092026  410.00  10,410.00 CR
+02 Sep Loan Repayment
+LN REPAY 123456789  1,480.00  8,930.00 CR
+03 Sep seene CommBank app BPAY 9
+=XÀâà9)1000999999  71.35  8,858.65 CR
+05 Sep SQ *OVERLAY COFFEE Melbourne VI AUS
+* *  Card xx5555
+Value Date 03/09/2026  6.80  8,851.85 CR
+0123.45678.9.0 ab123c4 0000 ab.c1.d234.e567.f g12.34.56
+08 Sep Transfer To TEST FRIEND
+PayID Phone from CommBank App
+Eat Eat  45.00  8,806.85 CR
+08 Sep Fast Transfer From OTHER FRIEND
+to PayID Phone
+dinner  22.50  8,829.35 CR
+10 Sep LIGHTNING BROADBAND
+Value Date 11/09/2026  75.00  8,754.35 CR
+12 Sep ZLR*Tower Sushi & Gourm Melbourne AU  3.00  8,751.35 CR
+MELBOURNE AU
+<<<PAGE>>>
+Statement 31  Page 2 of 3)
+Account Number  06 9999 10000003
+Date  Transaction  Debit  Credit  Balance
+12 Sep ZLR*Tower Sushi & Gourm Melbourne AU  3.00  8,748.35 CR
+15 Sep KIS HAIR Melbourne AU AUS
+Card xx4444
+Value Date 13/09/2026  22.80  8,725.55 CR
+16 Sep Fast Transfer From TEST HOLDER
+to PayID Phone
+joint  500.00  9,225.55 CR
+0123.45678.9.0 ab123c4 0000 ab.c1.d234.e567.f g12.34.5616 Sep Direct Debit 000793 BUPA AUSTRALIA
+111122223333444000  298.40  8,927.15 CR
+16 Sep CROWN ASIAN SPENCER Docklands VI AUS
+Card xx5555
+Value Date 14/09/2026  64.90  8,862.25 CR
+19 Sep Direct Credit 002221 MCARE BENEFITS
+123456789 ABCD  38.60  8,900.85 CR
+20 Sep CBA Yello HLPckg Cshbk  4.00  8,904.85 CR
+22 Sep DEFT PAYMENTS CommBank app BPAY 9
+12345678901234567890 INV No 0012345  455.60  8,449.25 CR
+24 Sep Transfer from xx7777
+CommBank app Home  1,000.00  9,449.25 CR
+25 Sep Fast Transfer From ACME TRADING PTY LTD
+invoice 0925  3,000.00  12,449.25 CR
+28 Sep TAX OFFICE PAYMENTS CommBank app BPAY 7
+5512345678901234 Sept  900.00  11,549.25 CR
+30 Sep Credit Interest  12.34  11,561.59 CR
+30 Sep 2026 CLOSING BALANCE  11,561.59 CR
+Opening balance  -  Total debits  Total credits  =  Closing balance
+10,000.00 CR  3,425.85  4,987.44  11,561.59 CR
+<<<PAGE>>>
+Statement 31  Page 3 of 3)
+Account Number  06 9999 10000003
+Important Information
+Please check this statement carefully.
+=XÀâà9)
+0123.45678.9.0 ab123c4 0000 ab.c1.d234.e567.f g12.34.56
