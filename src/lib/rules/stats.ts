@@ -19,7 +19,7 @@ export type Metric = 'income' | 'expense';
 // R10：一笔拆分算哪一类
 export type Bucket = Metric | 'uncategorized' | 'excluded';
 
-export function bucketOf(c: Category): Bucket {
+export function bucketOf(c: Pick<Category, 'kind' | 'systemKey'>): Bucket {
   if (c.kind === 'income') return 'income';
   if (c.kind === 'expense') return 'expense';
   switch (c.systemKey) {
@@ -425,8 +425,8 @@ function roundRatio(num: bigint, den: bigint): number {
   return Number(num < zero ? -q : q);
 }
 
-// R10.4：(本期 − 上期) ÷ 上期；上期 ≤ 0 时 null
-function percentChange(current: number, previous: number): number | null {
+// R10.4：(本期 − 上期) ÷ 上期；上期 ≤ 0 时 null。R22.9 本月对比月均也用这个
+export function percentChange(current: number, previous: number): number | null {
   if (previous <= 0) return null;
   return roundRatio(BigInt(current - previous) * BigInt(100), BigInt(previous));
 }

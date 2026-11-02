@@ -17,7 +17,8 @@ export const TRANSACTION_STATUSES = ['pending', 'confirmed'] as const;
 export type TransactionStatus = (typeof TRANSACTION_STATUSES)[number];
 
 // duplicates：R17.6 可能重复（M6-6），只由列表顶部的提示条打开，不在筛选栏和快捷 chips 里
-export const QUICK_FILTERS = ['uncategorized', 'suggested', 'duplicates'] as const;
+// one_off_hint：R22.3 大额未标（M7.7-6），按交易算，合计按整笔
+export const QUICK_FILTERS = ['uncategorized', 'suggested', 'duplicates', 'one_off_hint'] as const;
 export type QuickFilter = (typeof QUICK_FILTERS)[number];
 
 export type TransactionFilters = {
@@ -28,10 +29,11 @@ export type TransactionFilters = {
   type?: TransactionType; // R16.5，按拆分的分类
   status?: TransactionStatus; // transaction.status
   isPreTax?: boolean; // 拆分的 is_pre_tax
+  oneOff?: boolean; // R22.4 拆分的 is_one_off：true = 是，false = null 或 false
   merchant?: string; // 商家关键词，不区分大小写
   minCents?: number; // 交易金额绝对值 ≥，含
   maxCents?: number; // 交易金额绝对值 ≤，含
-  quick?: QuickFilter; // 未分类（拆分）、建议转账（transfer_status = suggested）、可能重复（R17.6）
+  quick?: QuickFilter; // 未分类（拆分）、建议转账（transfer_status = suggested）、可能重复（R17.6）、大额未标（R22.3）
   batchId?: string; // transaction.import_batch_id
 };
 
@@ -42,6 +44,7 @@ export function hasSplitFilter(f: TransactionFilters): boolean {
     f.memberId !== undefined ||
     f.type !== undefined ||
     f.isPreTax !== undefined ||
+    f.oneOff !== undefined ||
     f.quick === 'uncategorized'
   );
 }
@@ -65,7 +68,7 @@ const preset = z.enum(PRESET_PERIODS);
 const type = z.enum(TRANSACTION_TYPES);
 const status = z.enum(TRANSACTION_STATUSES);
 const quick = z.enum(QUICK_FILTERS);
-const pretax = z.enum(['1', '0']).transform((v) => v === '1');
+const flag = z.enum(['1', '0']).transform((v) => v === '1');
 const merchant = z.string().trim().min(1).max(100);
 const amount = z
   .string()
@@ -100,7 +103,8 @@ export function filtersFromSearchParams(params: SearchParamsInput): TransactionF
     categoryId: read(uuid, get('category')),
     type: read(type, get('type')),
     status: read(status, get('status')),
-    isPreTax: read(pretax, get('pretax')),
+    isPreTax: read(flag, get('pretax')),
+    oneOff: read(flag, get('oneoff')),
     merchant: read(merchant, get('q')),
     minCents: read(amount, get('min')),
     maxCents: read(amount, get('max')),
@@ -142,6 +146,7 @@ export function filtersToSearchParams(f: TransactionFilters): URLSearchParams {
   if (f.type) p.set('type', f.type);
   if (f.status) p.set('status', f.status);
   if (f.isPreTax !== undefined) p.set('pretax', f.isPreTax ? '1' : '0');
+  if (f.oneOff !== undefined) p.set('oneoff', f.oneOff ? '1' : '0');
   if (f.merchant) p.set('q', f.merchant);
   if (f.minCents !== undefined) p.set('min', centsToDollars(f.minCents));
   if (f.maxCents !== undefined) p.set('max', centsToDollars(f.maxCents));

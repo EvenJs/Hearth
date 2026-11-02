@@ -1,0 +1,1 @@
+ALTER TABLE "transaction_split" ADD COLUMN "is_one_off" boolean;

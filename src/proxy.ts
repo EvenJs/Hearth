@@ -13,5 +13,8 @@ export function proxy(request: NextRequest) {
 
 export const config = {
   // 除了 /login、/api/auth/* 和静态资源，其他路径都要登录
-  matcher: ['/((?!login|api/auth|_next/static|_next/image|favicon.ico).*)'],
+  // manifest 和图标没登录也要能拿到，否则"添加到主屏幕"拿不到图标（M7.8-1）。只放行这几个，不放宽到所有带扩展名的文件
+  matcher: [
+    '/((?!login|api/auth|_next/static|_next/image|favicon.ico|manifest.webmanifest|icon.png|apple-icon.png|icons/).*)',
+  ],
 };

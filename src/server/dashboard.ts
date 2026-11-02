@@ -1,9 +1,11 @@
 // F6 看板的数据层（M5-2）：按 household_id 把拆分查出来，串 src/lib/rules/ 的纯函数
 // 统计口径全在 stats.ts、periods.ts 里，这里不在 SQL 里算业务口径（docs/tasks/m5.md 通用要求）
 // pending 的交易照常查出来（R10、R10.6）；归属人筛选用 filterByMember，不放进 SQL
+// 本期支出"其中一次性"（M7.7-7，R22.10）只读 is_one_off，其他统计不看这个字段
 import { and, eq, gte, lte } from 'drizzle-orm';
 import { db } from '@/db';
 import { category, transaction, transactionSplit } from '@/db/schema';
+import { oneOffExpense, type OneOffFlag } from '@/lib/rules/one-off';
 import {
   lastTwelveMonths,
   periodRange,
@@ -36,8 +38,8 @@ import type { HouseholdContext } from './context';
 
 const TOP_MERCHANTS = 5; // R10.3 显示前 5 个
 
-// 看板要的拆分字段：统计（StatSplit）+ Top 商家 + pending
-type DashboardSplit = MerchantSplit & PendingSplit;
+// 看板要的拆分字段：统计（StatSplit）+ Top 商家 + pending + 一次性（R22.10）
+type DashboardSplit = MerchantSplit & PendingSplit & { isOneOff: OneOffFlag };
 
 // ---------- 查询 ----------
 
@@ -70,6 +72,7 @@ async function loadSplits(ctx: HouseholdContext, range: DateRange): Promise<Dash
       categoryId: transactionSplit.categoryId,
       memberId: transactionSplit.memberId,
       isPreTax: transactionSplit.isPreTax,
+      isOneOff: transactionSplit.isOneOff,
     })
     .from(transactionSplit)
     .innerJoin(
@@ -114,6 +117,7 @@ export type Dashboard = {
   comparison: Comparison; // R10.4
   topMerchants: MerchantTotal[]; // R10.3，前 5 个
   pendingCount: number; // R10.6 "含 N 笔待确认交易"
+  oneOffExpenseCents: number; // R22.10 本期支出"其中一次性 $X"，0 不显示
   trend: MonthTrend[]; // R10.5，固定近 12 个月，不跟时间段走
   // 本期支出分类里出现的一级、二级，按 id 查。从全部分类里取（含已归档），老拆分指向归档分类也有名字
   categories: Record<string, DashboardCategory>;
@@ -165,6 +169,10 @@ export async function getDashboard(
     comparison: compare(current, previousSummary),
     topMerchants: topMerchants(splits, categories, period, TOP_MERCHANTS),
     pendingCount: pendingCount(splits, period),
+    oneOffExpenseCents: oneOffExpense(
+      splits.filter((s) => s.date >= period.start && s.date <= period.end),
+      categories,
+    ),
     trend: monthlyTrend(splits, categories, months),
     categories: pickCategories(
       categories,

@@ -405,6 +405,7 @@ describe('R18.4 例子：BLUE CAFE BAR 和规则 CAFE → Coffee & tea', () => {
             memberId: mem('Home'),
             memberSource: 'account',
             isPreTax: false,
+            isOneOff: null, // R22.2：改成未分类，标记清成 null
           },
         },
       ],

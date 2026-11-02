@@ -3,6 +3,7 @@
 // 新建 / 修改预算的对话框（设计图 10，R11.2），和删除确认（R11.3）
 // 字段：分类（只在新建时能选，R11.2 的范围）、每月上限、提醒百分比（1–100，默认 80）、固定到首页
 // 编辑不能改分类，要换就删掉重建。报错（已经有预算、上限不对）显示在对话框里，不关
+// R22.11：新建选了分类后上限默认填近 12 个月月均（整元），用户动过上限就不再覆盖；编辑不填
 import { ChevronsUpDown, Loader2 } from 'lucide-react';
 import { useState, useTransition } from 'react';
 import {
@@ -26,6 +27,12 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { formatAud } from '@/lib/rules/money';
+import {
+  categoryAverage,
+  suggestedBudgetLimit,
+  type MonthlyAverage,
+} from '@/lib/rules/monthly-average';
 import type { PickerSections } from '@/lib/transactions/category-picker';
 import { cn } from '@/lib/utils';
 import type { BudgetItem } from '@/server/budgets';
@@ -42,19 +49,30 @@ function centsToInput(cents: number): string {
 type Props = {
   budget: BudgetItem | null; // null = 新建
   sections: PickerSections;
+  average: MonthlyAverage | null; // 近 12 个月月均，全家；null = 没有完整月
   onClose: () => void;
   onSaved: (message: string) => void;
 };
 
-export function BudgetDialog({ budget, sections, onClose, onSaved }: Props) {
+export function BudgetDialog({ budget, sections, average, onClose, onSaved }: Props) {
   const [categoryId, setCategoryId] = useState<string | null>(budget?.categoryId ?? null);
   const [limit, setLimit] = useState(budget ? centsToInput(budget.monthlyLimitCents) : '');
+  const [limitTouched, setLimitTouched] = useState(false);
   const [warn, setWarn] = useState(String(budget?.warnAtPercent ?? DEFAULT_WARN));
   const [isPinned, setIsPinned] = useState(budget?.isPinned ?? false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   const label = pickerLabel(sections, categoryId);
+  // 月均 ≤ 0 时上限留空，小字照常显示；没有完整月不显示（M7.7-8）
+  const averageCents = !budget && categoryId ? categoryAverage(average, categoryId) : null;
+
+  function selectCategory(id: string | null) {
+    setCategoryId(id);
+    if (limitTouched) return;
+    const suggested = id === null ? null : suggestedBudgetLimit(categoryAverage(average, id));
+    setLimit(suggested === null ? '' : centsToInput(suggested));
+  }
 
   function save() {
     if (!budget && !categoryId) {
@@ -113,7 +131,7 @@ export function BudgetDialog({ budget, sections, onClose, onSaved }: Props) {
               <CategoryPicker
                 sections={sections}
                 value={categoryId}
-                onSelect={(id) => setCategoryId(id)}
+                onSelect={selectCategory}
                 mode="edit"
               >
                 <Button
@@ -143,11 +161,19 @@ export function BudgetDialog({ budget, sections, onClose, onSaved }: Props) {
                 autoComplete="off"
                 placeholder="200.00"
                 value={limit}
-                onChange={(e) => setLimit(e.target.value)}
+                onChange={(e) => {
+                  setLimit(e.target.value);
+                  setLimitTouched(true);
+                }}
                 className="pl-6 tabular-nums"
                 autoFocus={budget !== null}
               />
             </div>
+            {averageCents !== null && average && (
+              <p className="text-xs text-muted-foreground">
+                近 12 个月月均 {formatAud(averageCents)}（基于 {average.months} 个月）
+              </p>
+            )}
           </div>
 
           <div className="grid gap-2">

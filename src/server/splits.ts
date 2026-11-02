@@ -12,6 +12,7 @@ import {
   type SplitRow,
   type SplitTx,
 } from '@/lib/rules/split';
+import { canMarkOneOff } from '@/lib/rules/one-off';
 import { changeCategory, changeMember, isSelectableCategory } from '@/lib/rules/split-edit';
 import type { CategorySource, MemberSource, TransferStatus } from '@/lib/rules/types';
 import type { HouseholdContext } from './context';
@@ -25,6 +26,7 @@ export type AddSplitInput = {
   categoryId: string;
   memberId?: string | null; // 不选就按 R5 算
   note?: string | null;
+  isOneOff?: boolean; // R22.2：拆分对话框里勾的，不勾就是 null；非支出分类忽略
 };
 
 // 只传要改的字段。amountCents 是用户填的正数；note 传 null 或空字符串是清空
@@ -58,6 +60,7 @@ const addSchema = z.object({
   categoryId: z.uuid(),
   memberId: z.uuid().nullish(),
   note: noteSchema,
+  isOneOff: z.boolean().optional(),
 });
 
 const updateSchema = z
@@ -109,6 +112,7 @@ export async function lockTransaction(
       memberSource: transactionSplit.memberSource,
       isPreTax: transactionSplit.isPreTax,
       note: transactionSplit.note,
+      isOneOff: transactionSplit.isOneOff,
     })
     .from(transactionSplit)
     .where(
@@ -185,6 +189,7 @@ export async function writeSplits(
     memberSource: s.memberSource,
     isPreTax: s.isPreTax,
     note: s.note,
+    isOneOff: s.isOneOff ?? null, // R22.2：新拆分默认 null，已有的从 lockTransaction 读出来原样写回
   });
 
   for (const s of next) {
@@ -233,7 +238,7 @@ export async function addSplit(
       ? { ok: false, message: '拆出金额必须大于 0' }
       : INVALID;
   }
-  const { amountCents, categoryId, memberId, note } = parsed.data;
+  const { amountCents, categoryId, memberId, note, isOneOff } = parsed.data;
   if (memberId && !(await isActiveMember(ctx, memberId))) return BAD_MEMBER;
 
   return db.transaction(async (tx) => {
@@ -247,7 +252,7 @@ export async function addSplit(
     const c = editCtx.categories.find((x) => x.id === categoryId);
     if (!c || !isSelectableCategory(c)) return BAD_CATEGORY; // R16.3
 
-    const r = planAddSplit(t, { amountCents, categoryId, memberId, note }, editCtx);
+    const r = planAddSplit(t, { amountCents, categoryId, memberId, note, isOneOff }, editCtx);
     if (!r.ok) return r;
     const createdId = await writeSplits(tx, ctx, t, r.splits);
     return { ok: true, splitId: createdId! };
@@ -334,5 +339,70 @@ export async function removeSplit(
     if (!r.ok) return r;
     await writeSplits(tx, ctx, t, r.splits);
     return { ok: true, splitId };
+  });
+}
+
+// R22.1 勾一次性：true 是，false 看过、确认不是。回不到 null。只改这一个拆分
+export async function setSplitOneOff(
+  ctx: HouseholdContext,
+  splitId: string,
+  value: boolean,
+): Promise<SplitWriteResult> {
+  if (!z.uuid().safeParse(splitId).success || typeof value !== 'boolean') return INVALID;
+
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({ categoryId: transactionSplit.categoryId })
+      .from(transactionSplit)
+      .where(
+        and(eq(transactionSplit.id, splitId), eq(transactionSplit.householdId, ctx.householdId)),
+      )
+      .for('update');
+    if (!row) return NOT_FOUND;
+
+    const editCtx = await loadEditContext(tx, ctx);
+    const c = editCtx.categories.find((x) => x.id === row.categoryId);
+    if (!c || !canMarkOneOff(c)) return { ok: false, message: '只有支出能标一次性' };
+
+    await tx
+      .update(transactionSplit)
+      .set({ isOneOff: value })
+      .where(
+        and(eq(transactionSplit.id, splitId), eq(transactionSplit.householdId, ctx.householdId)),
+      );
+    return { ok: true, splitId };
+  });
+}
+
+// R22.3 大额提示点"是"（value = true）或"不是一次性"（false）：
+// 这笔交易所有 null 的支出拆分设成 value，已经标过的不动
+export async function dismissOneOffHint(
+  ctx: HouseholdContext,
+  transactionId: string,
+  value = false,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (!z.uuid().safeParse(transactionId).success || typeof value !== 'boolean') return INVALID;
+
+  return db.transaction(async (tx) => {
+    const t = await lockTransaction(tx, ctx, transactionId);
+    if (!t) return { ok: false, message: '找不到这笔交易' };
+
+    const editCtx = await loadEditContext(tx, ctx);
+    const byId = new Map(editCtx.categories.map((c) => [c.id, c]));
+    const ids = t.splits
+      .filter((s) => {
+        const c = byId.get(s.categoryId);
+        return s.isOneOff === null && c !== undefined && canMarkOneOff(c);
+      })
+      .map((s) => s.id);
+    if (ids.length > 0) {
+      await tx
+        .update(transactionSplit)
+        .set({ isOneOff: value })
+        .where(
+          and(inArray(transactionSplit.id, ids), eq(transactionSplit.householdId, ctx.householdId)),
+        );
+    }
+    return { ok: true };
   });
 }

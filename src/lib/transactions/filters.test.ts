@@ -30,6 +30,7 @@ describe('filtersFromSearchParams', () => {
         type: 'expense',
         status: 'confirmed',
         pretax: '1',
+        oneoff: '1',
         q: 'coles',
         min: '50',
         max: '100.5',
@@ -44,6 +45,7 @@ describe('filtersFromSearchParams', () => {
       type: 'expense',
       status: 'confirmed',
       isPreTax: true,
+      oneOff: true,
       merchant: 'coles',
       minCents: 5000,
       maxCents: 10050,
@@ -134,6 +136,24 @@ describe('quick = duplicates（R17.6，M6-6 提示条的快捷方式）', () => 
   });
 });
 
+describe('一次性筛选和大额未标（R22.3、R22.4，M7.7-6）', () => {
+  it('R22.4: oneoff=1 → 是，oneoff=0 → 否，别的值丢掉', () => {
+    expect(filtersFromSearchParams({ oneoff: '1' })).toEqual({ oneOff: true });
+    expect(filtersFromSearchParams({ oneoff: '0' })).toEqual({ oneOff: false });
+    expect(filtersFromSearchParams({ oneoff: 'yes' })).toEqual({});
+  });
+
+  it('R22.4: 转回 URL 还是 oneoff=1 / oneoff=0', () => {
+    expect(filtersToSearchParams({ oneOff: true }).toString()).toBe('oneoff=1');
+    expect(filtersToSearchParams({ oneOff: false }).toString()).toBe('oneoff=0');
+  });
+
+  it('R22.3: ?quick=one_off_hint 能读出来，转回 URL 不变', () => {
+    expect(filtersFromSearchParams({ quick: 'one_off_hint' })).toEqual({ quick: 'one_off_hint' });
+    expect(filtersToSearchParams({ quick: 'one_off_hint' }).toString()).toBe('quick=one_off_hint');
+  });
+});
+
 describe('filtersToSearchParams', () => {
   it('no filters → empty string', () => {
     expect(filtersToSearchParams({}).toString()).toBe('');
@@ -168,6 +188,7 @@ describe('filtersToSearchParams', () => {
     const all: TransactionFilters[] = [
       {},
       { period: 'this_fy', type: 'income', isPreTax: true },
+      { oneOff: false, quick: 'one_off_hint' },
       {
         period: { start: '2026-01-01', end: '2026-12-31' },
         accountId: ACCOUNT,
@@ -212,6 +233,9 @@ describe('hasSplitFilter（R16.5 合计口径）', () => {
     [{ type: 'expense' }, true],
     [{ isPreTax: false }, true],
     [{ quick: 'uncategorized' }, true], // 未分类看拆分的分类
+    [{ oneOff: true }, true], // R22.4：一次性看拆分的 is_one_off
+    [{ oneOff: false }, true], // R22.4：否也是按拆分匹配
+    [{ quick: 'one_off_hint' }, false], // R22.3：大额未标按交易算，合计按整笔（M7.7-6 定）
   ])('R16.5: %j → %s', (filters, expected) => {
     expect(hasSplitFilter(filters)).toBe(expected);
   });

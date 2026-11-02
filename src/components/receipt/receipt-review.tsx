@@ -2,6 +2,7 @@
 
 // 小票核对界面（设计图 14，M6.7-7，business-rules.md R20）
 // variant = dialog：电脑弹窗，左边小票、右边"挂到哪笔交易"和"保存后的拆分"；sheet：手机全屏，竖着一列，一件一张小卡片
+// 每件商品有"类型"下拉（R21.3、R21.4）：没选过的按名字自动认，负数行跟上一件、没有下拉；类型不进拆分预览（R21.8）
 // 合计提示在浏览器里用纯函数实时算（R20.2）；拆分预览和保存都由服务器算（previewReceipt / saveReceipt），预览和最后存的一样
 // 外面的容器（Dialog / Sheet）由入口组件提供
 import {
@@ -44,6 +45,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { ITEM_TYPES, type ItemType } from '@/lib/rules/item-type';
 import { formatAud } from '@/lib/rules/money';
 import { todayInMelbourne } from '@/lib/rules/periods';
 import type { ReceiptPaymentMethod } from '@/lib/rules/receipt';
@@ -52,7 +54,9 @@ import {
   draftToForm,
   formToRaw,
   groupCategories,
+  isNegativeInput,
   itemCategoryHints,
+  itemTypeValues,
   liveCheck,
   type ReceiptFormValues,
   type ReceiptItemValue,
@@ -81,6 +85,11 @@ const NEW = '__new__'; // "都不是，新建一笔"
 const CANDIDATE_DELAY_MS = 500;
 const PREVIEW_DELAY_MS = 350;
 
+const TYPE_LABEL = new Map<ItemType, string>(ITEM_TYPES.map((t) => [t.key, t.label]));
+
+// 电脑上商品表的列：商品、金额、类型、分类、删除
+const DESKTOP_COLUMNS = 'grid-cols-[minmax(0,1fr)_6.5rem_7.5rem_13rem_2rem]';
+
 const PAYMENT_LABEL: Record<ReceiptPaymentMethod, string> = {
   card: '刷卡',
   cash: '现金',
@@ -101,6 +110,8 @@ export function ReceiptReview({ variant, draft, fixedTransactionId, onClose }: P
   const [values, setValues] = useState<ReceiptFormValues>(() => draftToForm(draft.receipt, newKey));
   const live = useMemo(() => liveCheck(values, categories, today), [values, categories, today]);
   const hints = useMemo(() => itemCategoryHints(values.items), [values.items]);
+  const learned = useMemo(() => new Map(draft.learnedItemTypes), [draft.learnedItemTypes]);
+  const types = useMemo(() => itemTypeValues(values.items, learned), [values.items, learned]);
 
   // ---------- R20.4 候选 ----------
   const [candidates, setCandidates] = useState<ReceiptCandidatesResult | null>(draft.candidates);
@@ -184,6 +195,7 @@ export function ReceiptReview({ variant, draft, fixedTransactionId, onClose }: P
     const r = await saveReceiptAction({
       reader: draft.reader,
       receipt: formToRaw(values, categories),
+      itemTypes: types.map((t) => t.type),
       target: targetSpec,
       confirmOverwrite,
     });
@@ -192,6 +204,8 @@ export function ReceiptReview({ variant, draft, fixedTransactionId, onClose }: P
       setConfirmMessage(null);
       const id = r.transactionId;
       toast.success(`小票已保存 · ${formatAud(totalCents ?? 0)}`, {
+        // R22.2：小票重排拆分清掉了"是"的标记
+        description: r.oneOffCleared ? '一次性标记已清掉，需要的话重新勾' : undefined,
         action: { label: '查看交易', onClick: () => router.push(`/transactions/${id}`) },
       });
       onClose();
@@ -218,7 +232,7 @@ export function ReceiptReview({ variant, draft, fixedTransactionId, onClose }: P
   const addItem = () =>
     setValues((prev) => ({
       ...prev,
-      items: [...prev.items, { key: newKey(), name: '', amount: '', categoryId: null }],
+      items: [...prev.items, { key: newKey(), name: '', amount: '', categoryId: null, type: null }],
     }));
   const addDiscount = () =>
     setValues((prev) => ({
@@ -327,7 +341,7 @@ export function ReceiptReview({ variant, draft, fixedTransactionId, onClose }: P
           aria-label={`${item.name || '商品'} 的分类`}
           className={cn(
             'w-full min-w-0',
-            sheet && 'h-11',
+            sheet && 'data-[size=default]:h-11',
             hint !== 'set' && 'border-dashed text-muted-foreground',
           )}
         >
@@ -344,6 +358,38 @@ export function ReceiptReview({ variant, draft, fixedTransactionId, onClose }: P
                 </SelectItem>
               ))}
             </SelectGroup>
+          ))}
+        </SelectContent>
+      </Select>
+    );
+  };
+
+  // R21.4：负数行没有下拉，显示跟着上一件的类型（第一行就是负数 → 其他）
+  const typeSelect = (item: ReceiptItemValue, index: number) => {
+    const current = types[index];
+    if (isNegativeInput(item.amount)) {
+      return (
+        <span className="block truncate px-1 text-xs text-muted-foreground">
+          {current.source === 'follow' ? `跟上一件 · ${TYPE_LABEL.get(current.type)}` : '其他'}
+        </span>
+      );
+    }
+    return (
+      <Select
+        value={current.type}
+        onValueChange={(v) => setItem(item.key, { type: v as ItemType })}
+      >
+        <SelectTrigger
+          aria-label={`${item.name || '商品'} 的类型`}
+          className={cn('w-full min-w-0', sheet && 'data-[size=default]:h-11')}
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent position="popper" className="max-h-72">
+          {ITEM_TYPES.map((t) => (
+            <SelectItem key={t.key} value={t.key}>
+              {t.label}
+            </SelectItem>
           ))}
         </SelectContent>
       </Select>
@@ -386,7 +432,10 @@ export function ReceiptReview({ variant, draft, fixedTransactionId, onClose }: P
             />
           </div>
           <div className="mt-2 flex items-center gap-2">
-            <div className="min-w-0 flex-1">{categorySelect(item, index)}</div>
+            <div className="grid min-w-0 flex-1 grid-cols-2 items-center gap-2">
+              {typeSelect(item, index)}
+              {categorySelect(item, index)}
+            </div>
             <Button
               variant="ghost"
               size="icon"
@@ -405,7 +454,8 @@ export function ReceiptReview({ variant, draft, fixedTransactionId, onClose }: P
       <li
         key={item.key}
         className={cn(
-          'grid grid-cols-[minmax(0,1fr)_6.5rem_13rem_2rem] items-center gap-2 border-b px-3 py-1.5 last:border-b-0',
+          'grid items-center gap-2 border-b px-3 py-1.5 last:border-b-0',
+          DESKTOP_COLUMNS,
           negative && 'bg-muted/30',
         )}
       >
@@ -435,6 +485,7 @@ export function ReceiptReview({ variant, draft, fixedTransactionId, onClose }: P
           />
           {error && <p className="mt-0.5 text-right text-xs text-destructive">{error}</p>}
         </div>
+        {typeSelect(item, index)}
         {categorySelect(item, index)}
         <Button
           variant="ghost"
@@ -460,7 +511,7 @@ export function ReceiptReview({ variant, draft, fixedTransactionId, onClose }: P
           'grid items-center gap-2',
           sheet
             ? 'grid-cols-[minmax(0,1fr)_6rem_2.75rem] rounded-xl border border-dashed bg-muted/30 p-3'
-            : 'grid-cols-[minmax(0,1fr)_6.5rem_13rem_2rem] border-b px-3 py-1.5 last:border-b-0',
+            : cn(DESKTOP_COLUMNS, 'border-b px-3 py-1.5 last:border-b-0'),
         )}
       >
         <div className="flex min-w-0 items-center gap-1">
@@ -485,7 +536,9 @@ export function ReceiptReview({ variant, draft, fixedTransactionId, onClose }: P
           aria-invalid={Boolean(error) || undefined}
         />
         {!sheet && (
-          <span className="text-xs text-muted-foreground">整单折扣，按比例分到各分类</span>
+          <span className="col-span-2 text-xs text-muted-foreground">
+            整单折扣，按比例分到各分类和类型
+          </span>
         )}
         <Button
           variant="ghost"
@@ -519,9 +572,15 @@ export function ReceiptReview({ variant, draft, fixedTransactionId, onClose }: P
         </ul>
       ) : (
         <div className="rounded-xl border">
-          <div className="grid grid-cols-[minmax(0,1fr)_6.5rem_13rem_2rem] gap-2 border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground">
+          <div
+            className={cn(
+              'grid gap-2 border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground',
+              DESKTOP_COLUMNS,
+            )}
+          >
             <span>商品</span>
             <span className="text-right">金额</span>
+            <span>类型</span>
             <span>分类</span>
             <span />
           </div>
@@ -699,7 +758,7 @@ export function ReceiptReview({ variant, draft, fixedTransactionId, onClose }: P
             <p aria-hidden className="text-base font-semibold">
               核对小票
             </p>
-            <p className="truncate text-xs text-muted-foreground">分类是建议，可以改</p>
+            <p className="truncate text-xs text-muted-foreground">类型和分类是建议，可以改</p>
           </div>
           <Button
             variant="ghost"

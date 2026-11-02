@@ -3,6 +3,7 @@
 // R15.2 拆出一部分、R15.3 改拆分（设计图 04-transaction-detail-split）
 // 两种用法共用一个表单：金额（正数）、分类、归属人、备注
 // - 拆出：归属人默认"自动"，不选就按 R5 算（分类默认 > 卡号 > 账户）
+//   选了支出口径的分类时可以直接勾"一次性"（R22.2），不勾就是 null
 // - 改：只把变了的字段传给服务端，一次提交，任何一项不通过整体不改（R15.3）
 //   主拆分不能改金额；auto / confirmed 转账的分类只读（R16.2）
 // 金额的提示（主拆分剩余、上限）只是界面上的，真正的校验在服务端
@@ -12,6 +13,7 @@ import { useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -38,6 +40,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { formatAud } from '@/lib/rules/money';
+import { canMarkOneOff } from '@/lib/rules/one-off';
+import type { SystemCategoryKey } from '@/lib/rules/types';
 import { isCategoryLocked, type CategoryOption } from '@/lib/transactions/inline-edit';
 import {
   centsToAmountInput,
@@ -53,7 +57,13 @@ import type { EditOptions } from '../inline-edit';
 
 const AUTO_MEMBER = '__auto__';
 
-type Values = { amount: string; categoryId: string; memberId: string; note: string };
+type Values = {
+  amount: string;
+  categoryId: string;
+  memberId: string;
+  note: string;
+  isOneOff: boolean;
+};
 
 // 保存成功后告诉父组件，主拆分的分类改了要按 R16.9 弹"存成规则"
 export type SplitSaved = { categoryChanged: CategoryOption | null; isPrimary: boolean };
@@ -75,6 +85,16 @@ function findOption(options: EditOptions, id: string): CategoryOption | undefine
   return undefined;
 }
 
+// R22.1：选的分类能不能标一次性。系统分类的选项没带 systemKey，从 categorySections 查
+function markableCategory(options: EditOptions, id: string): boolean {
+  const sys = options.categorySections.system.find((g) => g.id === id);
+  if (sys) {
+    return canMarkOneOff({ kind: 'system', systemKey: sys.systemKey as SystemCategoryKey | null });
+  }
+  const o = findOption(options, id);
+  return o !== undefined && canMarkOneOff({ kind: o.kind, systemKey: null });
+}
+
 // amountRule 为 null 时不改金额（改主拆分）
 function makeSchema(amountRule: { primaryCents: number; currentCents: number } | null) {
   return z
@@ -83,6 +103,7 @@ function makeSchema(amountRule: { primaryCents: number; currentCents: number } |
       categoryId: z.string().min(1, '请选分类'),
       memberId: z.string().min(1),
       note: z.string(),
+      isOneOff: z.boolean(),
     })
     .superRefine((v, ctx) => {
       if (v.note.trim().length > 200) {
@@ -122,11 +143,14 @@ export function SplitDialog({ tx, primary, target, options, onClose, onSaved }: 
           categoryId: target.category.id,
           memberId: target.member.id,
           note: target.note ?? '',
+          isOneOff: false, // 改拆分不用这个字段，行上直接勾
         }
-      : { amount: '', categoryId: '', memberId: AUTO_MEMBER, note: '' },
+      : { amount: '', categoryId: '', memberId: AUTO_MEMBER, note: '', isOneOff: false },
   });
 
   const amountInput = useWatch({ control: form.control, name: 'amount' });
+  const categoryInput = useWatch({ control: form.control, name: 'categoryId' });
+  const showOneOff = isAdd && categoryInput !== '' && markableCategory(options, categoryInput);
   const parsedAmount = parseSplitAmountInput(amountInput);
   const preview = amountRule
     ? splitAmountPreview({ ...amountRule, inputCents: parsedAmount.ok ? parsedAmount.cents : null })
@@ -145,6 +169,7 @@ export function SplitDialog({ tx, primary, target, options, onClose, onSaved }: 
         categoryId: v.categoryId,
         memberId: v.memberId === AUTO_MEMBER ? null : v.memberId,
         note: note || null,
+        ...(showOneOff && v.isOneOff ? { isOneOff: true } : {}),
       });
       if (!r.ok) {
         toast.error(r.message);
@@ -342,6 +367,24 @@ export function SplitDialog({ tx, primary, target, options, onClose, onSaved }: 
                 </FormItem>
               )}
             />
+
+            {showOneOff && (
+              <FormField
+                control={form.control}
+                name="isOneOff"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-center gap-2">
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value}
+                        onCheckedChange={(v) => field.onChange(v === true)}
+                      />
+                    </FormControl>
+                    <FormLabel className="font-normal">一次性开销（不算进月均）</FormLabel>
+                  </FormItem>
+                )}
+              />
+            )}
 
             <DialogFooter>
               <Button type="button" variant="outline" disabled={submitting} onClick={onClose}>

@@ -3,7 +3,8 @@
 // F8 建议转账（M4-5）：确认、拒绝，两边一起改（R6.3）
 // 筛选条件的含义见 src/lib/transactions/filters.ts；这里只负责拼查询，每个查询都带 household_id
 // 交易本身的条件（时间、账户、状态、商家、金额范围、建议转账）放在 transaction 上
-// 拆分上的条件（分类、归属人、类型、是否税前、未分类）用 EXISTS：只要有一个拆分命中就列出（R16.5）
+// 拆分上的条件（分类、归属人、类型、是否税前、一次性、未分类）用 EXISTS：只要有一个拆分命中就列出（R16.5、R22.4）
+// 大额未标（R22.3）按交易算，用一个分组求和的子查询，挂在 transaction 上
 import {
   and,
   asc,
@@ -30,6 +31,7 @@ import {
   transaction,
   transactionSplit,
 } from '@/db/schema';
+import { needsOneOffHint, ONE_OFF_HINT_CENTS, type OneOffFlag } from '@/lib/rules/one-off';
 import { periodRange } from '@/lib/rules/periods';
 import {
   changeCategory,
@@ -45,6 +47,7 @@ import { resolveSuggestion, type SuggestionTx } from '@/lib/rules/transfer';
 import type {
   Account,
   Card,
+  Category,
   CategoryKind,
   CategorySource,
   MemberSource,
@@ -84,6 +87,7 @@ export type SplitView = {
   memberSource: MemberSource;
   isPreTax: boolean;
   note: string | null;
+  isOneOff: OneOffFlag; // R22.1
 };
 
 export type TransactionListItem = {
@@ -101,6 +105,7 @@ export type TransactionListItem = {
   splits: SplitView[]; // 主拆分在前，其他按金额绝对值从大到小
   possibleDuplicate: boolean; // R17.6：现在还要显示"可能重复"
   duplicatePartners: DuplicatePartner[]; // R17.6：和哪几笔可能重复（M6-6 标签上展开）
+  oneOffHint: boolean; // R22.3：大额未标。列表行上"一次性？"，详情页问"这笔是一次性开销吗？"
 };
 
 export type TransactionList = {
@@ -168,6 +173,7 @@ function transactionConditions(
   if (f.minCents !== undefined) c.push(sql`abs(${transaction.amountCents}) >= ${f.minCents}`);
   if (f.maxCents !== undefined) c.push(sql`abs(${transaction.amountCents}) <= ${f.maxCents}`);
   if (f.quick === 'suggested') c.push(eq(transaction.transferStatus, 'suggested'));
+  if (f.quick === 'one_off_hint') c.push(oneOffHintCondition(ctx));
   // R17.6：pending 和银行那笔都列出来，方便比对（M6-6）
   if (f.quick === 'duplicates') {
     const ids = extra.duplicateIds ?? [];
@@ -194,6 +200,26 @@ function typeCondition(type: TransactionType): SQL {
   }
 }
 
+// R22.3 大额未标，和 needsOneOffHint 同一个口径：这笔交易支出口径的拆分全是 null（count 只数非 null），
+// 且合计 ≤ −阈值。没有支出拆分时合计是 0，不提示
+function oneOffHintCondition(ctx: HouseholdContext): SQL {
+  const hint = db
+    .select({
+      hint: sql`coalesce(sum(${transactionSplit.amountCents}), 0) <= ${-ONE_OFF_HINT_CENTS}
+        and count(${transactionSplit.isOneOff}) = 0`,
+    })
+    .from(transactionSplit)
+    .innerJoin(category, splitCategoryJoin(ctx))
+    .where(
+      and(
+        eq(transactionSplit.householdId, ctx.householdId),
+        eq(transactionSplit.transactionId, transaction.id),
+        typeCondition('expense'),
+      ),
+    );
+  return sql`(${hint})`;
+}
+
 // 拆分上的条件。用的时候 transaction_split 要 join category（category 也带 household_id）
 function splitConditions(ctx: HouseholdContext, f: TransactionFilters): SQL[] {
   const c: SQL[] = [eq(transactionSplit.householdId, ctx.householdId)];
@@ -202,6 +228,9 @@ function splitConditions(ctx: HouseholdContext, f: TransactionFilters): SQL[] {
   if (f.memberId) c.push(eq(transactionSplit.memberId, f.memberId));
   if (f.type) c.push(typeCondition(f.type));
   if (f.isPreTax !== undefined) c.push(eq(transactionSplit.isPreTax, f.isPreTax));
+  // R22.4：否 = null 或 false，包括收入、转账、未分类的拆分
+  if (f.oneOff === true) c.push(sql`${transactionSplit.isOneOff} is true`);
+  if (f.oneOff === false) c.push(sql`${transactionSplit.isOneOff} is not true`);
   if (f.quick === 'uncategorized') c.push(eq(category.systemKey, 'uncategorized'));
   return c;
 }
@@ -281,6 +310,7 @@ async function loadSplits(
       memberSource: transactionSplit.memberSource,
       isPreTax: transactionSplit.isPreTax,
       note: transactionSplit.note,
+      isOneOff: transactionSplit.isOneOff,
       categoryId: category.id,
       categoryNameEn: category.nameEn,
       categoryNameZh: category.nameZh,
@@ -338,9 +368,32 @@ async function loadSplits(
       memberSource: r.memberSource as MemberSource,
       isPreTax: r.isPreTax,
       note: r.note,
+      isOneOff: r.isOneOff,
     });
   }
   return out;
+}
+
+// R22.3：needsOneOffHint 只用分类的 id、parentId、kind、systemKey，从拆分上的分类引用拼出来，不再查一次库
+function oneOffHintOf(splits: readonly SplitView[]): boolean {
+  const categories: Category[] = splits.map((s) => ({
+    id: s.category.id,
+    parentId: s.category.parent?.id ?? null,
+    nameEn: s.category.nameEn,
+    kind: s.category.kind,
+    systemKey: s.category.systemKey,
+    defaultMemberId: null,
+    isPreTaxDefault: false,
+    isOther: false,
+  }));
+  return needsOneOffHint(
+    splits.map((s) => ({
+      amountCents: s.amountCents,
+      categoryId: s.category.id,
+      isOneOff: s.isOneOff,
+    })),
+    categories,
+  );
 }
 
 // ---------- 列表 ----------
@@ -362,7 +415,7 @@ const listColumns = {
 
 type ListRow = Omit<
   TransactionListItem,
-  'account' | 'splits' | 'possibleDuplicate' | 'duplicatePartners'
+  'account' | 'splits' | 'possibleDuplicate' | 'duplicatePartners' | 'oneOffHint'
 > & {
   accountId: string;
   accountName: string;
@@ -388,6 +441,7 @@ function toItem(
     splits,
     possibleDuplicate: duplicatePartners.length > 0,
     duplicatePartners,
+    oneOffHint: oneOffHintOf(splits), // 只算这一页的行，筛选和笔数用 oneOffHintCondition
   };
 }
 
@@ -455,21 +509,27 @@ export async function listTransactions(
 
 // ---------- 快捷条件的笔数 ----------
 
-export type QuickFilterCounts = { uncategorized: number; suggested: number };
+export type QuickFilterCounts = { uncategorized: number; suggested: number; oneOffHint: number };
 
 // F8 快捷条件 chip 上的数字（M4-7）：全部数据，不跟着当前筛选变，方便一眼看到还有多少要处理
-// 和列表用同样的条件：未分类 = 有一个拆分是未分类（R16.5），建议转账 = transfer_status = suggested
+// 和列表用同样的条件：未分类 = 有一个拆分是未分类（R16.5），建议转账 = transfer_status = suggested，
+// 大额未标 = R22.3
 export async function countQuickFilters(ctx: HouseholdContext): Promise<QuickFilterCounts> {
   const countWhere = (f: TransactionFilters) =>
     db
       .select({ count: sql<number>`count(*)`.mapWith(Number) })
       .from(transaction)
       .where(listWhere(ctx, f, '')); // 没有时间段，today 用不到
-  const [[uncategorized], [suggested]] = await Promise.all([
+  const [[uncategorized], [suggested], [oneOffHint]] = await Promise.all([
     countWhere({ quick: 'uncategorized' }),
     countWhere({ quick: 'suggested' }),
+    countWhere({ quick: 'one_off_hint' }),
   ]);
-  return { uncategorized: uncategorized.count, suggested: suggested.count };
+  return {
+    uncategorized: uncategorized.count,
+    suggested: suggested.count,
+    oneOffHint: oneOffHint.count,
+  };
 }
 
 // ---------- 详情 ----------
@@ -531,8 +591,9 @@ export async function getTransaction(
   ]);
   const partners = await loadDuplicatePartners(ctx, duplicates.groups.get(row.id) ?? []);
 
+  const txSplits = splits.get(row.id) ?? [];
   return {
-    ...toItem(row, splits.get(row.id) ?? [], partners),
+    ...toItem(row, txSplits, partners),
     possibleDuplicates: partners,
     balanceCents: row.balanceCents,
     note: row.note,
@@ -700,11 +761,13 @@ function sameSplit(a: EditSplit, b: EditSplit): boolean {
     a.categorySource === b.categorySource &&
     a.memberId === b.memberId &&
     a.memberSource === b.memberSource &&
-    a.isPreTax === b.isPreTax
+    a.isPreTax === b.isPreTax &&
+    a.isOneOff === b.isOneOff
   );
 }
 
 // 写回一个拆分可以改的字段（分类、归属人、税前），带 household_id
+// R22.2：isOneOff 不带（undefined）就不写；改到非支出分类时 changeCategory 给 null，这里写成 null
 export async function writeSplit(tx: DbTx, ctx: HouseholdContext, s: EditSplit): Promise<void> {
   await tx
     .update(transactionSplit)
@@ -714,6 +777,7 @@ export async function writeSplit(tx: DbTx, ctx: HouseholdContext, s: EditSplit):
       memberId: s.memberId,
       memberSource: s.memberSource,
       isPreTax: s.isPreTax,
+      ...(s.isOneOff !== undefined ? { isOneOff: s.isOneOff } : {}),
     })
     .where(and(eq(transactionSplit.id, s.id), eq(transactionSplit.householdId, ctx.householdId)));
 }
@@ -895,7 +959,8 @@ async function resolveSuggestionInDb(
         .where(
           and(eq(transaction.id, side.transactionId), eq(transaction.householdId, ctx.householdId)),
         );
-      for (const s of side.splits) await writeSplit(tx, ctx, s);
+      // R22.2：确认后分类是内部转账，一次性标记清掉（拒绝时 splits 是空的）
+      for (const s of side.splits) await writeSplit(tx, ctx, { ...s, isOneOff: null });
     }
     return { ok: true };
   });

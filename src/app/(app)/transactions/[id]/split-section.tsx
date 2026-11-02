@@ -3,9 +3,10 @@
 // F10 拆分（R15、R16.1）：每个拆分一行，金额、分类、归属人（带 member_source 说明）、备注
 // 拆出一部分、改拆分用同一个对话框（split-dialog.tsx），删除非主拆分先确认
 // 主拆分改了分类按 R16.9 弹"存成规则"（和列表一致）；子拆分不弹
+// R22.1 支出拆分一个"一次性"勾选；R22.3 大额未标时上面一行提示，带"是""不是一次性"
 // 电脑（lg 以上）是表格，窄屏是卡片
 import { Loader2, Pencil, Plus, Split, Trash2 } from 'lucide-react';
-import { useLayoutEffect, useState, useTransition } from 'react';
+import { useLayoutEffect, useOptimistic, useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import {
   AlertDialog,
@@ -19,6 +20,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Card,
   CardAction,
@@ -37,11 +39,13 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { formatAud } from '@/lib/rules/money';
+import { canMarkOneOff } from '@/lib/rules/one-off';
 import { isCategoryLocked } from '@/lib/transactions/inline-edit';
 import { memberSourceLabel } from '@/lib/transactions/split-form';
 import { cn } from '@/lib/utils';
 import type { SplitView, TransactionDetail } from '@/server/transactions';
 import { removeSplitAction } from '../actions';
+import { answerOneOffHintAction, setSplitOneOffAction } from './actions';
 import { offerRuleAfterChange, type EditOptions, type RuleDraft } from '../inline-edit';
 import { SaveRuleDialog } from '../save-rule-dialog';
 import { CategoryTag } from '../tx-badges';
@@ -69,6 +73,8 @@ export function SplitSection({ tx, options }: { tx: TransactionDetail; options: 
   const isSplit = tx.splits.length > 1;
   // R15.2 补充：auto / confirmed 转账不能拆分
   const canAdd = !isCategoryLocked(tx.transferStatus);
+  // R22.1：收入、转账、未分类的交易整列不显示
+  const markable = tx.splits.some((s) => canMarkOneOff(s.category));
 
   const offerRule = (draft: RuleDraft) =>
     setRuleDraft((prev) => ({ key: (prev?.key ?? 0) + 1, draft }));
@@ -119,6 +125,8 @@ export function SplitSection({ tx, options }: { tx: TransactionDetail; options: 
       </CardHeader>
 
       <CardContent className="flex flex-col gap-3">
+        {tx.oneOffHint && <OneOffHint transactionId={tx.id} />}
+
         {/* 电脑：表格 */}
         <div className="hidden rounded-lg border lg:block">
           <Table>
@@ -128,6 +136,7 @@ export function SplitSection({ tx, options }: { tx: TransactionDetail; options: 
                 <TableHead>分类</TableHead>
                 <TableHead>归属人</TableHead>
                 <TableHead>备注</TableHead>
+                {markable && <TableHead className="w-16">一次性</TableHead>}
                 <TableHead className="w-24 pr-4 text-right">操作</TableHead>
               </TableRow>
             </TableHeader>
@@ -152,6 +161,11 @@ export function SplitSection({ tx, options }: { tx: TransactionDetail; options: 
                   >
                     {s.note ?? '—'}
                   </TableCell>
+                  {markable && (
+                    <TableCell>
+                      {canMarkOneOff(s.category) && <OneOffCheckbox split={s} />}
+                    </TableCell>
+                  )}
                   <TableCell className="pr-4 text-right">
                     <RowButtons {...rowActions(s)} />
                   </TableCell>
@@ -164,7 +178,7 @@ export function SplitSection({ tx, options }: { tx: TransactionDetail; options: 
                   <TableCell className="pl-4 text-right font-medium">
                     <Amount cents={sumOf(tx.splits)} />
                   </TableCell>
-                  <TableCell colSpan={4} className="text-muted-foreground">
+                  <TableCell colSpan={markable ? 5 : 4} className="text-muted-foreground">
                     拆分合计 = 交易金额 {formatAud(tx.amountCents)}
                   </TableCell>
                 </TableRow>
@@ -188,6 +202,7 @@ export function SplitSection({ tx, options }: { tx: TransactionDetail; options: 
                 <div className="flex min-w-0 flex-col gap-0.5">
                   <MemberCell split={s} cardLast4={tx.cardLast4} />
                   {s.note && <span className="break-words text-muted-foreground">{s.note}</span>}
+                  {canMarkOneOff(s.category) && <OneOffCheckbox split={s} withLabel />}
                 </div>
                 <RowButtons {...rowActions(s)} />
               </div>
@@ -256,6 +271,67 @@ function MemberCell({ split, cardLast4 }: { split: SplitView; cardLast4: string 
         {memberSourceLabel(split.memberSource, cardLast4)}
       </span>
     </span>
+  );
+}
+
+// R22.1：勾上 = true，取消 = false（看过了，不是）。null 显示成没勾
+// 保存期间先显示新值，失败了回到原来的
+function OneOffCheckbox({ split, withLabel }: { split: SplitView; withLabel?: boolean }) {
+  const [pending, startTransition] = useTransition();
+  const [checked, setChecked] = useOptimistic(split.isOneOff === true);
+
+  function change(value: boolean) {
+    startTransition(async () => {
+      setChecked(value);
+      const r = await setSplitOneOffAction({ splitId: split.id, value });
+      if (!r.ok) toast.error(r.message);
+    });
+  }
+
+  const box = (
+    <Checkbox
+      checked={checked}
+      disabled={pending}
+      aria-label={withLabel ? undefined : '一次性'}
+      onCheckedChange={(v) => change(v === true)}
+    />
+  );
+  if (!withLabel) return box;
+  return (
+    <label className="flex w-fit items-center gap-1.5 text-muted-foreground">
+      {box}
+      一次性
+    </label>
+  );
+}
+
+// R22.3：大额未标。"是"/"不是一次性"把这笔所有 null 的支出拆分设成 true / false，刷新后提示消失
+function OneOffHint({ transactionId }: { transactionId: string }) {
+  const [pending, startTransition] = useTransition();
+  const [answering, setAnswering] = useState<boolean | null>(null);
+
+  function answer(value: boolean) {
+    setAnswering(value);
+    startTransition(async () => {
+      const r = await answerOneOffHintAction({ transactionId, value });
+      if (!r.ok) toast.error(r.message);
+      else toast.success(value ? '已标成一次性' : '已标成不是一次性');
+    });
+  }
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm">
+      <span>这笔是一次性开销吗？</span>
+      <span className="flex gap-2">
+        <Button size="sm" variant="outline" disabled={pending} onClick={() => answer(true)}>
+          {pending && answering === true && <Loader2 className="animate-spin" />}是
+        </Button>
+        <Button size="sm" variant="outline" disabled={pending} onClick={() => answer(false)}>
+          {pending && answering === false && <Loader2 className="animate-spin" />}
+          不是一次性
+        </Button>
+      </span>
+    </div>
   );
 }
 
