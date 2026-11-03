@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   anchorFromBatch,
+  balanceAt,
   calibrationDiff,
   currentBalance,
   groupByPurpose,
@@ -500,5 +501,50 @@ describe('validateLink（R23.4）', () => {
 
   it('R23.4: order — archived before cash checks', () => {
     expect(validateLink(cashFemale, { ...cbaFemale, isArchived: true })).toBe('不能关联已归档的账户');
+  });
+});
+
+// ---------- R24.4 某天结束时的余额（fixtures/cases/15-monthly-conditions.md 场景 D） ----------
+
+describe('balanceAt（R23、R24.4）', () => {
+  const PLUS_ANCHORS = [pdf('2026-10-31', 1000000, '2026-11-02'), pdf('2026-11-30', 1052500, '2026-12-02')];
+  const PLUS_TXS = [c('2026-11-10', 50000), c('2026-11-30', 2500)];
+  const SAVER_ANCHORS = [manual('2026-11-30', 1500000, '2026-12-01')];
+  const SAVER_TXS = [c('2026-11-30', 900), c('2026-12-06', 50000), c('2026-12-10', 120), c('2026-12-15', -120), c('2026-12-16', -500)];
+
+  it('R24.4 D-1: anchor on the date itself, anchor-day transactions not added again', () => {
+    expect(balanceAt(PLUS_ANCHORS, PLUS_TXS, '2026-10-31')).toBe(1000000);
+    expect(balanceAt(PLUS_ANCHORS, PLUS_TXS, '2026-11-30')).toBe(1052500);
+  });
+
+  it('R24.4 D-2: no transactions after the anchor', () => {
+    expect(balanceAt(PLUS_ANCHORS, PLUS_TXS, '2026-12-28')).toBe(1052500);
+  });
+
+  it('R24.4: between anchors uses the earlier one plus confirmed up to date', () => {
+    expect(balanceAt(PLUS_ANCHORS, PLUS_TXS, '2026-11-10')).toBe(1050000);
+    expect(balanceAt(PLUS_ANCHORS, PLUS_TXS, '2026-11-29')).toBe(1050000);
+  });
+
+  it('R24.4 D-3: later anchors are not used', () => {
+    const anchors = [...PLUS_ANCHORS, pdf('2026-12-31', 925100, '2027-01-03')];
+    const txs = [...PLUS_TXS, c('2026-12-02', -120000), c('2026-12-16', -10000), c('2026-12-31', 2600)];
+    expect(balanceAt(anchors, txs, '2026-12-31')).toBe(925100);
+    expect(balanceAt(anchors, txs, '2026-12-30')).toBe(922500);
+  });
+
+  it('R24.4 D-4: no anchor on or before date → null', () => {
+    expect(balanceAt(SAVER_ANCHORS, SAVER_TXS, '2026-10-31')).toBeNull();
+    expect(balanceAt([], [], '2026-12-31')).toBeNull();
+  });
+
+  it('R24.4 D-5: manual anchor, pending not counted', () => {
+    expect(balanceAt(SAVER_ANCHORS, SAVER_TXS, '2026-12-28')).toBe(1549500);
+    expect(balanceAt(SAVER_ANCHORS, [...SAVER_TXS, p('2026-12-20', -800)], '2026-12-28')).toBe(1549500);
+  });
+
+  it('R23.1: same-day anchors pick PDF over manual', () => {
+    const anchors = [manual('2026-11-30', 111, '2026-12-05'), pdf('2026-11-30', 222, '2026-12-01')];
+    expect(balanceAt(anchors, [], '2026-12-01')).toBe(222);
   });
 });

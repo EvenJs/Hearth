@@ -1,8 +1,8 @@
 // R24 每月条件（docs/rules/R24-monthly-condition.md）
 // 纯函数，不 import 数据库和 Next.js。判断结果每次实时算，不存
-// M10-2：min_deposit、no_withdrawal、linked_min_deposit、linked_card_count。balance_growth、other 在 M10-3 接上
+import { balanceAt, type BalanceAnchor } from './balance';
 import { formatAud } from './money';
-import { endOfMonth, startOfMonth } from './periods';
+import { addDays, endOfMonth, lastTwelveMonths, startOfMonth } from './periods';
 import { storedTransferAccountId } from './transfer';
 import type { Account, TransferStatus } from './types';
 
@@ -24,7 +24,7 @@ export type DepositFilter = (typeof DEPOSIT_FILTERS)[number];
 export const CONDITION_OUTCOMES = ['bonus', 'fee_waiver'] as const;
 export type ConditionOutcome = (typeof CONDITION_OUTCOMES)[number];
 
-// 生效月份（effective_from、disabled_from）由调用方筛，evaluateCondition 不看
+// 生效月份（ConditionPeriod）由调用方用 isJudgedIn 筛，evaluateCondition 不看
 export type MonthlyCondition = {
   id: string;
   accountId: string; // 配条件的账户
@@ -35,6 +35,21 @@ export type MonthlyCondition = {
   | { type: 'no_withdrawal' | 'balance_growth' }
   | { type: 'other'; description: string }
 );
+
+// R24.1：存月初日期
+export type ConditionPeriod = {
+  effectiveFrom: string;
+  disabledFrom: string | null; // null = 还在用
+};
+
+// R24.1：effective_from ≤ 月份 < disabled_from
+export function isJudgedIn(period: ConditionPeriod, month: string): boolean {
+  const m = startOfMonth(month);
+  return period.effectiveFrom <= m && (period.disabledFrom === null || m < period.disabledFrom);
+}
+
+// R24.7：满足了 / 没满足；还没勾 = null
+export type ManualCheck = 'met' | 'failed';
 
 export type ConditionAccount = {
   id: string;
@@ -52,7 +67,8 @@ export type ConditionTx = {
   status: 'pending' | 'confirmed';
   transferStatus: TransferStatus;
   counterpartyAccountId: string | null; // resolveCounterparty 的结果
-  feeInterestCents: number; // 这笔交易上 Bank fees、Income / Interest 拆分的金额合计（符号同交易）
+  bankFeeCents: number; // 这笔交易上 Bank fees 拆分的金额合计（符号同交易）
+  interestCents: number; // Income / Interest 拆分的金额合计
   merchant: string | null;
   createdAt: Date;
 };
@@ -100,7 +116,7 @@ export function resolveCounterparty(tx: CounterpartyInput, accounts: readonly Ac
 // ---------- 存入、取款、刷卡（R24.2） ----------
 
 // R24.2：有效金额 = amount − Bank fees / Interest 拆分
-const effectiveCents = (t: ConditionTx) => t.amountCents - t.feeInterestCents;
+const effectiveCents = (t: ConditionTx) => t.amountCents - t.bankFeeCents - t.interestCents;
 const isWithdrawal = (t: ConditionTx) => effectiveCents(t) < 0;
 const isCard = (t: ConditionTx) => isWithdrawal(t) && t.transferStatus === 'none';
 
@@ -148,11 +164,12 @@ export type ConditionResult = {
   conditionId: string;
   type: ConditionType;
   status: ConditionStatus;
-  unknownReason: 'no_linked_account' | null;
+  month: string; // 月初
+  unknownReason: 'no_linked_account' | 'no_balance' | 'not_checked' | null;
   watchedLabel: string | null; // 关联类型显示的"{关联账户名}"，归档的加"（已归档）"
-  currentValue: number | null; // 存入合计（分）或刷卡笔数
-  target: number | null;
-  remaining: number | null; // 还差多少，够了是 0
+  currentValue: number | null; // 存入合计（分）、刷卡笔数；balance_growth 是现在 / 月末余额
+  target: number | null; // balance_growth 是上月末余额
+  remaining: number | null; // 还差多少，够了是 0；balance_growth 不算
   unknownDepositCount: number; // R24.3 小字的 N
   withdrawal: WithdrawalReason | null; // no_withdrawal 失败原因
   asOf: string | null; // 看的账户的截至
@@ -165,7 +182,11 @@ export type ConditionContext = {
   accounts: readonly ConditionAccount[]; // 家庭所有账户：找关联账户、exclude_linked、对方账户名
   month: string; // 这个月里任意一天
   today: string; // Melbourne
-  transactions: readonly ConditionTx[]; // 至少包含看的账户这个月的交易，这里按账户和月份筛
+  // 至少包含看的账户这个月的交易，这里按账户和月份筛
+  // balance_growth 还要本账户上月末之前最近的锚点以后的交易
+  transactions: readonly ConditionTx[];
+  anchors: readonly BalanceAnchor[]; // 本账户的锚点（R23.1），balance_growth 用
+  manualCheck: ManualCheck | null; // 这个条件这个月的手动勾，other 用
 };
 
 const isLinkedType = (type: ConditionType) => type === 'linked_min_deposit' || type === 'linked_card_count';
@@ -187,6 +208,7 @@ export function evaluateCondition(condition: MonthlyCondition, ctx: ConditionCon
   const base: ConditionResult = {
     conditionId: condition.id,
     type: condition.type,
+    month: start,
     status: 'unknown',
     unknownReason: null,
     watchedLabel: null,
@@ -208,7 +230,8 @@ export function evaluateCondition(condition: MonthlyCondition, ctx: ConditionCon
   const txs = ctx.transactions.filter(
     (t) => t.accountId === watchedId && t.status === 'confirmed' && t.date >= start && t.date <= end,
   );
-  const stale = monthOver && (watched.asOf === null || watched.asOf < end);
+  // other 没有看的账户（R24.1），不加"可能不准"
+  const stale = condition.type !== 'other' && monthOver && (watched.asOf === null || watched.asOf < end);
   const result = { ...base, watchedLabel: label, stale };
 
   // 够了月中就是 met；没够：月份过完 failed，否则 in_progress
@@ -248,9 +271,23 @@ export function evaluateCondition(condition: MonthlyCondition, ctx: ConditionCon
         },
       };
     }
-    case 'balance_growth':
+    case 'balance_growth': {
+      // R24.4：上月末没有余额 → unknown。有上月末就一定有现在、本月末
+      const own = ctx.transactions.filter((t) => t.accountId === ctx.account.id);
+      const previous = balanceAt(ctx.anchors, own, addDays(start, -1));
+      const current = balanceAt(ctx.anchors, own, monthOver ? end : ctx.today);
+      if (previous === null || current === null) return { ...result, unknownReason: 'no_balance' };
+      return {
+        ...result,
+        status: !monthOver ? 'in_progress' : current > previous ? 'met' : 'failed',
+        currentValue: current,
+        target: previous,
+      };
+    }
     case 'other':
-      throw new Error(`${condition.type} 还没接上（M10-3）`);
+      // R24.7：还没勾 → unknown，月份过完也一样
+      if (ctx.manualCheck === null) return { ...result, unknownReason: 'not_checked' };
+      return { ...result, status: ctx.manualCheck };
   }
 }
 
@@ -278,15 +315,26 @@ function mainText(r: ConditionResult): string {
           : `${mmdd(w.date)} 取出 ${amount}${w.merchant ? `（${w.merchant}）` : ''}`;
       return w.count > 1 ? `${text}，本月共 ${w.count} 笔取款` : text;
     }
-    case 'balance_growth':
+    case 'balance_growth': {
+      const diff = r.currentValue! - r.target!;
+      const prefix = `${r.status === 'in_progress' ? '现在' : '月末'} ${formatAud(r.currentValue!)}`;
+      if (diff === 0) return `${prefix}，和上月末一样`;
+      return `${prefix}，比上月末${diff > 0 ? '多' : '少'} ${formatAud(Math.abs(diff))}`;
+    }
     case 'other':
-      throw new Error(`${r.type} 还没接上（M10-3）`);
+      return r.status === 'met' ? '满足了' : '没满足';
   }
 }
 
+const UNKNOWN_TEXT: Record<NonNullable<ConditionResult['unknownReason']>, string> = {
+  no_linked_account: '关联账户没设置',
+  no_balance: '没有余额，判断不了',
+  not_checked: '还没勾',
+};
+
 // R24.5：一行条件说明。关联类型前面加"{关联账户名}："；月份过完且截至早于月底时 met、failed 后面加"可能不准"
 export function describeCondition(r: ConditionResult): string {
-  if (r.unknownReason === 'no_linked_account') return '关联账户没设置';
+  if (r.unknownReason !== null) return UNKNOWN_TEXT[r.unknownReason];
   let text = mainText(r);
   if (r.watchedLabel !== null) text = `${r.watchedLabel}：${text}`;
   if (r.stale && (r.status === 'met' || r.status === 'failed')) {
@@ -298,4 +346,160 @@ export function describeCondition(r: ConditionResult): string {
 // R24.3：只有 exclude_linked 显示，N 是 0 不显示
 export function unknownDepositNote(r: ConditionResult): string | null {
   return r.unknownDepositCount > 0 ? `${r.unknownDepositCount} 笔存入认不出来自哪个账户，按算数处理` : null;
+}
+
+// ---------- 合并（R24.5） ----------
+
+// R24.5：有 failed → failed；全部 met → met；有 in_progress → in_progress；其他 → unknown。空 → null
+function combineStatuses(statuses: readonly ConditionStatus[]): ConditionStatus | null {
+  if (statuses.length === 0) return null;
+  if (statuses.includes('failed')) return 'failed';
+  if (statuses.every((s) => s === 'met')) return 'met';
+  if (statuses.includes('in_progress')) return 'in_progress';
+  return 'unknown';
+}
+
+export type AccountMonthSummary = {
+  byOutcome: Partial<Record<ConditionOutcome, ConditionStatus>>; // 没有这个结果的条件就没有这个 key
+  overall: ConditionStatus | null; // 历史小格（R24.10），不分结果。null = 没有条件
+};
+
+// R24.5：conditions 是同一个账户这个月在判断的条件（isJudgedIn），results 是它们的结果
+export function summarizeAccountMonth(
+  conditions: readonly Pick<MonthlyCondition, 'id' | 'outcome'>[],
+  results: readonly ConditionResult[],
+): AccountMonthSummary {
+  const byOutcome: AccountMonthSummary['byOutcome'] = {};
+  for (const outcome of CONDITION_OUTCOMES) {
+    const ids = new Set(conditions.filter((c) => c.outcome === outcome).map((c) => c.id));
+    const status = combineStatuses(results.filter((r) => ids.has(r.conditionId)).map((r) => r.status));
+    if (status !== null) byOutcome[outcome] = status;
+  }
+  return { byOutcome, overall: combineStatuses(results.map((r) => r.status)) };
+}
+
+export const OUTCOME_LABELS: Record<ConditionOutcome, string> = { bonus: 'bonus', fee_waiver: '免月费' };
+
+const OUTCOME_STATUS_LABELS: Record<ConditionStatus, string> = {
+  met: '拿到',
+  failed: '没拿到',
+  in_progress: '进行中',
+  unknown: '判断不了',
+};
+
+// R24.10 点开历史："bonus：拿到"、"免月费：没拿到"
+export function outcomeSummaryText(outcome: ConditionOutcome, status: ConditionStatus): string {
+  return `${OUTCOME_LABELS[outcome]}：${OUTCOME_STATUS_LABELS[status]}`;
+}
+
+// R24.10 历史小格
+export const MONTH_CELL_LABELS: Record<ConditionStatus, string> = {
+  failed: '失败',
+  met: '满足',
+  in_progress: '进行中',
+  unknown: '判断不了',
+};
+
+// ---------- 月费校验（R24.8） ----------
+
+// R24.8：fee_waiver 合并是 met，这个月 confirmed 交易上 Bank fees 净额 < 0 → 返回净额的绝对值，否则 null
+// transactions 只传这个账户的
+export function feeMismatch(
+  summary: AccountMonthSummary,
+  transactions: readonly ConditionTx[],
+  month: string,
+): number | null {
+  if (summary.byOutcome.fee_waiver !== 'met') return null;
+  const start = startOfMonth(month);
+  const end = endOfMonth(month);
+  const net = transactions
+    .filter((t) => t.status === 'confirmed' && t.date >= start && t.date <= end)
+    .reduce((s, t) => s + t.bankFeeCents, 0);
+  return net < 0 ? -net : null;
+}
+
+export function feeMismatchText(cents: number): string {
+  return `这个月判断满足了，但还是收了 ${formatAud(cents)} 月费，条件配置可能不对`;
+}
+
+// ---------- 首页提示（R24.9） ----------
+
+export const CONDITION_REMINDER_DAYS = 5;
+
+export type ReminderItem = {
+  accountName: string; // 配条件的账户
+  result: ConditionResult;
+};
+
+export type HomeReminder = {
+  count: number; // 条件个数，不是账户个数
+  asOf: string | null; // 这些条件里最早的截至，有没有数据的就是 null
+  text: string;
+};
+
+// R24.9：有"还差"的 in_progress。balance_growth 只算现在 ≤ 上月末
+function needsReminder(r: ConditionResult): boolean {
+  if (r.status !== 'in_progress') return false;
+  switch (r.type) {
+    case 'min_deposit':
+    case 'linked_min_deposit':
+    case 'linked_card_count':
+      return true;
+    case 'balance_growth':
+      return r.currentValue! <= r.target!;
+    case 'no_withdrawal':
+    case 'other':
+      return false;
+  }
+}
+
+function reminderLine({ accountName, result: r }: ReminderItem): string {
+  switch (r.type) {
+    case 'min_deposit':
+      return `${accountName} 本月存入还差 ${formatAud(r.remaining!)}`;
+    case 'linked_min_deposit':
+      return `${accountName} 的关联账户 ${r.watchedLabel} 本月存入还差 ${formatAud(r.remaining!)}`;
+    case 'linked_card_count':
+      return `${accountName} 的关联账户 ${r.watchedLabel} 本月刷卡还差 ${r.remaining} 笔`;
+    case 'balance_growth': {
+      const short = r.target! - r.currentValue!;
+      return short === 0
+        ? `${accountName} 现在和上月末一样，月底要比上月末高`
+        : `${accountName} 现在比上月末少 ${formatAud(short)}`;
+    }
+    case 'no_withdrawal':
+    case 'other':
+      throw new Error(`${r.type} 不提示`);
+  }
+}
+
+// R24.9：本月最后 CONDITION_REMINDER_DAYS 天里，有要提示的条件 → 一行；否则 null
+// items 是本家庭没归档账户、本月在判断的条件的结果；别的月份的结果不算
+export function homeReminder(items: readonly ReminderItem[], today: string): HomeReminder | null {
+  if (today < addDays(endOfMonth(today), -(CONDITION_REMINDER_DAYS - 1))) return null;
+  const month = startOfMonth(today);
+  const due = items.filter((i) => i.result.month === month && needsReminder(i.result));
+  const first = due[0];
+  if (!first) return null;
+
+  // 没有截至日期的排最前
+  const asOf = due
+    .map((i) => i.result.asOf)
+    .reduce((min, d) => (min === null || d === null ? null : d < min ? d : min));
+  const suffix = `（${asOfLabel(asOf)}）`;
+  const text = due.length === 1 ? reminderLine(first) : `${due.length} 个账户条件本月还没满足`;
+  return { count: due.length, asOf, text: text + suffix };
+}
+
+// ---------- 历史（R24.10） ----------
+
+// R24.10：最近 12 个月（含本月）里，从这个账户在判断过的条件最早的 effective_from 开始，返回月初日期
+// 中间没有条件在判断的月份照样返回（空格子"没有条件"）。effective_from = disabled_from 的一个月也不判断，不算
+export function monthsForHistory(periods: readonly ConditionPeriod[], today: string): string[] {
+  const used = periods.filter((p) => p.disabledFrom === null || p.effectiveFrom < p.disabledFrom);
+  if (used.length === 0) return [];
+  const earliest = used.map((p) => p.effectiveFrom).reduce((min, d) => (d < min ? d : min));
+  return lastTwelveMonths(today)
+    .map((r) => r.start)
+    .filter((m) => m >= earliest);
 }
