@@ -31,9 +31,9 @@ member_kind          person | shared | child
 bank                 anz | anz_plus | cba | cash | other
 account_type         everyday | savings | credit_card | joint | cash
 account_purpose      everyday | bills | emergency | savings | goal     （M9-3 建）
-condition_type       min_deposit | no_withdrawal | balance_growth | linked_min_deposit | linked_card_count | other   （M10-4 建，待确认）
-condition_outcome    bonus | fee_waiver                                （M10-4 建，待确认）
-deposit_filter       any | exclude_linked                              （M10-4 建，待确认）
+condition_type       min_deposit | no_withdrawal | balance_growth | linked_min_deposit | linked_card_count | other   （M10-4 建）
+condition_outcome    bonus | fee_waiver                                （M10-4 建）
+deposit_filter       any | exclude_linked                              （M10-4 建）
 category_kind        expense | income | system
 system_category_key  internal_transfer | cash_withdrawal | bank_fee | uncategorized
 transaction_status   pending | confirmed
@@ -139,7 +139,7 @@ item_type            fruit | vegetable | meat | seafood | dairy_egg | pantry | s
 - 不加 `(account_id, date)` 唯一：同一天可以有几条，取 `created_at` 最晚的
 - 只能硬删除，不能改（R23.3）。差额实时算，不存
 
-### account_condition（M10-4 建，待确认）
+### account_condition（M10-4 建）
 
 每月条件的配置（R24.1）。判断结果不存，每次实时算。
 
@@ -170,7 +170,7 @@ item_type            fruit | vegetable | meat | seafood | dairy_egg | pantry | s
 - 不删：修改 = 停用旧的、建新的；删除 = 停用（R24.1）。所以没有 `is_archived`
 - 别的校验（本家庭、没归档、有关联账户、生效月份不晚于本月）在 R24.1 的代码里做
 
-### account_condition_check（M10-4 建，待确认）
+### account_condition_check（M10-4 建）
 
 "其他"类型每月的手动勾（R24.7）。
 
