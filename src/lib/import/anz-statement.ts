@@ -266,8 +266,9 @@ function isTitle(text: string): boolean {
   return TITLE.test(text);
 }
 
-// R1C：标题行 + 全文有一行提到 ANZ，缺一条就不是 ANZ 对账单
-function looksLikeAnzStatement(lines: readonly StatementLine[]): boolean {
+// R1C：标题行 + 全文有一行提到 ANZ，缺一条就不是 ANZ 对账单。行要先去首尾空白
+// M8.5-5 上传对账单三选一也用它（index.ts）
+export function looksLikeAnzStatement(lines: readonly StatementLine[]): boolean {
   return lines.some((l) => isTitle(l.text)) && lines.some((l) => MENTIONS_ANZ.test(l.text));
 }
 

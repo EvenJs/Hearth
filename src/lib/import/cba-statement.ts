@@ -108,6 +108,37 @@ export function looksLikeCbaStatement(lines: readonly StatementLine[]): boolean 
   return isCba(cleanLines(lines));
 }
 
+// R1E 自动认账户（M8.5-5，照 R1D）：在调用方给的账户（没归档的 CBA）里，找 number_suffix 和对账单账号尾部对得上的
+// BSB 和账号不返回；错误信息里只带后 4 位
+export function identifyCbaStatementAccount(
+  lines: readonly StatementLine[],
+  accounts: readonly { id: string; numberSuffix: string | null }[],
+): { ok: true; accountId: string } | { ok: false; message: string } {
+  const cleaned = cleanLines(lines);
+  if (!isCba(cleaned)) return { ok: false, message: NOT_CBA_MESSAGE };
+  const headerAt = cleaned.findIndex((l) => TABLE_HEADER.test(l.text));
+  let digits: string;
+  try {
+    digits = readAccountDigits(cleaned.slice(0, headerAt));
+  } catch (error) {
+    if (error instanceof StatementError) return { ok: false, message: error.message };
+    throw error;
+  }
+
+  const matches = accounts.filter((a) => a.numberSuffix && digits.endsWith(a.numberSuffix));
+  if (matches.length === 1) return { ok: true, accountId: matches[0].id };
+  if (matches.length === 0) {
+    return {
+      ok: false,
+      message: `找不到尾号是 ${digits.slice(-4)} 的 CBA 账户，先去账户设置填上尾号`,
+    };
+  }
+  return {
+    ok: false,
+    message: `有 ${matches.length} 个 CBA 账户的尾号都对得上，去账户设置把尾号填长一点`,
+  };
+}
+
 // R1E：每一行先去掉行首的乱码，再去首尾空白，去完是空行就跳过
 function cleanLines(lines: readonly StatementLine[]): StatementLine[] {
   return lines

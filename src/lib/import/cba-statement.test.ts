@@ -8,7 +8,11 @@ import {
 } from '../../../tests/helpers/fixtures';
 import { parseAnzPlusStatement } from './anz-plus-statement';
 import { parseAnzStatement } from './anz-statement';
-import { looksLikeCbaStatement, parseCbaStatement } from './cba-statement';
+import {
+  identifyCbaStatementAccount,
+  looksLikeCbaStatement,
+  parseCbaStatement,
+} from './cba-statement';
 
 // 期望值来自 business-rules.md R1E、R1E.1 和 fixtures/cases/13-cba-statement.md
 // fixture 是编的：CBA Female，number_suffix 0003（fixtures/README.md 账户表）
@@ -433,5 +437,58 @@ describe('looksLikeCbaStatement（R1E 认格式）', () => {
       expect(MAIN_TEXT.split(from)).toHaveLength(2);
       expect(looksLikeCbaStatement(toStatementLines(MAIN_TEXT.replace(from, to)))).toBe(false);
     }
+  });
+});
+
+// M8.5-5：调用方只传没归档的 cba 账户（index.ts 的 identifyBankStatement 筛）
+describe('identifyCbaStatementAccount（R1E 自动认账户）', () => {
+  const female = { id: 'female', numberSuffix: '0003' };
+
+  it('R1E / D1: exactly one CBA account matches the suffix → that account', () => {
+    expect(
+      identifyCbaStatementAccount(readCbaStatementFixture('female-2026-09.txt'), [
+        female,
+        { id: 'saver', numberSuffix: '7777' },
+        { id: 'no-suffix', numberSuffix: null },
+      ]),
+    ).toEqual({ ok: true, accountId: 'female' });
+  });
+
+  it('R1E / D8, D9: no CBA account matches → fail, only the last 4 digits in the message', () => {
+    const r = identifyCbaStatementAccount(readCbaStatementFixture('wrong-account.txt'), [female]);
+    expect(r).toEqual({
+      ok: false,
+      message: '找不到尾号是 0002 的 CBA 账户，先去账户设置填上尾号',
+    });
+    if (!r.ok) {
+      for (const leak of ['10000002', '06 9999', '069999']) expect(r.message).not.toContain(leak);
+    }
+  });
+
+  it('R1E / D10: two CBA accounts match → fail', () => {
+    expect(
+      identifyCbaStatementAccount(readCbaStatementFixture('female-2026-09.txt'), [
+        female,
+        { id: 'female2', numberSuffix: '00003' },
+      ]),
+    ).toEqual({ ok: false, message: '有 2 个 CBA 账户的尾号都对得上，去账户设置把尾号填长一点' });
+  });
+
+  it('R1E: the account number is not 14 digits → 找不到账号', () => {
+    const text = MAIN_TEXT.replace(
+      'Account Number  06 9999 10000003\n123\n',
+      'Account Number  06 9999 1000003\n123\n',
+    );
+    expect(text).not.toBe(MAIN_TEXT);
+    expect(identifyCbaStatementAccount(toStatementLines(text), [female])).toEqual({
+      ok: false,
+      message: '找不到账号',
+    });
+  });
+
+  it('R1E: not a CBA statement → 这不像 CBA 对账单', () => {
+    expect(
+      identifyCbaStatementAccount(readStatementFixture('joint-2026-09.txt'), [female]),
+    ).toEqual({ ok: false, message: '这不像 CBA 对账单' });
   });
 });

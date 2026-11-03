@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   readAnzPlusStatementFixture,
+  readCbaStatementFixture,
   readFixture,
   readStatementFixture,
 } from '../../../tests/helpers/fixtures';
@@ -13,7 +14,8 @@ import {
 } from './index';
 
 // 期望值来自 business-rules.md R1、R1.0-6、R1C、R1D 和 fixtures/README.md（P9）、
-// fixtures/cases/08-anz-statement.md（S1、S11）、10-anz-plus-statement.md（B1、B3、B4）
+// fixtures/cases/08-anz-statement.md（S1、S11）、10-anz-plus-statement.md（B1、B3、B4）、
+// 13-cba-statement.md（C22、D1、D3、D8、D10）
 
 describe('parseBankCsv（R1 按 bank 选解析器）', () => {
   it('R1: anz uses the ANZ parser', () => {
@@ -48,15 +50,20 @@ describe('parseBankCsv（R1 按 bank 选解析器）', () => {
   });
 });
 
-// M7.5-5：PDF 对账单按格式选解析器（R1D 认格式：都满足用 R1D，否则交给 R1C）
-describe('statementBank（R1C / R1D 认格式）', () => {
-  it('R1D: an ANZ Plus statement → anz_plus', () => {
+// M8.5-5：PDF 对账单按格式三选一（R1E 认格式），都不像 → null
+describe('statementBank（R1C / R1D / R1E 三选一）', () => {
+  it('R1E / C22: CBA, ANZ and ANZ Plus statements each go to their own parser', () => {
+    expect(statementBank(readCbaStatementFixture('female-2026-09.txt'))).toBe('cba');
+    expect(statementBank(readStatementFixture('joint-2026-09.txt'))).toBe('anz');
     expect(statementBank(readAnzPlusStatementFixture('growth-2026-09.txt'))).toBe('anz_plus');
   });
 
-  it('R1D: anything else goes to R1C → anz', () => {
-    expect(statementBank(readStatementFixture('joint-2026-09.txt'))).toBe('anz');
-    expect(statementBank([{ page: 1, text: 'Dear customer' }])).toBe('anz');
+  it('R1E / C22: a text that looks like none of them → null', () => {
+    expect(statementBank([{ page: 1, text: 'Hello' }])).toBeNull();
+  });
+
+  it('R1E: a CBA statement with 0 transactions is still cba', () => {
+    expect(statementBank(readCbaStatementFixture('female-2026-10.txt'))).toBe('cba');
   });
 });
 
@@ -68,7 +75,7 @@ const ACCOUNTS = [
   { id: 'plus', bank: 'anz_plus', numberSuffix: '0004' },
 ] as const;
 
-describe('identifyBankStatement（R1C / R1D 自动认账户，ANZ 和 ANZ Plus 不混着找）', () => {
+describe('identifyBankStatement（R1C / R1D / R1E 自动认账户，三家不混着找）', () => {
   it('R1C / S11: an ANZ statement → ANZ Joint', () => {
     expect(identifyBankStatement(readStatementFixture('joint-2026-09.txt'), ACCOUNTS)).toEqual({
       ok: true,
@@ -95,9 +102,38 @@ describe('identifyBankStatement（R1C / R1D 自动认账户，ANZ 和 ANZ Plus �
       ]),
     ).toEqual({ ok: false, message: '找不到尾号是 0001 的 ANZ 账户，先去账户设置填上尾号' });
   });
+
+  it('R1E / D1: a CBA statement → CBA Female', () => {
+    expect(identifyBankStatement(readCbaStatementFixture('female-2026-09.txt'), ACCOUNTS)).toEqual({
+      ok: true,
+      accountId: 'female',
+    });
+  });
+
+  it('R1E / D8: wrong-account.txt (…0002) does not pick ANZ Male', () => {
+    expect(
+      identifyBankStatement(readCbaStatementFixture('wrong-account.txt'), ACCOUNTS),
+    ).toEqual({ ok: false, message: '找不到尾号是 0002 的 CBA 账户，先去账户设置填上尾号' });
+  });
+
+  it('R1E / D10: two CBA accounts match the suffix → fail', () => {
+    expect(
+      identifyBankStatement(readCbaStatementFixture('female-2026-09.txt'), [
+        ...ACCOUNTS,
+        { id: 'female2', bank: 'cba', numberSuffix: '00003' },
+      ]),
+    ).toEqual({ ok: false, message: '有 2 个 CBA 账户的尾号都对得上，去账户设置把尾号填长一点' });
+  });
+
+  it('R1E / C22: a text that looks like none of them → fail', () => {
+    expect(identifyBankStatement([{ page: 1, text: 'Hello' }], ACCOUNTS)).toEqual({
+      ok: false,
+      message: '认不出这份对账单，只支持 ANZ、ANZ Plus、CBA 的 PDF 对账单',
+    });
+  });
 });
 
-describe('parseBankStatement（R1C / R1D 按 bank 选解析器）', () => {
+describe('parseBankStatement（R1C / R1D / R1E 按 bank 选解析器）', () => {
   it('R1C / S1: anz → 19 rows, batch date_from is the day after periodFrom', () => {
     const r = parseBankStatement('anz', readStatementFixture('joint-2026-09.txt'), '0001');
     if (!r.ok) throw new Error(r.message);
@@ -149,7 +185,30 @@ describe('parseBankStatement（R1C / R1D 按 bank 选解析器）', () => {
     if (!r.ok) expect(r.message).toContain('找不到对账单标题');
   });
 
-  it.each(['cba', 'cash', 'other'] as const)('R1: %s cannot import a PDF statement', (bank) => {
+  it('R1E / D1: cba → 20 rows with balances, batch date_from = periodFrom (closed period)', () => {
+    const r = parseBankStatement('cba', readCbaStatementFixture('female-2026-09.txt'), '0003');
+    if (!r.ok) throw new Error(r.message);
+    expect(r.rows).toHaveLength(20);
+    expect(r.rows.every((row) => row.balanceCents !== null)).toBe(true);
+    expect(r).toMatchObject({
+      dateFrom: '2026-09-01',
+      dateTo: '2026-09-30',
+      openingCents: 1000000,
+      closingCents: 1156159,
+    });
+  });
+
+  it('R1E / D3: cba with 0 transactions still succeeds', () => {
+    const r = parseBankStatement('cba', readCbaStatementFixture('female-2026-10.txt'), '0003');
+    expect(r).toMatchObject({ ok: true, rows: [], dateFrom: '2026-10-01', dateTo: '2026-10-31' });
+  });
+
+  it('R1E / C5: cba failures keep page and index', () => {
+    const r = parseBankStatement('cba', readCbaStatementFixture('broken-balance.txt'), '0003');
+    expect(r).toMatchObject({ ok: false, page: 2, index: 2 });
+  });
+
+  it.each(['cash', 'other'] as const)('R1: %s cannot import a PDF statement', (bank) => {
     expect(
       parseBankStatement(bank, readAnzPlusStatementFixture('growth-2026-09.txt'), '0004'),
     ).toEqual({ ok: false, message: '这个账户不能导入 PDF 对账单', page: null, index: null });
@@ -157,7 +216,7 @@ describe('parseBankStatement（R1C / R1D 按 bank 选解析器）', () => {
 });
 
 // 结果页、历史页显示纸面对账单印的账期
-describe('statementPeriod（R1C / R1D 页面显示的账期）', () => {
+describe('statementPeriod（R1C / R1D / R1E 页面显示的账期）', () => {
   it('R1C: anz batch date_from 2026-09-01 → printed period starts 2026-08-31', () => {
     expect(statementPeriod('anz', '2026-09-01', '2026-09-30')).toEqual({
       from: '2026-08-31',
@@ -169,6 +228,13 @@ describe('statementPeriod（R1C / R1D 页面显示的账期）', () => {
     expect(statementPeriod('anz_plus', '2026-09-01', '2026-09-30')).toEqual({
       from: '2026-09-01',
       to: '2026-09-30',
+    });
+  });
+
+  it('R1E: cba batch date_from is the printed periodFrom, unchanged', () => {
+    expect(statementPeriod('cba', '2026-12-16', '2027-01-15')).toEqual({
+      from: '2026-12-16',
+      to: '2027-01-15',
     });
   });
 });

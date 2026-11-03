@@ -153,7 +153,7 @@ Please check this statement carefully.
 | D3 | D1 | 导入 `female-2026-10.txt` | 新增 0，建了批次，`date_from = 2026-10-01`，`reconciled = true`；R12.2 提示"和上一份对账单接上了" |
 | D4 | D1 | 导入 `year-rollover.txt` | 新增 2，`reconciled = true`；R12.2 提示"接上了"（期初 = 上一份期末；中间 10 月到 12 月中没有对账单，R12.2 只比余额，不拦） |
 | D5 | 空数据库，先导 `cba/female-2026-09.csv` 到 `CBA Female` | 导入 `female-2026-09.txt` | R4.2 按 key 跳过 17（两笔 Sushi 都跳过），R4.3 按 `(date, amount_cents, balance_cents)` 跳过 3（3 笔 BPAY）；新增 0，`duplicate_count = 20`。CSV 那 20 笔的描述、key、分类、归属人、`import_batch_id` 都没变。PDF 批次 `reconciled = true`；R12.2 不提示（没有上一份 PDF 批次，CSV 批次不算） |
-| D6 | 空数据库 | 顺序反过来：先导 `female-2026-09.txt`，再导 `cba/female-2026-09.csv` | CSV 不做 R4.3：CSV 批次跳过 17，新增 3（3 笔 BPAY 和 PDF 的重复了），`reconciled = false`，差 −$1,426.95。R4.3 "不管的方向"，这条是记下来的已知结果 |
+| D6 | 空数据库 | 顺序反过来：先导 `female-2026-09.txt`，再导 `cba/female-2026-09.csv` | CSV 不做 R4.3：CSV 批次跳过 17，新增 3（3 笔 BPAY 和 PDF 的重复了），`reconciled = false`，差 +$1,426.95（R9：多了 3 笔 BPAY 的支出）。R4.3 "不管的方向"，这条是记下来的已知结果 |
 | D7 | D5 | 撤销 PDF 批次（R12.1） | PDF 批次没有插入任何交易，什么都不删；CSV 批次的 20 笔都还在，没被改 |
 | D8 | 空数据库 | 不选账户，导入 `wrong-account.txt` | 整份失败"找不到尾号是 0002 的 CBA 账户"（`ANZ Male` 尾号是 `0002` 也不算）；什么都没写 |
 | D9 | 把 `CBA Female` 归档 | 不选账户，导入 `female-2026-09.txt` | 整份失败"找不到尾号是 0003 的 CBA 账户"；什么都没写 |

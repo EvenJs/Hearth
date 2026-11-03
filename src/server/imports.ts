@@ -230,9 +230,9 @@ async function loadImportTarget(
       target.bank === 'anz_plus' ? ANZ_PLUS_PDF_ONLY : '这个账户不能导入 CSV',
     );
   }
-  // R1C、R1D：只有 ANZ 和 ANZ Plus 有对账单解析器
+  // R1C、R1D、R1E：只有 ANZ、ANZ Plus 和 CBA 有对账单解析器
   if (kind === 'pdf' && !canImportStatement(target.bank)) {
-    return fail('not_importable', '只有 ANZ 和 ANZ Plus 账户能导入 PDF 对账单');
+    return fail('not_importable', '只有 ANZ、ANZ Plus 和 CBA 账户能导入 PDF 对账单');
   }
 
   const config = await loadHouseholdConfig(ctx);
@@ -321,7 +321,7 @@ export async function importStatement(
   const fileError = checkPdfFile({ name: input.fileName, size: input.buffer.byteLength });
   if (fileError) return fail('invalid_file', fileError);
 
-  // 指定了账户：先看账户，不是 ANZ、ANZ Plus 就不用读 PDF
+  // 指定了账户：先看账户，不是 ANZ、ANZ Plus、CBA 就不用读 PDF
   if (input.accountId !== undefined) {
     const target = await loadImportTarget(ctx, input.accountId, 'pdf');
     if ('ok' in target) return target;
@@ -338,12 +338,12 @@ export async function importStatement(
   });
 }
 
-// R1C、R1D 第二层以后：解析 → R2 到 R5（processRows）→ R12 第 3 到 9 步
+// R1C、R1D、R1E 第二层以后：解析 → R2 到 R5（processRows）→ R12 第 3 到 9 步
 export async function importStatementLines(
   ctx: HouseholdContext,
   input: ImportStatementLinesInput,
 ): Promise<ImportResult> {
-  // R1C、R1D 自动认账户：没指定账户时用账号找
+  // R1C、R1D、R1E 自动认账户：没指定账户时用账号找
   let accountId = input.accountId;
   if (accountId === undefined) {
     const identified = await identifyAccount(ctx, input.lines);
@@ -355,7 +355,7 @@ export async function importStatementLines(
   if ('ok' in target) return target;
   const { config, account } = target;
 
-  // R1C、R1D：按账户的银行选解析器。任何一条检查不过整份失败。账号尾号核对在解析里做，不存
+  // R1C、R1D、R1E：按账户的银行选解析器。任何一条检查不过整份失败。账号尾号核对在解析里做，不存
   const parsed = parseBankStatement(account.bank, input.lines, account.numberSuffix);
   if (!parsed.ok) {
     // 信息里已经写了第几页第几笔
@@ -368,7 +368,7 @@ export async function importStatementLines(
     fileName: input.fileName,
     source: 'pdf',
     rows: processRows(parsed.rows, account, config),
-    // R1C 的 date_from 是账期开始日的第二天，R1D 是开始日（parseBankStatement 算好了）
+    // R1C 的 date_from 是账期开始日的第二天，R1D、R1E 是开始日（parseBankStatement 算好了）
     dateFrom: parsed.dateFrom,
     dateTo: parsed.dateTo,
     // R9：期初期末从汇总来
@@ -378,7 +378,7 @@ export async function importStatementLines(
   });
 }
 
-// R1C、R1D 自动认账户：在没归档的账户里找，ANZ 对账单只找 ANZ 账户，ANZ Plus 只找 ANZ Plus（identifyBankStatement 筛）
+// R1C、R1D、R1E 自动认账户：在没归档的账户里找，只找和对账单同一家银行的账户（identifyBankStatement 筛）
 async function identifyAccount(ctx: HouseholdContext, lines: readonly StatementLine[]) {
   const candidates = await db
     .select({
@@ -853,7 +853,7 @@ export type ImportResultView = {
   fileName: string;
   createdAt: Date;
   account: { id: string; name: string; bank: Bank; numberSuffix: string | null };
-  source: 'csv' | 'pdf'; // pdf = ANZ / ANZ Plus 对账单（R1C、R1D）
+  source: 'csv' | 'pdf'; // pdf = ANZ / ANZ Plus / CBA 对账单（R1C、R1D、R1E）
   dateFrom: string;
   dateTo: string;
   rowCount: number;
@@ -1029,7 +1029,7 @@ export type ImportHistoryRow = {
   createdAt: Date;
   fileName: string;
   account: { id: string; name: string; bank: Bank; numberSuffix: string | null };
-  source: 'csv' | 'pdf'; // pdf = ANZ / ANZ Plus 对账单（R1C、R1D）
+  source: 'csv' | 'pdf'; // pdf = ANZ / ANZ Plus / CBA 对账单（R1C、R1D、R1E）
   dateFrom: string;
   dateTo: string;
   insertedCount: number;

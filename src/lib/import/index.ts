@@ -1,4 +1,4 @@
-// R1：按 financial_account.bank 选解析器的入口。CSV（R1A、R1B）和 PDF 对账单（R1C、R1D）
+// R1：按 financial_account.bank 选解析器的入口。CSV（R1A、R1B）和 PDF 对账单（R1C、R1D、R1E）
 // 返回结果对象，不抛错，Server Action 可以直接把 message 显示出来
 // 纯函数，不 import 数据库和 Next.js
 import { addDays } from '@/lib/rules/periods';
@@ -11,12 +11,18 @@ import {
 } from './anz-plus-statement';
 import {
   identifyStatementAccount,
+  looksLikeAnzStatement,
   parseAnzStatement,
   statementPeriod as anzStatementPeriod,
   type StatementLine,
 } from './anz-statement';
 import { canImportCsv, canImportStatement } from './banks';
 import { parseCbaCsv } from './cba';
+import {
+  identifyCbaStatementAccount,
+  looksLikeCbaStatement,
+  parseCbaStatement,
+} from './cba-statement';
 import { CsvRowError } from './csv';
 
 export type ParseCsvResult =
@@ -51,30 +57,36 @@ export function parseBankCsv(bank: Bank, text: string): ParseCsvResult {
 
 // ---------- PDF 对账单 ----------
 
-type StatementBank = 'anz' | 'anz_plus';
+type StatementBank = 'anz' | 'anz_plus' | 'cba';
 
-// R1D 认格式：两条都满足用 R1D，否则交给 R1C
-export function statementBank(lines: readonly StatementLine[]): StatementBank {
-  return looksLikeAnzPlusStatement(lines) ? 'anz_plus' : 'anz';
+const UNKNOWN_STATEMENT_MESSAGE = '认不出这份对账单，只支持 ANZ、ANZ Plus、CBA 的 PDF 对账单';
+
+// R1E 上传对账单时三选一：R1D → R1E → R1C，都不像 → null
+export function statementBank(lines: readonly StatementLine[]): StatementBank | null {
+  if (looksLikeAnzPlusStatement(lines)) return 'anz_plus';
+  if (looksLikeCbaStatement(lines)) return 'cba';
+  const trimmed = lines.map((l) => ({ page: l.page, text: l.text.trim() }));
+  return looksLikeAnzStatement(trimmed) ? 'anz' : null;
 }
 
-// R1C、R1D 自动认账户：accounts 是本家庭没归档的账户，只在和对账单同一家银行的里面找（ANZ 和 ANZ Plus 不混着找）
+// R1C、R1D、R1E 自动认账户：accounts 是本家庭没归档的账户，只在和对账单同一家银行的里面找（三家不混着找）
 export function identifyBankStatement(
   lines: readonly StatementLine[],
   accounts: readonly { id: string; bank: Bank; numberSuffix: string | null }[],
 ): { ok: true; accountId: string } | { ok: false; message: string } {
   const bank = statementBank(lines);
+  if (bank === null) return { ok: false, message: UNKNOWN_STATEMENT_MESSAGE };
   const candidates = accounts.filter((a) => a.bank === bank);
-  return bank === 'anz_plus'
-    ? identifyAnzPlusStatementAccount(lines, candidates)
-    : identifyStatementAccount(lines, candidates);
+  if (bank === 'anz_plus') return identifyAnzPlusStatementAccount(lines, candidates);
+  if (bank === 'cba') return identifyCbaStatementAccount(lines, candidates);
+  return identifyStatementAccount(lines, candidates);
 }
 
 export type ParseStatementResult =
   | {
       ok: true;
       rows: ParsedRow[]; // 旧的在前
-      dateFrom: string; // import_batch.date_from：R1C 是账期开始日的第二天，R1D 是账期开始日
+      dateFrom: string; // import_batch.date_from：R1C 是账期开始日的第二天，R1D、R1E 是账期开始日
       dateTo: string;
       openingCents: number;
       closingCents: number;
@@ -91,9 +103,12 @@ export function parseBankStatement(
     return { ok: false, message: '这个账户不能导入 PDF 对账单', page: null, index: null };
   }
 
-  if (bank === 'anz_plus') {
-    // R1D：账期是闭区间 [periodFrom, periodTo]，date_from 不加一天
-    const r = parseAnzPlusStatement(lines, accountSuffix);
+  if (bank === 'anz_plus' || bank === 'cba') {
+    // R1D、R1E：账期是闭区间 [periodFrom, periodTo]，date_from 不加一天
+    const r =
+      bank === 'cba'
+        ? parseCbaStatement(lines, accountSuffix)
+        : parseAnzPlusStatement(lines, accountSuffix);
     if (!r.ok) return r;
     return {
       ok: true,
@@ -118,11 +133,11 @@ export function parseBankStatement(
   };
 }
 
-// 页面显示纸面对账单印的账期：R1C 的 date_from 是开始日的第二天，减回去；R1D 存的就是开始日
+// 页面显示纸面对账单印的账期：R1C 的 date_from 是开始日的第二天，减回去；R1D、R1E 存的就是开始日
 export function statementPeriod(
   bank: Bank,
   dateFrom: string,
   dateTo: string,
 ): { from: string; to: string } {
-  return bank === 'anz_plus' ? { from: dateFrom, to: dateTo } : anzStatementPeriod(dateFrom, dateTo);
+  return bank === 'anz' ? anzStatementPeriod(dateFrom, dateTo) : { from: dateFrom, to: dateTo };
 }
