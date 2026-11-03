@@ -1,12 +1,16 @@
 // 银行 / 现金账户（financial_account）的数据访问。F1、M1-5
 // 输入先用 accountInputSchema 校验，再进这里；这里负责 household 隔离和数据库约束
 // 保存带尾号的账户时重新识别旧转账（R6.4，M5.5-3）
+// 用途、关联账户（R23.4）和新建时的开户余额（R23.1），M9-3
 import { and, asc, eq, ilike, inArray, isNull, ne, or } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { db } from '@/db';
 import { financialAccount, member, transaction, transactionSplit } from '@/db/schema';
 import type { AccountType, AccountValues, Bank } from '@/lib/accounts/account-input';
+import { openingAnchorDate, validateLink, type AccountPurpose } from '@/lib/rules/balance';
 import { planTransferRedetect, type RedetectPlan, type RedetectTx } from '@/lib/rules/transfer';
 import type { Account as RuleAccount, CategorySource, MemberSource } from '@/lib/rules/types';
+import { insertOpeningBalance } from './balances';
 import type { HouseholdContext } from './context';
 import { isActiveMember } from './members';
 import { loadEditContext, writeSplit, type DbTx } from './transactions';
@@ -21,7 +25,14 @@ export type Account = {
   defaultMemberName: string;
   numberSuffix: string | null;
   isArchived: boolean;
+  purpose: AccountPurpose;
+  // R23.4 关联账户。对方归档了也照样返回，显示"（已归档）"
+  linkedAccountId: string | null;
+  linkedAccountName: string | null;
+  linkedAccountArchived: boolean | null;
 };
+
+const linked = alias(financialAccount, 'linked');
 
 // 业务错误：Server Action 捕获后转成表单提示
 export class AccountError extends Error {
@@ -53,9 +64,20 @@ export async function listAccounts(
       defaultMemberName: member.name,
       numberSuffix: financialAccount.numberSuffix,
       isArchived: financialAccount.isArchived,
+      purpose: financialAccount.purpose,
+      linkedAccountId: financialAccount.linkedAccountId,
+      linkedAccountName: linked.name,
+      linkedAccountArchived: linked.isArchived,
     })
     .from(financialAccount)
     .innerJoin(member, eq(member.id, financialAccount.defaultMemberId))
+    .leftJoin(
+      linked,
+      and(
+        eq(linked.id, financialAccount.linkedAccountId),
+        eq(linked.householdId, ctx.householdId),
+      ),
+    )
     .where(and(...conditions))
     .orderBy(
       asc(financialAccount.isArchived),
@@ -220,18 +242,30 @@ async function applyRedetect(
   return { redetectedCount: r.plan.updates.length, pairedCount: transfers.pairs.length };
 }
 
+// R23.1：同一个事务里写开户余额锚点，日期 = 建账户那天（Melbourne）的前一天
 export async function createAccount(
   ctx: HouseholdContext,
   values: AccountValues,
   options: AccountSaveOptions = {},
 ): Promise<AccountSaveResult> {
   await assertMemberInHousehold(ctx, values.defaultMemberId);
+  const { account: accountValues, openingBalanceCents } = splitOpeningBalance(values);
   try {
     return await db.transaction(async (tx) => {
+      if (accountValues.linkedAccountId) {
+        await assertLinkable(tx, ctx, NEW_ACCOUNT_ID, values.bank, accountValues.linkedAccountId);
+      }
       const [created] = await tx
         .insert(financialAccount)
-        .values({ householdId: ctx.householdId, ...values })
-        .returning({ id: financialAccount.id });
+        .values({ householdId: ctx.householdId, ...accountValues })
+        .returning({ id: financialAccount.id, createdAt: financialAccount.createdAt });
+      await insertOpeningBalance(
+        tx,
+        ctx,
+        created.id,
+        openingAnchorDate(created.createdAt),
+        openingBalanceCents,
+      );
       if (!options.redetect) return { redetectedCount: 0, pairedCount: 0 };
       return applyRedetect(tx, ctx, created.id, values);
     });
@@ -247,11 +281,27 @@ export async function updateAccount(
   options: AccountSaveOptions = {},
 ): Promise<AccountSaveResult> {
   await assertMemberInHousehold(ctx, values.defaultMemberId);
+  const { account: accountValues } = splitOpeningBalance(values); // 开户余额只有新建用
   try {
     return await db.transaction(async (tx) => {
+      // R23.4：只在关联账户改变时校验，所以已经关联、后来归档了的不会让保存失败
+      if (accountValues.linkedAccountId) {
+        const [current] = await tx
+          .select({ linkedAccountId: financialAccount.linkedAccountId })
+          .from(financialAccount)
+          .where(
+            and(
+              eq(financialAccount.id, accountId),
+              eq(financialAccount.householdId, ctx.householdId),
+            ),
+          );
+        if (current && current.linkedAccountId !== accountValues.linkedAccountId) {
+          await assertLinkable(tx, ctx, accountId, values.bank, accountValues.linkedAccountId);
+        }
+      }
       const updated = await tx
         .update(financialAccount)
-        .set(values)
+        .set(accountValues)
         .where(
           and(
             eq(financialAccount.id, accountId),
@@ -282,6 +332,36 @@ export async function setAccountArchived(
     )
     .returning({ id: financialAccount.id });
   if (updated.length === 0) throw new AccountError('账户不存在');
+}
+
+// 开户余额（R23.1）不是 financial_account 的列
+function splitOpeningBalance(values: AccountValues) {
+  const { openingBalanceCents = 0, ...account } = values;
+  return { account, openingBalanceCents };
+}
+
+// R23.4：目标按 id 在本家庭里找，别的家庭的当成找不到
+async function assertLinkable(
+  tx: DbTx,
+  ctx: HouseholdContext,
+  accountId: string,
+  bank: Bank,
+  targetId: string,
+) {
+  const [target] = await tx
+    .select({
+      id: financialAccount.id,
+      householdId: financialAccount.householdId,
+      bank: financialAccount.bank,
+      isArchived: financialAccount.isArchived,
+    })
+    .from(financialAccount)
+    .where(and(eq(financialAccount.id, targetId), eq(financialAccount.householdId, ctx.householdId)));
+  const error = validateLink(
+    { id: accountId, householdId: ctx.householdId, bank },
+    target ?? null,
+  );
+  if (error) throw new AccountError(error, 'linkedAccountId');
 }
 
 async function assertMemberInHousehold(ctx: HouseholdContext, memberId: string) {

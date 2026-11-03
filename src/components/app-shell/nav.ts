@@ -1,6 +1,13 @@
 // 侧边栏导航（docs/design/README.md 第 3 节）。电脑侧边栏和手机 Sheet 共用
 // href 为 null：页面还没做，显示为不可点。做完对应任务时填上 href
-import { FileUp, LayoutDashboard, ReceiptText, Settings, type LucideIcon } from 'lucide-react';
+import {
+  FileUp,
+  LayoutDashboard,
+  ReceiptText,
+  Settings,
+  Wallet,
+  type LucideIcon,
+} from 'lucide-react';
 
 export type NavLeaf = { label: string; href: string | null };
 export type NavItem = NavLeaf & { icon: LucideIcon; children?: NavLeaf[] };
@@ -8,6 +15,8 @@ export type NavItem = NavLeaf & { icon: LucideIcon; children?: NavLeaf[] };
 export const NAV_ITEMS: NavItem[] = [
   { label: '看板', href: '/', icon: LayoutDashboard },
   { label: '流水', href: '/transactions', icon: ReceiptText },
+  // M9-5 账户总览（R23.5）；/settings/accounts 不会让它高亮
+  { label: '账户', href: '/accounts', icon: Wallet },
   {
     label: '导入',
     href: null,

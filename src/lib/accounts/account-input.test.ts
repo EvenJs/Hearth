@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { accountType, bank } from '@/db/schema';
+import { accountPurpose, accountType, bank } from '@/db/schema';
+import { ACCOUNT_PURPOSES } from '@/lib/rules/balance';
 import { ACCOUNT_TYPES, BANKS, accountInputSchema } from './account-input';
 
 const MEMBER_ID = '6f1c2a3e-9b4d-4c5e-8f7a-1b2c3d4e5f60';
@@ -22,6 +23,10 @@ describe('enums', () => {
   it('BANKS and ACCOUNT_TYPES match the database enums', () => {
     expect([...BANKS]).toEqual(bank.enumValues);
     expect([...ACCOUNT_TYPES]).toEqual(accountType.enumValues);
+  });
+
+  it('R23.4: ACCOUNT_PURPOSES match the database enum', () => {
+    expect([...ACCOUNT_PURPOSES]).toEqual(accountPurpose.enumValues);
   });
 });
 
@@ -84,5 +89,28 @@ describe('accountInputSchema', () => {
     expect(errorsOf({ ...valid, bank: 'westpac' })?.[0].path).toBe('bank');
     expect(errorsOf({ ...valid, type: 'loan' })?.[0].path).toBe('type');
     expect(errorsOf({ ...valid, defaultMemberId: 'Male' })?.[0].path).toBe('defaultMemberId');
+  });
+
+  it('R23.4: purpose, linked account and opening balance are optional', () => {
+    const parsed = accountInputSchema.parse(valid);
+    expect(parsed.purpose).toBeUndefined();
+    expect(parsed.linkedAccountId).toBeUndefined();
+    expect(parsed.openingBalanceCents).toBeUndefined();
+    expect(
+      accountInputSchema.parse({
+        ...valid,
+        purpose: 'bills',
+        linkedAccountId: null,
+        openingBalanceCents: -45000,
+      }),
+    ).toMatchObject({ purpose: 'bills', linkedAccountId: null, openingBalanceCents: -45000 });
+  });
+
+  it('R23.4: rejects unknown purpose, non-uuid link and non-integer opening balance', () => {
+    expect(errorsOf({ ...valid, purpose: 'travel' })?.[0].path).toBe('purpose');
+    expect(errorsOf({ ...valid, linkedAccountId: 'ANZ Male' })?.[0].path).toBe('linkedAccountId');
+    expect(errorsOf({ ...valid, openingBalanceCents: 12.5 })?.[0].path).toBe(
+      'openingBalanceCents',
+    );
   });
 });
