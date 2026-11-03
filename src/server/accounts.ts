@@ -3,10 +3,11 @@
 // 保存带尾号的账户时重新识别旧转账（R6.4，M5.5-3）
 // 用途、关联账户（R23.4）和新建时的开户余额（R23.1），M9-3
 import { and, asc, eq, ilike, inArray, isNull, ne, or } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { db } from '@/db';
 import { financialAccount, member, transaction, transactionSplit } from '@/db/schema';
 import type { AccountType, AccountValues, Bank } from '@/lib/accounts/account-input';
-import { openingAnchorDate, validateLink } from '@/lib/rules/balance';
+import { openingAnchorDate, validateLink, type AccountPurpose } from '@/lib/rules/balance';
 import { planTransferRedetect, type RedetectPlan, type RedetectTx } from '@/lib/rules/transfer';
 import type { Account as RuleAccount, CategorySource, MemberSource } from '@/lib/rules/types';
 import { insertOpeningBalance } from './balances';
@@ -24,7 +25,14 @@ export type Account = {
   defaultMemberName: string;
   numberSuffix: string | null;
   isArchived: boolean;
+  purpose: AccountPurpose;
+  // R23.4 关联账户。对方归档了也照样返回，显示"（已归档）"
+  linkedAccountId: string | null;
+  linkedAccountName: string | null;
+  linkedAccountArchived: boolean | null;
 };
+
+const linked = alias(financialAccount, 'linked');
 
 // 业务错误：Server Action 捕获后转成表单提示
 export class AccountError extends Error {
@@ -56,9 +64,20 @@ export async function listAccounts(
       defaultMemberName: member.name,
       numberSuffix: financialAccount.numberSuffix,
       isArchived: financialAccount.isArchived,
+      purpose: financialAccount.purpose,
+      linkedAccountId: financialAccount.linkedAccountId,
+      linkedAccountName: linked.name,
+      linkedAccountArchived: linked.isArchived,
     })
     .from(financialAccount)
     .innerJoin(member, eq(member.id, financialAccount.defaultMemberId))
+    .leftJoin(
+      linked,
+      and(
+        eq(linked.id, financialAccount.linkedAccountId),
+        eq(linked.householdId, ctx.householdId),
+      ),
+    )
     .where(and(...conditions))
     .orderBy(
       asc(financialAccount.isArchived),

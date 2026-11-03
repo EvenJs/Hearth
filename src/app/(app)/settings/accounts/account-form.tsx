@@ -24,6 +24,7 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -42,6 +43,8 @@ import {
   type Bank,
 } from '@/lib/accounts/account-input';
 import { canImportStatement } from '@/lib/import/banks';
+import { ACCOUNT_PURPOSES, ACCOUNT_PURPOSE_LABELS } from '@/lib/rules/balance';
+import { parseBalanceToCents } from '@/lib/rules/money';
 import type { Account } from '@/server/accounts';
 import type { Member } from '@/server/members';
 import { previewAccountSaveAction, saveAccountAction } from './actions';
@@ -58,14 +61,21 @@ const BANK_IMPORT_HINT: Record<Bank, string> = {
 // R6.4 弹窗：保存后会认成内部转账的 N 笔、对上了但不改的 M 笔，和当时的表单输入
 type RedetectPrompt = { count: number; keptCount: number; input: AccountInput };
 
+// R23.4 关联账户的"不关联"。Radix Select 的值不能是空字符串
+const NO_LINK = '__none__';
+
 type Props = {
   account: Account | null; // null = 新建
+  accounts: Account[]; // 关联账户的候选
   members: Member[];
   onDone: () => void;
 };
 
-export function AccountForm({ account, members, onDone }: Props) {
+export function AccountForm({ account, accounts, members, onDone }: Props) {
   const [formError, setFormError] = useState<string | null>(null);
+  // R23.1 开户余额（元），只有新建用。字符串不进 react-hook-form，提交时转分
+  const [openingBalance, setOpeningBalance] = useState('0');
+  const [openingBalanceError, setOpeningBalanceError] = useState<string | null>(null);
   const [prompt, setPrompt] = useState<RedetectPrompt | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -78,14 +88,31 @@ export function AccountForm({ account, members, onDone }: Props) {
           type: account.type,
           defaultMemberId: account.defaultMemberId,
           numberSuffix: account.numberSuffix ?? '',
+          purpose: account.purpose,
+          linkedAccountId: account.linkedAccountId,
         }
       : // 新建时银行、类型、归属人不预选，避免没注意就保存
-        ({ name: '', numberSuffix: '' } as AccountInput),
+        ({ name: '', numberSuffix: '', purpose: 'everyday', linkedAccountId: null } as AccountInput),
   });
 
   const bank = useWatch({ control: form.control, name: 'bank' });
   const type = useWatch({ control: form.control, name: 'type' });
   const isCash = type === 'cash';
+
+  // R23.4：下拉里去掉自己、已归档的、现金账户
+  const linkOptions = accounts.filter(
+    (a) => a.id !== account?.id && !a.isArchived && a.bank !== 'cash',
+  );
+  // 已经关联、后来归档了的账户不在候选里，单独放一项让它显示出来；不改就原样保存
+  const keptLink =
+    account?.linkedAccountId && !linkOptions.some((a) => a.id === account.linkedAccountId)
+      ? {
+          id: account.linkedAccountId,
+          label: account.linkedAccountArchived
+            ? `${account.linkedAccountName}（已归档）`
+            : (account.linkedAccountName ?? ''),
+        }
+      : null;
 
   function showErrors(result: { message: string; fieldErrors?: Partial<Record<string, string>> }) {
     for (const [field, message] of Object.entries(result.fieldErrors ?? {})) {
@@ -119,8 +146,17 @@ export function AccountForm({ account, members, onDone }: Props) {
   // 先预览 R6.4：有旧交易会认成内部转账就弹窗问，没有（或尾号是空的）直接保存
   async function onSubmit() {
     setFormError(null);
+    setOpeningBalanceError(null);
     // 传原始输入，服务端用同一个 schema 再校验一次
     const input = form.getValues();
+    if (!account) {
+      try {
+        input.openingBalanceCents = parseBalanceToCents(openingBalance);
+      } catch {
+        setOpeningBalanceError('金额格式不对，如 1200.50 或 -350');
+        return;
+      }
+    }
     const preview = await previewAccountSaveAction(account?.id ?? null, input);
     if (!preview.ok) {
       showErrors(preview);
@@ -162,7 +198,14 @@ export function AccountForm({ account, members, onDone }: Props) {
           render={({ field }) => (
             <FormItem>
               <FormLabel>银行</FormLabel>
-              <Select value={field.value ?? ''} onValueChange={field.onChange}>
+              <Select
+                value={field.value ?? ''}
+                onValueChange={(v) => {
+                  field.onChange(v);
+                  // R23.4：现金账户不能关联别的账户
+                  if (v === 'cash') form.setValue('linkedAccountId', null);
+                }}
+              >
                 <FormControl>
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="选择银行" />
@@ -278,6 +321,89 @@ export function AccountForm({ account, members, onDone }: Props) {
             </FormItem>
           )}
         />
+
+        <FormField
+          control={form.control}
+          name="purpose"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>用途</FormLabel>
+              <Select value={field.value ?? ''} onValueChange={field.onChange}>
+                <FormControl>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="选择用途" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {ACCOUNT_PURPOSES.map((p) => (
+                    <SelectItem key={p} value={p}>
+                      {ACCOUNT_PURPOSE_LABELS[p]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FormDescription>这笔钱拿来干嘛，账户总览按这个分组</FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {bank !== 'cash' && (
+          <FormField
+            control={form.control}
+            name="linkedAccountId"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>关联账户</FormLabel>
+                <Select
+                  value={field.value ?? NO_LINK}
+                  onValueChange={(v) => field.onChange(v === NO_LINK ? null : v)}
+                >
+                  <FormControl>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value={NO_LINK}>不关联</SelectItem>
+                    {keptLink && (
+                      <SelectItem value={keptLink.id} disabled>
+                        {keptLink.label}
+                      </SelectItem>
+                    )}
+                    {linkOptions.map((a) => (
+                      <SelectItem key={a.id} value={a.id}>
+                        {a.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormDescription>可以不选，如 saver 关联到日常账户</FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        )}
+
+        {!account && (
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="opening-balance">开户余额</Label>
+            <Input
+              id="opening-balance"
+              inputMode="decimal"
+              autoComplete="off"
+              value={openingBalance}
+              onChange={(e) => setOpeningBalance(e.target.value)}
+              aria-invalid={openingBalanceError !== null}
+            />
+            <p className="text-sm text-muted-foreground">
+              现在账户里有多少钱，信用卡欠款填负数。以后要改去账户总览校准
+            </p>
+            {openingBalanceError && (
+              <p className="text-sm text-destructive">{openingBalanceError}</p>
+            )}
+          </div>
+        )}
 
         {formError && <p className="text-sm text-destructive">{formError}</p>}
 

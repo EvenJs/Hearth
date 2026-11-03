@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/table';
 import { ACCOUNT_TYPE_LABELS, BANK_LABELS } from '@/lib/accounts/account-input';
 import { canImportCsv, canImportStatement } from '@/lib/import/banks';
+import { ACCOUNT_PURPOSE_LABELS } from '@/lib/rules/balance';
 import type { Account } from '@/server/accounts';
 import type { Card } from '@/server/cards';
 import type { Member } from '@/server/members';
@@ -47,6 +48,12 @@ function sourceLabel(bank: Account['bank']): string | null {
 // R1C、R1D、R1E：导对账单要按尾号认账户
 function needsSuffix(a: Account): boolean {
   return canImportStatement(a.bank) && !a.numberSuffix;
+}
+
+// R23.4：被关联的账户归档了也照样显示
+function linkLabel(a: Account): string | null {
+  if (!a.linkedAccountId) return null;
+  return a.linkedAccountArchived ? `${a.linkedAccountName}（已归档）` : a.linkedAccountName;
 }
 
 // editing：null = 关闭；'new' = 新建；Account = 编辑
@@ -99,6 +106,8 @@ export function AccountsView({ accounts, cards, members, showArchived }: Props) 
                 <TableHead>名称</TableHead>
                 <TableHead className="hidden md:table-cell">银行</TableHead>
                 <TableHead className="hidden md:table-cell">类型</TableHead>
+                <TableHead className="hidden md:table-cell">用途</TableHead>
+                <TableHead className="hidden md:table-cell">关联账户</TableHead>
                 <TableHead>默认归属人</TableHead>
                 <TableHead className="hidden md:table-cell">尾号</TableHead>
                 <TableHead className="hidden md:table-cell">流水来源</TableHead>
@@ -113,10 +122,12 @@ export function AccountsView({ accounts, cards, members, showArchived }: Props) 
                       {a.name}
                       {a.isArchived && <Badge variant="outline">已归档</Badge>}
                     </div>
-                    {/* 手机上隐藏了银行、类型、尾号列，放在名称下面 */}
+                    {/* 手机上隐藏了银行、类型、用途、关联、尾号列，放在名称下面 */}
                     <div className="text-xs text-muted-foreground md:hidden">
-                      {BANK_LABELS[a.bank]} · {ACCOUNT_TYPE_LABELS[a.type]}
+                      {BANK_LABELS[a.bank]} · {ACCOUNT_TYPE_LABELS[a.type]} ·{' '}
+                      {ACCOUNT_PURPOSE_LABELS[a.purpose]}
                       {a.numberSuffix && ` · ••${a.numberSuffix}`}
+                      {linkLabel(a) && ` · 关联 ${linkLabel(a)}`}
                       {needsSuffix(a) && <span className="text-amber-600"> · 先填尾号</span>}
                     </div>
                   </TableCell>
@@ -124,6 +135,10 @@ export function AccountsView({ accounts, cards, members, showArchived }: Props) 
                   <TableCell className="hidden md:table-cell">
                     {ACCOUNT_TYPE_LABELS[a.type]}
                   </TableCell>
+                  <TableCell className="hidden md:table-cell">
+                    {ACCOUNT_PURPOSE_LABELS[a.purpose]}
+                  </TableCell>
+                  <TableCell className="hidden md:table-cell">{linkLabel(a) ?? '—'}</TableCell>
                   <TableCell>{a.defaultMemberName}</TableCell>
                   <TableCell className="hidden font-mono md:table-cell">
                     {a.numberSuffix ? `••${a.numberSuffix}` : '—'}
@@ -189,6 +204,7 @@ export function AccountsView({ accounts, cards, members, showArchived }: Props) 
               // 切换编辑对象时重置表单
               key={editing === 'new' ? 'new' : editing.id}
               account={editing === 'new' ? null : editing}
+              accounts={accounts}
               members={members}
               onDone={() => setEditing(null)}
             />
