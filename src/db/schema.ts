@@ -23,6 +23,7 @@ import {
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import { ITEM_TYPE_KEYS } from '../lib/rules/item-type';
+import { ACCOUNT_PURPOSES } from '../lib/rules/balance';
 
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
@@ -130,6 +131,8 @@ export const accountType = pgEnum('account_type', [
   'joint',
   'cash',
 ]);
+// R23.4，列表在 src/lib/rules/balance.ts。和 account_type 分开
+export const accountPurpose = pgEnum('account_purpose', ACCOUNT_PURPOSES);
 export const categoryKind = pgEnum('category_kind', ['expense', 'income', 'system']);
 export const systemCategoryKey = pgEnum('system_category_key', [
   'internal_transfer',
@@ -204,13 +207,37 @@ export const financialAccount = pgTable(
       .references(() => member.id),
     // 账号尾号 4-6 位，不存完整账号和 BSB
     numberSuffix: varchar('number_suffix', { length: 6 }),
+    purpose: accountPurpose('purpose').default('everyday').notNull(), // R23.4
+    // R23.4 最多关联一个。同家庭、没归档、不是现金在 validateLink 里查
+    linkedAccountId: uuid('linked_account_id').references((): AnyPgColumn => financialAccount.id),
     isArchived: boolean('is_archived').default(false).notNull(),
     createdAt: createdAt(),
   },
   (t) => [
     unique('financial_account_household_id_name_unique').on(t.householdId, t.name),
     check('financial_account_number_suffix_check', sql`${t.numberSuffix} ~ '^[0-9]{4,6}$'`),
+    check('financial_account_linked_account_id_check', sql`${t.linkedAccountId} <> ${t.id}`),
   ],
+);
+
+// R23.1、R23.3：手动填的余额锚点（含新建账户时的开户余额）。PDF 锚点用 import_batch，不存这里
+// 只能硬删除，不能改；差额实时算，不存
+export const accountBalance = pgTable(
+  'account_balance',
+  {
+    id: id(),
+    householdId: householdId(),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => financialAccount.id),
+    date: date('date', { mode: 'string' }).notNull(), // 这一天结束时的余额
+    balanceCents: integer('balance_cents').notNull(), // 可以是 0 或负数（信用卡）
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => user.id),
+    createdAt: createdAt(), // 同一天几条取最晚的（R23.1）
+  },
+  (t) => [index('account_balance_account_id_date_idx').on(t.accountId, t.date)],
 );
 
 export const card = pgTable(

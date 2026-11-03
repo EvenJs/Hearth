@@ -43,6 +43,13 @@
       "when": 1793534421729,
       "tag": "0005_m7_7_4_split_is_one_off",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793691883001,
+      "tag": "0006_m9_3_account_balance",
+      "breakpoints": true
     }
   ]
 }
