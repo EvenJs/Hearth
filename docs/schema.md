@@ -30,7 +30,7 @@
 member_kind          person | shared | child
 bank                 anz | anz_plus | cba | cash | other
 account_type         everyday | savings | credit_card | joint | cash
-account_purpose      everyday | bills | emergency | savings | goal     （M9-3 建，待确认）
+account_purpose      everyday | bills | emergency | savings | goal     （M9-3 建）
 category_kind        expense | income | system
 system_category_key  internal_transfer | cash_withdrawal | bank_fee | uncategorized
 transaction_status   pending | confirmed
@@ -108,17 +108,17 @@ item_type            fruit | vegetable | meat | seafood | dairy_egg | pantry | s
 | type              | account_type | not null                |                                                             |
 | default_member_id | uuid         | FK → member, not null   |                                                             |
 | number_suffix     | varchar(6)   | null                    | 账号尾号，4 到 6 位数字，用于识别内部转账；现金账户为空     |
-| purpose           | account_purpose | not null, default `everyday` | 用途（R23.4）。**M9-3 建，待确认** |
-| linked_account_id | uuid         | FK → financial_account, null | 关联账户，最多一个（R23.4）。不级联（账户只软删除）。**M9-3 建，待确认** |
+| purpose           | account_purpose | not null, default `everyday` | 用途（R23.4）。M9-3 建 |
+| linked_account_id | uuid         | FK → financial_account, null | 关联账户，最多一个（R23.4）。不级联（账户只软删除）。M9-3 建 |
 | is_archived       | boolean      | not null, default false |                                                             |
 | created_at        | timestamptz  | not null                |                                                             |
 
 唯一：`(household_id, name)`
-检查：`number_suffix ~ '^[0-9]{4,6}$'`（不为空时）；`linked_account_id <> id`（M9-3 建，待确认）。别的校验（同家庭、没归档、不是现金）在 R23.4 的代码里做
+检查：`number_suffix ~ '^[0-9]{4,6}$'`（不为空时）；`linked_account_id <> id`（M9-3 建）。别的校验（同家庭、没归档、不是现金）在 R23.4 的代码里做
 
 **不存完整账号、BSB。**
 
-### account_balance（M9-3 建，待确认）
+### account_balance（M9-3 建）
 
 手动填的余额锚点（R23.1、R23.3），包括新建账户时自动写的开户余额。PDF 对账单的锚点不存这里，用 `import_batch` 的 `closing_balance_cents` + `date_to`。
 
