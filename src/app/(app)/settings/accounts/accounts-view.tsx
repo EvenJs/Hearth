@@ -37,16 +37,16 @@ type Props = {
   showArchived: boolean;
 };
 
-// 流水来源（R1、R1C、R1D）
+// 流水来源（R1、R1C、R1D、R1E）
 function sourceLabel(bank: Account['bank']): string | null {
   if (canImportCsv(bank)) return canImportStatement(bank) ? 'CSV / 对账单' : 'CSV 导入';
   if (canImportStatement(bank)) return 'PDF 对账单';
   return null;
 }
 
-// R1D：ANZ Plus 导对账单要按尾号认账户
+// R1C、R1D、R1E：导对账单要按尾号认账户
 function needsSuffix(a: Account): boolean {
-  return a.bank === 'anz_plus' && !a.numberSuffix;
+  return canImportStatement(a.bank) && !a.numberSuffix;
 }
 
 // editing：null = 关闭；'new' = 新建；Account = 编辑
@@ -180,8 +180,8 @@ export function AccountsView({ accounts, cards, members, showArchived }: Props) 
           <SheetHeader>
             <SheetTitle>{editing === 'new' ? '新增账户' : '编辑账户'}</SheetTitle>
             <SheetDescription>
-              银行决定怎么导入：ANZ 可以导 CSV 和 PDF 对账单，CBA 导 CSV，ANZ Plus 只能导 PDF
-              对账单，其他只能手动录入。
+              银行决定怎么导入：ANZ、CBA 可以导 CSV 和 PDF 对账单，ANZ Plus 只能导 PDF
+              对账单，其他只能手动录入。导对账单要填尾号。
             </SheetDescription>
           </SheetHeader>
           {editing !== null && (

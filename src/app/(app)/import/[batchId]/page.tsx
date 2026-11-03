@@ -383,7 +383,7 @@ function ReconciliationCard({ r }: { r: ImportResultView }) {
           )}
         </CardTitle>
         <CardDescription>
-          {r.account.bank === 'cba' ? 'CBA 的期初期末从余额列自动算出。' : ''}
+          {r.account.bank === 'cba' && r.source !== 'pdf' ? 'CBA 的期初期末从余额列自动算出。' : ''}
           {r.source === 'pdf' ? '期初期末从对账单汇总页读出。' : ''}
           按数据库里这个账户 {r.dateFrom} 至 {r.dateTo} 的已确认交易计算，待确认的不算。
         </CardDescription>

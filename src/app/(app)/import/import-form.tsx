@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { BANK_LABELS, type Bank } from '@/lib/accounts/account-input';
-import { canImportCsv, canImportStatement } from '@/lib/import/banks';
+import { canImportCsv } from '@/lib/import/banks';
 import type { ImportCoverage } from '@/lib/import/coverage';
 import {
   checkImportFile,
@@ -44,28 +44,25 @@ export type ImportAccount = {
   coverage: ImportCoverage; // R12.2
 };
 
-// 第 1 步的文字按 fileBank 分：anz = CSV 和对账单都收，anz_plus = 只收对账单，cba = 只收 CSV
-type FileBank = Extract<Bank, 'anz' | 'anz_plus' | 'cba'>;
+// 第 1 步的文字按 fileBank 分：anz = CSV 和对账单都收，anz_plus = 只收对账单（家里只有 ANZ Plus 账户）
+// R1E 以后能导 CSV 的银行（ANZ、CBA）都能导对账单，没有只收 CSV 的情况
+type FileBank = Extract<Bank, 'anz' | 'anz_plus'>;
 const UPLOAD_TITLE: Record<FileBank, string> = {
   anz: '1. 上传 CSV 或 PDF 对账单',
   anz_plus: '1. 上传 PDF 对账单',
-  cba: '1. 上传 CSV',
 };
 const UPLOAD_DESCRIPTION: Record<FileBank, string> = {
-  anz: '网银导出的原始 CSV（不超过 1 MB），或者网银下载的 ANZ、ANZ Plus PDF 对账单（不超过 1.5 MB），ANZ Plus 只能导 PDF 对账单。对账单会自动认出是哪个账户。文件本身不会保存',
+  anz: '网银导出的原始 CSV（不超过 1 MB），或者网银下载的 ANZ、ANZ Plus、CBA PDF 对账单（不超过 1.5 MB），ANZ Plus 只能导 PDF 对账单。对账单会自动认出是哪个账户。文件本身不会保存',
   anz_plus:
     'ANZ Plus 只能导 PDF 对账单，不超过 1.5 MB。对账单会自动认出是哪个账户。文件本身不会保存',
-  cba: '网银导出的原始 CSV，不超过 1 MB。文件本身不会保存',
 };
 const UPLOAD_ACCEPT: Record<FileBank, string> = {
   anz: '.csv,text/csv,.pdf,application/pdf',
   anz_plus: '.pdf,application/pdf',
-  cba: '.csv,text/csv',
 };
 const UPLOAD_LABEL: Record<FileBank, string> = {
   anz: 'CSV 或 PDF 文件',
   anz_plus: 'PDF 文件',
-  cba: 'CSV 文件',
 };
 
 function formatSize(bytes: number): string {
@@ -126,11 +123,10 @@ function ImportFormInner({
     defaultValues: { accountId: defaultAccountId, openingBalance: '', closingBalance: '' },
   });
 
-  // R1C、R1D：ANZ、ANZ Plus 有对账单，ANZ、CBA 有 CSV。选账户之前按家里有的账户粗查文件类型：
-  // 两种都有时用 anz（收 .csv 和 .pdf），只有 ANZ Plus 用 anz_plus（只收 .pdf），只有 CBA 用 cba（只收 .csv）
+  // R1C、R1D、R1E：ANZ、ANZ Plus、CBA 有对账单，ANZ、CBA 有 CSV。选账户之前按家里有的账户粗查文件类型：
+  // 有 ANZ 或 CBA 时用 anz（收 .csv 和 .pdf），只有 ANZ Plus 用 anz_plus（只收 .pdf）
   const hasCsv = accounts.some((a) => canImportCsv(a.bank));
-  const hasStatement = accounts.some((a) => canImportStatement(a.bank));
-  const fileBank: FileBank = hasStatement ? (hasCsv ? 'anz' : 'anz_plus') : 'cba';
+  const fileBank: FileBank = hasCsv ? 'anz' : 'anz_plus';
   const kind = file ? checkImportFile(file, fileBank).kind : null;
   const isPdf = kind === 'pdf';
 
@@ -232,7 +228,7 @@ function ImportFormInner({
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="flex max-w-3xl flex-col gap-6">
-        {/* 1. 先传文件：PDF 对账单自动认账户（R1C、R1D），CSV 再选账户 */}
+        {/* 1. 先传文件：PDF 对账单自动认账户（R1C、R1D、R1E），CSV 再选账户 */}
         <Card>
           <CardHeader>
             <CardTitle>{UPLOAD_TITLE[fileBank]}</CardTitle>
@@ -327,7 +323,7 @@ function ImportFormInner({
                   ? '对账单的期初和期末余额会从汇总页自动读出来，不用填。还会和上一份对账单检查首尾接不接得上'
                   : balanceInputs
                     ? '可以参考 PDF 对账单填期初和期末余额，检查有没有漏导或重复。不填也能导入；也可以直接导入 PDF 对账单'
-                    : 'CBA 的 CSV 带余额列，期初期末会自动算出来，不用填'}
+                    : 'CBA 的 CSV 带余额列，期初期末会自动算出来，不用填；也可以直接导入 PDF 对账单'}
               </CardDescription>
             </CardHeader>
             {balanceInputs && (
@@ -417,14 +413,15 @@ function AccountOption({
   );
 }
 
-// R1C、R1D 自动认账户的结果（M6.6-6b）
+// R1C、R1D、R1E 自动认账户的结果（M6.6-6b）
 function IdentityCard({ identity }: { identity: Identity }) {
   return (
     <Card>
       <CardHeader>
         <CardTitle>2. 账户</CardTitle>
         <CardDescription>
-          按对账单上的账号找尾号对得上的账户：ANZ 对账单只找 ANZ 账户，ANZ Plus 只找 ANZ Plus
+          按对账单上的账号找尾号对得上的账户：ANZ 对账单只找 ANZ 账户，ANZ Plus 只找 ANZ Plus，CBA
+          只找 CBA
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
@@ -466,12 +463,12 @@ function IdentityCard({ identity }: { identity: Identity }) {
 }
 
 // R12.2 导入前：上次导到哪天、建议导出范围、对账单导到哪天。没导入过不显示
-// 下一份对账单的开始日：ANZ 账期 (from, to]，下一份印的开始日就是 to（R1C）；ANZ Plus 是 [from, to]，从第二天开始（R1D）
+// 下一份对账单的开始日：ANZ 账期 (from, to]，下一份印的开始日就是 to（R1C）；ANZ Plus、CBA 是 [from, to]，从第二天开始（R1D、R1E）
 function CoverageNotice({ bank, coverage }: { bank: Bank; coverage: ImportCoverage }) {
   if (coverage.lastDateTo === null) return null;
   const nextStatementFrom =
     coverage.statementDateTo &&
-    (bank === 'anz_plus' ? addDays(coverage.statementDateTo, 1) : coverage.statementDateTo);
+    (bank === 'anz' ? coverage.statementDateTo : addDays(coverage.statementDateTo, 1));
   return (
     <div className="flex items-start gap-2 rounded-md bg-muted px-3 py-2.5 text-sm">
       <CalendarClock className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
