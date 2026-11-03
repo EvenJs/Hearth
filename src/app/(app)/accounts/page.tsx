@@ -8,7 +8,7 @@ import { getHouseholdContext } from '@/server/context';
 import { AccountsOverview } from './accounts-overview';
 
 // F12 账户总览（设计图 15 不出图，照看板卡片做，M9-5）：按用途分组的余额、合计、本财年利息（R23.5、R23.6）
-// 只读；手动校准在 M9-6 加。不跟看板的时间段和归属人筛选
+// 每个账户可以手动校准（R23.3，M9-6）。不跟看板的时间段和归属人筛选
 export default function AccountsPage() {
   return (
     <>
@@ -29,7 +29,7 @@ export default function AccountsPage() {
 
 async function AccountsSection() {
   const ctx = await getHouseholdContext();
-  // "今天"每次请求都要重新算（本财年利息），不能被预渲染
+  // "今天"每次请求都要重新算（本财年利息、校准日期默认昨天），不能被预渲染
   await connection();
   const today = todayInMelbourne();
   const accounts = await getAccountBalances(ctx, today);
@@ -45,5 +45,5 @@ async function AccountsSection() {
       </p>
     );
   }
-  return <AccountsOverview overview={groupByPurpose(accounts)} />;
+  return <AccountsOverview overview={groupByPurpose(accounts)} today={today} />;
 }

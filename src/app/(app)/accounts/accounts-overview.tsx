@@ -4,6 +4,8 @@ import { BANK_LABELS } from '@/lib/accounts/account-input';
 import { ACCOUNT_PURPOSE_LABELS, type AccountsOverview as Overview } from '@/lib/rules/balance';
 import { formatAud } from '@/lib/rules/money';
 import type { AccountBalance } from '@/server/balances';
+import { CalibrateButton } from './calibrate-dialog';
+import { formatDiff } from './format-diff';
 
 // R23.5 账户总览：顶部合计、按用途分组、每个账户一张卡片
 // 合计都是可用余额，只算有锚点的账户（groupByPurpose）
@@ -13,7 +15,9 @@ const SOURCE_LABELS: Record<NonNullable<AccountBalance['anchorSource']>, string>
   manual: '手动填的',
 };
 
-export function AccountsOverview({ overview }: { overview: Overview<AccountBalance> }) {
+type Props = { overview: Overview<AccountBalance>; today: string };
+
+export function AccountsOverview({ overview, today }: Props) {
   return (
     <>
       <Card className="min-w-0 gap-1 p-4 lg:p-5">
@@ -43,7 +47,7 @@ export function AccountsOverview({ overview }: { overview: Overview<AccountBalan
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:gap-4 xl:grid-cols-3">
             {g.accounts.map((a) => (
-              <AccountCard key={a.id} account={a} />
+              <AccountCard key={a.id} account={a} today={today} />
             ))}
           </div>
         </section>
@@ -52,7 +56,7 @@ export function AccountsOverview({ overview }: { overview: Overview<AccountBalan
   );
 }
 
-function AccountCard({ account: a }: { account: AccountBalance }) {
+function AccountCard({ account: a, today }: { account: AccountBalance; today: string }) {
   const b = a.balance;
   const diff = a.lastCalibrationDiffCents;
   return (
@@ -64,7 +68,7 @@ function AccountCard({ account: a }: { account: AccountBalance }) {
       </Sub>
 
       {b === null ? (
-        // R23.1：没有锚点不从 0 累加；填余额的按钮在 M9-6
+        // R23.1：没有锚点不从 0 累加，"填一次余额"走校准对话框
         <p className="pt-2 text-sm text-muted-foreground">还没有余额，填一次</p>
       ) : (
         <>
@@ -88,8 +92,8 @@ function AccountCard({ account: a }: { account: AccountBalance }) {
           </Sub>
           {/* R23.3：只看最近一次手动校准，差额是 0 不显示 */}
           {diff !== null && diff !== 0 && (
-            <p className="text-xs text-amber-700">
-              上次校准差 <span className="tabular-nums">{formatAud(diff)}</span>
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              上次校准差 <span className="tabular-nums">{formatDiff(diff)}</span>
             </p>
           )}
         </>
@@ -106,6 +110,9 @@ function AccountCard({ account: a }: { account: AccountBalance }) {
           <dt className="text-muted-foreground">本财年利息</dt>
           <dd className="text-right tabular-nums">{formatAud(a.interestCents)}</dd>
         </dl>
+        <div className="flex justify-end pt-3">
+          <CalibrateButton account={a} today={today} />
+        </div>
       </div>
     </Card>
   );

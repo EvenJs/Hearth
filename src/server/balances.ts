@@ -44,8 +44,11 @@ export type AccountBalance = {
   balance: CurrentBalance | null; // null = 没有锚点，"还没有余额，填一次"
   anchorSource: BalanceAnchor['source'] | null;
   lastCalibrationDiffCents: number | null; // R23.3 卡片："上次校准差"，null 或 0 不显示
+  manualBalances: ManualBalance[]; // R23.3 手动填过的余额，日期新的在前，可以删
   interestCents: number; // R23.6 本财年利息
 };
+
+export type ManualBalance = { id: string; date: string; balanceCents: number; createdAt: Date };
 
 export type ManualBalanceErrors = Partial<Record<'accountId' | 'date' | 'balanceCents' | 'form', string>>;
 export type ManualBalanceFailure = { ok: false; errors: ManualBalanceErrors };
@@ -277,6 +280,12 @@ export async function getAccountBalances(
   return accounts.map((a) => {
     const p = picked.get(a.id);
     const d = days.get(a.id) ?? [];
+    const manualBalances = (anchors.get(a.id) ?? [])
+      .filter((m) => m.source === 'manual')
+      .map((m) => ({ id: m.id, date: m.date, balanceCents: m.amountCents, createdAt: m.createdAt }))
+      .sort((x, y) =>
+        x.date === y.date ? y.createdAt.getTime() - x.createdAt.getTime() : x.date < y.date ? 1 : -1,
+      );
     return {
       id: a.id,
       name: a.name,
@@ -292,6 +301,7 @@ export async function getAccountBalances(
       balance: p ? balanceFrom(p.anchor, d) : null,
       anchorSource: p?.anchor.source ?? null,
       lastCalibrationDiffCents: p?.lastManual ? diffFrom(p.lastManual, p.previous, d) : null,
+      manualBalances,
       interestCents: interest.get(a.id) ?? 0,
     };
   });

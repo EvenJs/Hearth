@@ -385,6 +385,12 @@ describeDb('M9-3 getAccountBalances / addManualBalance / deleteManualBalance（R
       anchorSource: 'manual',
     };
     expect(await balanceOf(id)).toMatchObject({ ...e3, lastCalibrationDiffCents: -3000 });
+    // 弹窗里的手动余额列表：日期新的在前
+    expect((await balanceOf(id)).manualBalances.map((m) => [m.date, m.balanceCents])).toEqual([
+      ['2026-12-09', 437000],
+      ['2026-12-06', 445250],
+      ['2026-11-30', 345600],
+    ]);
 
     // E-4：补导 e8，差额实时算，跟着消失
     await txs('ANZ Male', [{ date: '2026-12-07', amountCents: -3000 }]);
