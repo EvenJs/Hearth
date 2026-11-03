@@ -15,13 +15,13 @@ describe('canImportCsv', () => {
 });
 
 describe('canImportStatement', () => {
-  it('R1C / R1D: anz and anz_plus can import a PDF statement', () => {
+  it('R1C / R1D / R1E: anz, anz_plus and cba can import a PDF statement', () => {
     expect(canImportStatement('anz')).toBe(true);
     expect(canImportStatement('anz_plus')).toBe(true);
+    expect(canImportStatement('cba')).toBe(true);
   });
 
-  it('R1: cba, cash and other cannot import a PDF statement', () => {
-    expect(canImportStatement('cba')).toBe(false);
+  it('R1: cash and other cannot import a PDF statement', () => {
     expect(canImportStatement('cash')).toBe(false);
     expect(canImportStatement('other')).toBe(false);
   });

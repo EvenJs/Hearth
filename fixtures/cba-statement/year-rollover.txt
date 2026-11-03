@@ -1,0 +1,25 @@
+Your Statement
+Statement 34  Page 1 of 2)
+Account Number  06 9999 10000003
+123
+Statement
+Female A Test  Period  16 Dec 2026 - 15 Jan 2027
+Enquiries 13 0000
+Closing Balance  11,490.59 CR
+Everyday Account
+Note text about your Everyday Account.
+Date  Transaction  Debit  Credit  Balance
+16 Dec 2026 OPENING BALANCE  11,561.59 CR
+20 Dec CBA Yello HLPckg Cshbk  4.00  11,565.59 CR
+05 Jan LIGHTNING BROADBAND
+=XÀâà9)Value Date 06/01/2027  75.00  11,490.59 CR
+15 Jan 2027 CLOSING BALANCE  11,490.59 CR
+Opening balance  -  Total debits  Total credits  =  Closing balance
+11,561.59 CR  75.00  4.00  11,490.59 CR
+0123.45678.9.0 ab123c4 0000 ab.c1.d234.e567.f g12.34.56
+<<<PAGE>>>
+Statement 34  Page 2 of 2)
+Account Number  06 9999 10000003
+Important Information
+Please check this statement carefully.
+0123.45678.9.0 ab123c4 0000 ab.c1.d234.e567.f g12.34.56

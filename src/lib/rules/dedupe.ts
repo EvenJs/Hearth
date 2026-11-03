@@ -1,4 +1,4 @@
-// R4.1 去重 key（business-rules.md R4.1）
+// R4.1 去重 key、R4.3 CBA 对账单的补充去重（business-rules.md R4）
 // 纯函数，不 import 数据库和 Next.js。node:crypto 只在服务端用（导入走 Server Action）
 import { createHash } from 'node:crypto';
 
@@ -42,4 +42,36 @@ export function dedupeKey(accountId: string, row: DedupeRow, occurrence: number)
     row.balanceCents === null ? '' : String(row.balanceCents),
   ];
   return createHash('sha256').update(parts.join('|'), 'utf8').digest('hex');
+}
+
+// R4.3 候选：数据库里同账户已有的交易。balanceCents、dedupeKey 为 null 的（手动录入、pending）不算
+export type BalanceCandidate = {
+  date: string;
+  amountCents: number;
+  balanceCents: number | null;
+  dedupeKey: string | null;
+};
+
+// R4.3 只在导入 CBA 对账单时调用。rows 是 R4.2 按 key 没跳过的行（输出顺序，新的在前），
+// keyHits 是这次 R4.2 已经命中的已有交易的 key，那些候选不再用。
+// (date, amount_cents, balance_cents) 一样就跳过；一个候选最多抵掉一行，前面的行先用。返回每行是否跳过
+export function findBalanceDuplicates(
+  rows: readonly Pick<DedupeRow, 'date' | 'amountCents' | 'balanceCents'>[],
+  candidates: readonly BalanceCandidate[],
+  keyHits: ReadonlySet<string>,
+): boolean[] {
+  const available = new Map<string, number>();
+  for (const c of candidates) {
+    if (c.balanceCents === null || c.dedupeKey === null || keyHits.has(c.dedupeKey)) continue;
+    const group = `${c.date}|${c.amountCents}|${c.balanceCents}`;
+    available.set(group, (available.get(group) ?? 0) + 1);
+  }
+  return rows.map((row) => {
+    if (row.balanceCents === null) return false;
+    const group = `${row.date}|${row.amountCents}|${row.balanceCents}`;
+    const left = available.get(group) ?? 0;
+    if (left === 0) return false;
+    available.set(group, left - 1);
+    return true;
+  });
 }

@@ -307,13 +307,14 @@ describeDb('M6.6-4 importStatement', () => {
     expect(await countRows()).toEqual({ batches: 0, txs: 0 });
   });
 
-  it('R1C: only ANZ accounts can import a statement', async () => {
+  // M8.5-5：CBA 也能导对账单了（R1E），解析器跟着账户的银行走，ANZ 对账单给 CBA 账户会失败
+  it('R1: an ANZ statement on a CBA account fails (parser follows the account bank)', async () => {
     const result = await importStatementLines(t.ctx, {
       accountId: t.h.account('CBA Female').id,
       fileName: 'joint-2026-09.txt',
       lines: readStatementFixture('joint-2026-09.txt'),
     });
-    expect(result).toMatchObject({ ok: false, reason: 'not_importable' });
+    expect(result).toMatchObject({ ok: false, reason: 'parse', message: '这不像 CBA 对账单' });
     expect(await countRows()).toEqual({ batches: 0, txs: 0 });
   });
 

@@ -8,7 +8,7 @@ import { getHouseholdContext } from '@/server/context';
 import { getImportCoverage } from '@/server/imports';
 import { ImportForm, type ImportAccount } from './import-form';
 
-// F2 导入（设计图 06）：CSV，ANZ、ANZ Plus 能传 PDF 对账单（R1C、R1D）；R12.2 上次导到哪天。结果页 /import/[batchId]，历史页 /import/history
+// F2 导入（设计图 06）：CSV，ANZ、ANZ Plus、CBA 能传 PDF 对账单（R1C、R1D、R1E）；R12.2 上次导到哪天。结果页 /import/[batchId]，历史页 /import/history
 export default function ImportPage() {
   return (
     <>
@@ -16,7 +16,7 @@ export default function ImportPage() {
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold">导入银行流水</h1>
           <p className="text-sm text-muted-foreground">
-            上传 ANZ 或 CBA 网银导出的 CSV，或者 ANZ、ANZ Plus 的 PDF 对账单（ANZ Plus 只能导 PDF 对账单）。自动去重、分类、配对内部转账。
+            上传 ANZ 或 CBA 网银导出的 CSV，或者 ANZ、ANZ Plus、CBA 的 PDF 对账单（ANZ Plus 只能导 PDF 对账单）。自动去重、分类、配对内部转账。
           </p>
         </div>
         <Button asChild variant="outline" size="sm" className="w-fit shrink-0">

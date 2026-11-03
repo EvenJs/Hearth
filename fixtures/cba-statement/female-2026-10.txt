@@ -1,0 +1,23 @@
+Your Statement
+Statement 32  Page 1 of 2)
+Account Number  06 9999 10000003
+123
+Statement
+Female A Test  Period  1 Oct 2026 - 31 Oct 2026
+Enquiries 13 0000
+Closing Balance  11,561.59 CR
+Everyday Account
+Note text about your Everyday Account.
+Date  Transaction  Debit  Credit  Balance
+01 Oct 2026 OPENING BALANCE  11,561.59 CR
+=XÀâà9)
+31 Oct 2026 CLOSING BALANCE  11,561.59 CR
+Opening balance  -  Total debits  Total credits  =  Closing balance
+11,561.59 CR  0.00  0.00  11,561.59 CR
+0123.45678.9.0 ab123c4 0000 ab.c1.d234.e567.f g12.34.56
+<<<PAGE>>>
+Statement 32  Page 2 of 2)
+Account Number  06 9999 10000003
+Important Information
+Please check this statement carefully.
+0123.45678.9.0 ab123c4 0000 ab.c1.d234.e567.f g12.34.56

@@ -41,15 +41,16 @@ import {
   type AccountValues,
   type Bank,
 } from '@/lib/accounts/account-input';
+import { canImportStatement } from '@/lib/import/banks';
 import type { Account } from '@/server/accounts';
 import type { Member } from '@/server/members';
 import { previewAccountSaveAction, saveAccountAction } from './actions';
 
-// 选了银行以后的说明（R1、R1C、R1D）
+// 选了银行以后的说明（R1、R1C、R1D、R1E）
 const BANK_IMPORT_HINT: Record<Bank, string> = {
-  anz: '可以导入 CSV 和 PDF 对账单',
+  anz: '可以导入 CSV 和 PDF 对账单，导对账单要填尾号',
   anz_plus: '导入 PDF 对账单（不能导 CSV），要填尾号',
-  cba: '可以导入 CSV',
+  cba: '可以导入 CSV 和 PDF 对账单，导对账单要填尾号',
   cash: '不能导入，只能手动录入',
   other: '不能导入，只能手动录入',
 };
@@ -264,9 +265,11 @@ export function AccountForm({ account, members, onDone }: Props) {
               <FormDescription>
                 {bank === 'anz_plus'
                   ? '只填最后 4 到 6 位数字。导入 PDF 对账单时按尾号认账户，ANZ Plus 账户要填。'
-                  : '只填最后 4 到 6 位数字，用来识别内部转账。可以不填。'}
+                  : canImportStatement(bank)
+                    ? '只填最后 4 到 6 位数字，用来识别内部转账；导入 PDF 对账单时按尾号认账户，只导 CSV 可以不填。'
+                    : '只填最后 4 到 6 位数字，用来识别内部转账。可以不填。'}
               </FormDescription>
-              {bank === 'anz_plus' && !field.value && (
+              {canImportStatement(bank) && !field.value && (
                 <p className="text-sm text-amber-700 dark:text-amber-400">
                   没填尾号导不了对账单
                 </p>
