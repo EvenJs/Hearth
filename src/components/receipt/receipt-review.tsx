@@ -204,8 +204,8 @@ export function ReceiptReview({ variant, draft, fixedTransactionId, onClose }: P
       setConfirmMessage(null);
       const id = r.transactionId;
       toast.success(`小票已保存 · ${formatAud(totalCents ?? 0)}`, {
-        // R22.2：小票重排拆分清掉了"是"的标记
-        description: r.oneOffCleared ? '一次性标记已清掉，需要的话重新勾' : undefined,
+        // R22.2、R25.8：小票重排拆分清掉了"是"的标记和挂的目标
+        description: clearedNotice(r),
         action: { label: '查看交易', onClick: () => router.push(`/transactions/${id}`) },
       });
       onClose();
@@ -824,6 +824,18 @@ export function ReceiptReview({ variant, draft, fixedTransactionId, onClose }: P
 // ---------- 小组件 ----------
 
 // R20.4：1 个候选默认选中；0 个按 R20.5 新建；≥ 2 个不默认选；还没找（日期、总额没填）先当新建
+// 小票保存成功后的提示：R22.2 清掉了一次性"是"、R25.8 清掉了挂的目标
+export function clearedNotice(r: {
+  oneOffCleared: boolean;
+  goalCleared: boolean;
+}): string | undefined {
+  const parts = [
+    r.oneOffCleared && '一次性标记已清掉，需要的话重新勾',
+    r.goalCleared && '挂的目标已清掉，需要的话重新挂',
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join('；') : undefined;
+}
+
 function defaultTarget(c: ReceiptCandidatesResult | null): string | null {
   if (c === null || c.candidates.length === 0) return NEW;
   return c.defaultId;

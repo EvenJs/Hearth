@@ -235,7 +235,8 @@ async function applyRedetect(
       .where(
         and(eq(transaction.id, u.transactionId), eq(transaction.householdId, ctx.householdId)),
       );
-    await writeSplit(tx, ctx, u.split);
+    // R22.2：改成内部转账，一次性标记清掉（goal_id 由 writeSplit 按新分类清，R25.8）
+    await writeSplit(tx, ctx, { ...u.split, isOneOff: null });
   }
   // 只做 R6.2，不产生新的 R6.3 建议
   const transfers = await pairHouseholdTransfers(tx, ctx, r.editCtx, { newIds: new Set() });

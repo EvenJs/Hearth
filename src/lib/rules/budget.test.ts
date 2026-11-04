@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { processFile } from '@/lib/import/process';
 import { readFixture } from '../../../tests/helpers/fixtures';
 import { buildTestHousehold } from '../../../tests/helpers/household';
-import { budgetOverview, canHaveBudget, type BudgetOverview } from './budget';
+import { budgetOverview, canHaveBudget, spendableAfterGoals, type BudgetOverview } from './budget';
 import { periodRange } from './periods';
 import { summarize, type BudgetInput, type StatSplit } from './stats';
 
@@ -199,5 +199,47 @@ describe('canHaveBudget（R11.2）', () => {
       c.id === cat('Groceries') ? { ...c, isArchived: true } : c,
     );
     expect(canHaveBudget(h.category('Groceries / Supermarket'), categories)).toBe(false);
+  });
+});
+
+// 期望值来自 R11.1 场景 1 接目标的例子、docs/rules/R25-goal.md R25.10 和 fixtures/cases/16-goals.md 场景 H
+describe('spendableAfterGoals（R11.1、R25.10）', () => {
+  const SCENARIO_1 = [
+    budget('Groceries', 20000),
+    budget('Entertainment & eat-out', 10000),
+    budget('Entertainment & eat-out / Bubble tea', 500),
+    budget('Cash withdrawal', 10000),
+  ];
+
+  it('R11.1: scenario 1 remaining 2185 − goals 1500 = 685', () => {
+    expect(spendableAfterGoals(overview(SCENARIO_1), 1500)).toEqual({ goalsCents: 1500, spendableCents: 685 });
+  });
+
+  it('R11.1: scenario 1 remaining 2185 − goals 5000 = −2815', () => {
+    expect(spendableAfterGoals(overview(SCENARIO_1), 5000)).toEqual({ goalsCents: 5000, spendableCents: -2815 });
+  });
+
+  it('R25.10 H: remaining 120000 − 222263 = −102263', () => {
+    expect(spendableAfterGoals({ remainingCents: 120000 }, 222263)).toEqual({ goalsCents: 222263, spendableCents: -102263 });
+  });
+
+  it('R25.10 H: only G2 → 120000 − 33334 = 86666', () => {
+    expect(spendableAfterGoals({ remainingCents: 120000 }, 33334)).toEqual({ goalsCents: 33334, spendableCents: 86666 });
+  });
+
+  it('R25.10 H: remaining −30000 − 222263 = −252263', () => {
+    expect(spendableAfterGoals({ remainingCents: -30000 }, 222263)).toEqual({ goalsCents: 222263, spendableCents: -252263 });
+  });
+
+  it('R25.10 H: total 0 → null (row not shown)', () => {
+    expect(spendableAfterGoals({ remainingCents: 120000 }, 0)).toBeNull();
+    expect(spendableAfterGoals(overview(SCENARIO_1), 0)).toBeNull();
+  });
+
+  it('R25.10: budget limit, spent and progress are unchanged', () => {
+    const o = overview(SCENARIO_1);
+    const before = structuredClone(o);
+    spendableAfterGoals(o, 1500);
+    expect(o).toEqual(before);
   });
 });

@@ -655,7 +655,7 @@ async function runImport(ctx: HouseholdContext, p: PreparedImport): Promise<Impo
         if (exception.kind === 'transfer') {
           await tx
             .update(transactionSplit)
-            .set({ ...exception.primarySplit, isOneOff: null }) // R22.2：改成内部转账，标记清掉
+            .set({ ...exception.primarySplit, isOneOff: null, goalId: null }) // R22.2、R25.8：改成内部转账，标记和目标清掉
             .where(
               and(
                 eq(transactionSplit.transactionId, pending.id),

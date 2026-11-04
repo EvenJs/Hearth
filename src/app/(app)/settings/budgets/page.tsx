@@ -1,9 +1,11 @@
 import { Suspense } from 'react';
+import { spendableAfterGoals } from '@/lib/rules/budget';
 import { pickerSections } from '@/lib/transactions/category-picker';
 import { todayInMelbourne } from '@/lib/rules/periods';
 import { listBudgetsWithProgress } from '@/server/budgets';
 import { listCategoryTree } from '@/server/categories';
 import { getHouseholdContext } from '@/server/context';
+import { getBudgetSpendable } from '@/server/goals';
 import { getBudgetAverage } from '@/server/monthly-average';
 import type { CategoryRef } from '@/server/transactions';
 import { BudgetsView, type CategoryRefMap } from './budgets-view';
@@ -32,10 +34,11 @@ export default function BudgetsPage() {
 async function BudgetsSection() {
   const ctx = await getHouseholdContext();
   const today = todayInMelbourne();
-  const [{ budgets, overview }, tree, average] = await Promise.all([
+  const [{ budgets, overview }, tree, average, goalsCents] = await Promise.all([
     listBudgetsWithProgress(ctx, today),
     listCategoryTree(ctx),
     getBudgetAverage(ctx, today), // R22.11 新建预算的默认上限，一次查好
+    getBudgetSpendable(ctx, today), // R25.10 为目标存
   ]);
 
   // 分类 tag 用的 CategoryRef。预算不会指向归档的分类（R19.4），未归档的树就够了
@@ -66,6 +69,7 @@ async function BudgetsSection() {
     <BudgetsView
       budgets={budgets}
       overview={overview}
+      spendable={spendableAfterGoals(overview, goalsCents)}
       refs={refs}
       sections={sections}
       average={average}

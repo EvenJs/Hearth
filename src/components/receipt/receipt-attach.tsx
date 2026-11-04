@@ -34,7 +34,7 @@ import {
   previewAttachReceiptAction,
   receiptAttachOptionsAction,
 } from './actions';
-import { Field, PreviewBody, RadioCard, ReviewCard } from './receipt-review';
+import { clearedNotice, Field, PreviewBody, RadioCard, ReviewCard } from './receipt-review';
 
 const NEW = '__new__';
 const PREVIEW_DELAY_MS = 200;
@@ -153,8 +153,8 @@ function AttachForm({
       setConfirmMessage(null);
       const id = r.transactionId;
       toast.success(`小票已挂上 · ${formatAud(receipt.totalCents)}`, {
-        // R22.2：小票重排拆分清掉了"是"的标记
-        description: r.oneOffCleared ? '一次性标记已清掉，需要的话重新勾' : undefined,
+        // R22.2、R25.8：小票重排拆分清掉了"是"的标记和挂的目标
+        description: clearedNotice(r),
         action: { label: '查看交易', onClick: () => router.push(`/transactions/${id}`) },
       });
       onDone();

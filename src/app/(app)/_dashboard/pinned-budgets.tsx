@@ -2,7 +2,7 @@ import { ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
-import type { BudgetOverview } from '@/lib/rules/budget';
+import type { BudgetOverview, SpendableAfterGoals } from '@/lib/rules/budget';
 import { formatAud } from '@/lib/rules/money';
 import type { BudgetLevel } from '@/lib/rules/stats';
 import { cn } from '@/lib/utils';
@@ -12,10 +12,12 @@ import { transactionsHref } from '../transactions/href';
 // F6 看板顶部的预算区块（设计图 02，R11.3）：固定是本月、全家，不跟看板的时间段和归属人筛选
 // 固定的预算每个一条；合计那一行是 R11.1 所有预算的合计，不只是固定的那几个
 // 一个预算都没有时整块不显示；没有固定的只显示合计
+// 有要按月存的目标时合计后面接"还能花 $Z（已扣目标）"（R25.10），合计是 0 时不加
 
 type Props = {
   budgets: BudgetItem[]; // 已经按分类顺序排好
   overview: BudgetOverview;
+  spendable: SpendableAfterGoals | null; // R25.10，null 不显示
   memberSelected: boolean; // 看板选了归属人时标"全家"
 };
 
@@ -31,7 +33,7 @@ const PERCENT_TEXT: Record<BudgetLevel, string> = {
   over: 'text-destructive',
 };
 
-export function PinnedBudgets({ budgets, overview, memberSelected }: Props) {
+export function PinnedBudgets({ budgets, overview, spendable, memberSelected }: Props) {
   if (budgets.length === 0) return null;
   const pinned = budgets.filter((b) => b.isPinned);
   const { spentCents, limitCents, remainingCents } = overview;
@@ -57,6 +59,17 @@ export function PinnedBudgets({ budgets, overview, memberSelected }: Props) {
           <span className={cn('font-medium', remainingCents < 0 && 'text-destructive')}>
             {formatAud(remainingCents)}
           </span>
+          {spendable && (
+            <>
+              ，还能花{' '}
+              <span
+                className={cn('font-medium', spendable.spendableCents < 0 && 'text-destructive')}
+              >
+                {formatAud(spendable.spendableCents)}
+              </span>
+              <span className="text-muted-foreground">（已扣目标）</span>
+            </>
+          )}
           <ArrowRight className="ml-1 inline size-3.5 align-[-2px] text-muted-foreground" />
         </Link>
       </div>
