@@ -11,6 +11,7 @@ import {
   feeMismatch,
   feeMismatchText,
   homeReminder,
+  inReminderWindow,
   isJudgedIn,
   monthsForHistory,
   outcomeSummaryText,
@@ -741,6 +742,13 @@ describe('R24 场景 I：homeReminder', () => {
     expect(homeReminder(reminderItems('2026-12-27'), '2026-12-27')?.count).toBe(5);
     expect(homeReminder(reminderItems('2026-12-31'), '2026-12-31')?.count).toBe(5);
     expect(homeReminder(reminderItems('2027-01-01'), '2027-01-01')).toBeNull();
+  });
+
+  it('R24 I-2: inReminderWindow is the last CONDITION_REMINDER_DAYS days', () => {
+    expect(inReminderWindow('2026-12-26')).toBe(false);
+    expect(inReminderWindow('2026-12-27')).toBe(true);
+    expect(inReminderWindow('2026-12-31')).toBe(true);
+    expect(inReminderWindow('2027-01-01')).toBe(false);
   });
 
   it('R24 I-2: last month results are not reminded', () => {

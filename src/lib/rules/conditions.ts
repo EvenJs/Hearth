@@ -489,10 +489,15 @@ function reminderLine({ accountName, result: r }: ReminderItem): string {
   }
 }
 
+// R24.9：今天在本月最后 CONDITION_REMINDER_DAYS 天里（含最后一天）
+export function inReminderWindow(today: string): boolean {
+  return today >= addDays(endOfMonth(today), -(CONDITION_REMINDER_DAYS - 1));
+}
+
 // R24.9：本月最后 CONDITION_REMINDER_DAYS 天里，有要提示的条件 → 一行；否则 null
 // items 是本家庭没归档账户、本月在判断的条件的结果；别的月份的结果不算
 export function homeReminder(items: readonly ReminderItem[], today: string): HomeReminder | null {
-  if (today < addDays(endOfMonth(today), -(CONDITION_REMINDER_DAYS - 1))) return null;
+  if (!inReminderWindow(today)) return null;
   const month = startOfMonth(today);
   const due = items.filter((i) => i.result.month === month && needsReminder(i.result));
   const first = due[0];

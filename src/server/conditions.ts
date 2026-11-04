@@ -23,6 +23,7 @@ import {
   evaluateCondition,
   feeMismatch,
   homeReminder,
+  inReminderWindow,
   isJudgedIn,
   monthsForHistory,
   resolveCounterparty,
@@ -384,6 +385,15 @@ export async function getConditionProgress(
   }
 
   return { accounts: result, reminder: homeReminder(reminderItems, today) };
+}
+
+// R24.9 首页只要提示：不在本月最后几天直接 null，不查库
+export async function getConditionReminder(
+  ctx: HouseholdContext,
+  today: string,
+): Promise<HomeReminder | null> {
+  if (!inReminderWindow(today)) return null;
+  return (await getConditionProgress(ctx, today)).reminder;
 }
 
 // ---------- 配置（R24.1） ----------
