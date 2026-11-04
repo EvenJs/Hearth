@@ -48,7 +48,7 @@ export type MonthlyAverageCard = {
 // ---------- 查询 ----------
 
 // R22.5 数据起点：本家庭最早一笔交易（任何分类、任何状态）；没有交易时 null
-async function firstTransactionDate(ctx: HouseholdContext): Promise<string | null> {
+export async function firstTransactionDate(ctx: HouseholdContext): Promise<string | null> {
   const [row] = await db
     .select({ first: min(transaction.date) })
     .from(transaction)
@@ -57,7 +57,7 @@ async function firstTransactionDate(ctx: HouseholdContext): Promise<string | nul
 }
 
 // 含已归档：R22.6 归档分类的支出照算，列表里标"已归档"
-async function loadCategories(
+export async function loadCategories(
   ctx: HouseholdContext,
 ): Promise<(Category & { isArchived: boolean })[]> {
   return db
@@ -77,19 +77,22 @@ async function loadCategories(
 }
 
 // 含已归档：拆分可能还指向归档的归属人，名字用来排序和显示
-async function loadMembers(ctx: HouseholdContext): Promise<Member[]> {
+export async function loadMembers(ctx: HouseholdContext): Promise<Member[]> {
   return db
     .select({ id: member.id, name: member.name, kind: member.kind })
     .from(member)
     .where(eq(member.householdId, ctx.householdId));
 }
 
+// R25.5 的实际每月存下要 isPreTax（summarize）和 goalId（排除挂了目标的），一起查
+export type LoadedSplit = AverageSplit & { isPreTax: boolean; goalId: string | null };
+
 // 交易日期在 start 到 end（含首尾）的所有拆分，pending 也算（R22.6）
-async function loadSplits(
+export async function loadSplits(
   ctx: HouseholdContext,
   start: string,
   end: string,
-): Promise<AverageSplit[]> {
+): Promise<LoadedSplit[]> {
   return db
     .select({
       date: transaction.date,
@@ -97,6 +100,8 @@ async function loadSplits(
       categoryId: transactionSplit.categoryId,
       memberId: transactionSplit.memberId,
       isOneOff: transactionSplit.isOneOff,
+      isPreTax: transactionSplit.isPreTax,
+      goalId: transactionSplit.goalId,
     })
     .from(transactionSplit)
     .innerJoin(

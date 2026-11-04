@@ -107,10 +107,11 @@ export async function loadAnchors(
 
 // ---------- 交易合计 ----------
 
-type DayTotal = { date: string; status: 'pending' | 'confirmed'; cents: number; count: number };
+export type DayTotal = { date: string; status: 'pending' | 'confirmed'; cents: number; count: number };
 
 // 每个账户只要 date > since 的交易，在 SQL 里按 (账户, 日期, 状态) 分组求和，一次查完所有账户
-async function loadDayTotals(
+// R25 目标也用：since 取锚点和净流入窗口里早的那个
+export async function loadDayTotals(
   tx: Tx,
   ctx: HouseholdContext,
   since: Map<string, string>,
@@ -142,7 +143,7 @@ async function loadDayTotals(
 }
 
 // R23.2：只算 date > 锚点日期的；截至 = max(锚点日期, 之后最晚的交易日期)，pending 也算
-function balanceFrom(anchor: StoredAnchor, days: readonly DayTotal[]): CurrentBalance {
+export function balanceFrom(anchor: StoredAnchor, days: readonly DayTotal[]): CurrentBalance {
   let postedCents = anchor.amountCents;
   let pendingCount = 0;
   let pendingCents = 0;

@@ -151,6 +151,10 @@ export const transferStatus = pgEnum('transfer_status', ['none', 'auto', 'sugges
 export const ruleMatchType = pgEnum('rule_match_type', ['contains', 'starts_with']);
 // R21.1，列表在 src/lib/rules/item-type.ts。不含 untyped（那只是统计里的"未分"）
 export const itemType = pgEnum('item_type', ITEM_TYPE_KEYS);
+// R25.1
+export const goalKind = pgEnum('goal_kind', ['keep', 'spend']);
+export const goalRecurrence = pgEnum('goal_recurrence', ['once', 'yearly']);
+export const goalStatus = pgEnum('goal_status', ['active', 'done']);
 
 // ---------- 通用列 ----------
 
@@ -472,11 +476,14 @@ export const transactionSplit = pgTable(
     isPreTax: boolean('is_pre_tax').default(false).notNull(),
     note: text('note'),
     isOneOff: boolean('is_one_off'), // R22.1：null 没看过 / true 是 / false 确认不是
+    // R25.7、R25.8。restrict：挂了交易的目标不能删（R25.9）
+    goalId: uuid('goal_id').references((): AnyPgColumn => goal.id, { onDelete: 'restrict' }),
   },
   (t) => [
     index('transaction_split_household_id_category_id_idx').on(t.householdId, t.categoryId),
     index('transaction_split_household_id_member_id_idx').on(t.householdId, t.memberId),
     index('transaction_split_transaction_id_idx').on(t.transactionId),
+    index('transaction_split_goal_id_idx').on(t.goalId),
     uniqueIndex('transaction_split_transaction_id_primary_unique')
       .on(t.transactionId)
       .where(sql`${t.isPrimary}`),
@@ -546,6 +553,57 @@ export const budget = pgTable(
   (t) => [
     unique('budget_household_id_category_id_unique').on(t.householdId, t.categoryId),
     check('budget_monthly_limit_cents_positive', sql`${t.monthlyLimitCents} > 0`),
+  ],
+);
+
+// R25.1：目标和应急金。进度、每月要存、预计达成、应急金金额都不存，每次实时算
+// 硬删除，没有 is_archived。名字查重、账户校验在 src/server/goals.ts 里做
+export const goal = pgTable(
+  'goal',
+  {
+    id: id(),
+    householdId: householdId(),
+    name: text('name').notNull(),
+    kind: goalKind('kind').notNull(),
+    recurrence: goalRecurrence('recurrence').default('once').notNull(),
+    targetCents: integer('target_cents'), // 应急金是 null（R25.6）
+    targetDate: date('target_date', { mode: 'string' }),
+    accountId: uuid('account_id').references(() => financialAccount.id), // 账户只软删除，不级联
+    priority: integer('priority').notNull(), // 应急金存 0。不加唯一：上下移动交换时会撞
+    isEmergency: boolean('is_emergency').default(false).notNull(),
+    emergencyMonths: integer('emergency_months'),
+    isPinned: boolean('is_pinned').default(false).notNull(),
+    status: goalStatus('status').default('active').notNull(),
+    doneAt: timestamp('done_at', { withTimezone: true }),
+    // R25.9：yearly 自动建的下一期指向上一期。删了上一期就清空
+    prevGoalId: uuid('prev_goal_id').references((): AnyPgColumn => goal.id, {
+      onDelete: 'set null',
+    }),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => user.id),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index('goal_household_id_status_idx').on(t.householdId, t.status),
+    index('goal_account_id_idx').on(t.accountId),
+    uniqueIndex('goal_household_id_emergency_unique')
+      .on(t.householdId)
+      .where(sql`${t.isEmergency}`),
+    check(
+      'goal_emergency_check',
+      sql`not ${t.isEmergency} or (${t.kind} = 'keep' and ${t.recurrence} = 'once' and ${t.targetCents} is null and ${t.emergencyMonths} between 1 and 24 and ${t.status} = 'active')`,
+    ),
+    check(
+      'goal_non_emergency_check',
+      sql`${t.isEmergency} or (${t.targetCents} > 0 and ${t.emergencyMonths} is null)`,
+    ),
+    check(
+      'goal_yearly_check',
+      sql`${t.recurrence} = 'once' or (${t.kind} = 'spend' and ${t.targetDate} is not null)`,
+    ),
+    check('goal_done_at_check', sql`(${t.status} = 'done') = (${t.doneAt} is not null)`),
   ],
 );
 

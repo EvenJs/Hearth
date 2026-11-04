@@ -6,7 +6,14 @@
 import { and, desc, eq, gte, isNull, lte } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/db';
-import { category, financialAccount, member, receipt, transaction } from '@/db/schema';
+import {
+  category,
+  financialAccount,
+  member,
+  receipt,
+  transaction,
+  transactionSplit,
+} from '@/db/schema';
 import {
   assignItemTypes,
   changeItemType,
@@ -357,11 +364,12 @@ export type ReceiptWriteFailure =
   | { ok: false; code: 'split_failed'; message: string };
 
 // oneOffCleared：R22.2 原来有拆分标了一次性，小票重排后清掉了，界面提示一句
+// goalCleared：R25.8 原来有拆分挂了目标，清掉了，提示"挂的目标已清掉，需要的话重新挂"
+type Cleared = { oneOffCleared: boolean; goalCleared: boolean };
 export type SaveReceiptResult =
-  | { ok: true; receiptId: string; transactionId: string; oneOffCleared: boolean }
-  | ReceiptWriteFailure;
+  ({ ok: true; receiptId: string; transactionId: string } & Cleared) | ReceiptWriteFailure;
 export type AttachReceiptResult =
-  { ok: true; transactionId: string; oneOffCleared: boolean } | ReceiptWriteFailure;
+  ({ ok: true; transactionId: string } & Cleared) | ReceiptWriteFailure;
 export type DeleteReceiptResult = { ok: true } | { ok: false; code: 'not_found'; message: string };
 
 const INVALID = { ok: false, code: 'invalid', message: '参数不合法' } as const;
@@ -492,7 +500,7 @@ async function attachInTx(
   target: z.output<typeof targetSchema>,
   confirmOverwrite: boolean,
   today: string,
-): Promise<{ ok: true; transactionId: string; oneOffCleared: boolean } | ReceiptWriteFailure> {
+): Promise<({ ok: true; transactionId: string } & Cleared) | ReceiptWriteFailure> {
   const plan = await planAttach(tx, ctx, r, target, today);
   if (!plan.ok) return plan;
   // R22.2：小票保存后所有拆分都是 null，主拆分也清（金额和分类都重排了）
@@ -504,7 +512,7 @@ async function attachInTx(
       .values({ ...plan.transaction, householdId: ctx.householdId, createdBy: ctx.userId })
       .returning({ id: transaction.id });
     await writeSplits(tx, ctx, { ...plan.draft, id: row.id }, rows);
-    return { ok: true, transactionId: row.id, oneOffCleared: false };
+    return { ok: true, transactionId: row.id, oneOffCleared: false, goalCleared: false };
   }
 
   // R20.6：已经改过，没确认覆盖就不写
@@ -519,10 +527,24 @@ async function attachInTx(
   }
   // 原来的非主拆分不在新列表里，writeSplits 会删掉
   await writeSplits(tx, ctx, plan.loaded, rows);
+  // R25.8：小票保存后所有拆分都是 null（writeSplits 只在分类改到非支出时清，这里全清）
+  const goalCleared = plan.loaded.splits.some((s) => s.goalId !== null);
+  if (goalCleared) {
+    await tx
+      .update(transactionSplit)
+      .set({ goalId: null })
+      .where(
+        and(
+          eq(transactionSplit.transactionId, plan.loaded.id),
+          eq(transactionSplit.householdId, ctx.householdId),
+        ),
+      );
+  }
   return {
     ok: true,
     transactionId: plan.loaded.id,
     oneOffCleared: plan.loaded.splits.some((s) => s.isOneOff === true), // 只有 false 的不提示
+    goalCleared,
   };
 }
 
@@ -605,6 +627,7 @@ export async function saveReceipt(
       receiptId: row.id,
       transactionId: attached.transactionId,
       oneOffCleared: attached.oneOffCleared,
+      goalCleared: attached.goalCleared,
     };
   });
 }
@@ -787,6 +810,7 @@ export async function attachReceipt(
       ok: true,
       transactionId: attached.transactionId,
       oneOffCleared: attached.oneOffCleared,
+      goalCleared: attached.goalCleared,
     };
   });
 }

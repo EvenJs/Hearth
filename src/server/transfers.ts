@@ -107,6 +107,7 @@ export async function pairHouseholdTransfers(
           memberId: u.memberId,
           memberSource: u.memberSource,
           isOneOff: null, // R22.2：改成内部转账，一次性标记清掉
+          goalId: null, // R25.8
         })
         .where(
           and(

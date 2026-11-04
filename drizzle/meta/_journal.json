@@ -57,6 +57,13 @@
       "when": 1793748086163,
       "tag": "0007_m10_4_account_condition",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793761879715,
+      "tag": "0008_m11_4_goal",
+      "breakpoints": true
     }
   ]
 }

@@ -766,8 +766,25 @@ function sameSplit(a: EditSplit, b: EditSplit): boolean {
   );
 }
 
+// R25.8：新分类还是支出口径 → goal_id 不变；改成收入、内部转账、未分类 → null
+// 用在 UPDATE transaction_split 的 set 里。口径同 typeCondition('expense')（R10 bucketOf）
+export function goalIdAfterCategory(ctx: HouseholdContext, categoryId: string): SQL {
+  const isExpense = db
+    .select({ one: sql`1` })
+    .from(category)
+    .where(
+      and(
+        eq(category.id, categoryId),
+        eq(category.householdId, ctx.householdId),
+        typeCondition('expense'),
+      ),
+    );
+  return sql`case when exists (${isExpense}) then ${transactionSplit.goalId} end`;
+}
+
 // 写回一个拆分可以改的字段（分类、归属人、税前），带 household_id
 // R22.2：isOneOff 不带（undefined）就不写；改到非支出分类时 changeCategory 给 null，这里写成 null
+// R25.8：goal_id 按新分类，见 goalIdAfterCategory
 export async function writeSplit(tx: DbTx, ctx: HouseholdContext, s: EditSplit): Promise<void> {
   await tx
     .update(transactionSplit)
@@ -778,6 +795,7 @@ export async function writeSplit(tx: DbTx, ctx: HouseholdContext, s: EditSplit):
       memberSource: s.memberSource,
       isPreTax: s.isPreTax,
       ...(s.isOneOff !== undefined ? { isOneOff: s.isOneOff } : {}),
+      goalId: goalIdAfterCategory(ctx, s.categoryId),
     })
     .where(and(eq(transactionSplit.id, s.id), eq(transactionSplit.householdId, ctx.householdId)));
 }
