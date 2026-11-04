@@ -147,14 +147,21 @@ describe('checkImportFile', () => {
     expect(checkImportFile({ name: 'a.pdf', size: 0 }, 'anz').error).toBe('文件是空的');
   });
 
-  it('R1C: CBA only takes CSV', () => {
+  it('R1B / R1E: CBA takes .csv and a .pdf statement', () => {
     expect(checkImportFile({ name: 'female.csv', size: 1234 }, 'cba')).toEqual({
       kind: 'csv',
       error: null,
     });
-    expect(checkImportFile({ name: 'statement.pdf', size: 1234 }, 'cba')).toEqual({
+    expect(checkImportFile({ name: 'Statement.PDF', size: 1234 }, 'cba')).toEqual({
+      kind: 'pdf',
+      error: null,
+    });
+    expect(checkImportFile({ name: 'a.pdf', size: MAX_PDF_BYTES + 1 }, 'cba').error).toBe(
+      '文件不能超过 1.5 MB',
+    );
+    expect(checkImportFile({ name: 'female.xlsx', size: 1234 }, 'cba')).toEqual({
       kind: null,
-      error: '只支持 .csv 文件',
+      error: '只支持 .csv 或 .pdf 文件',
     });
   });
   it('R1D / B7: ANZ Plus only takes a PDF statement', () => {

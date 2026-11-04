@@ -57,6 +57,7 @@
 | `cba/broken-balance.csv`        | CBA Female | 余额不连续时只警告不失败（R1B.1）                              |
 | `anz-statement/*.txt`           | ANZ Joint  | ANZ PDF 对账单（R1C、R12.2），读文字以后的样子，见"ANZ 对账单用例" |
 | `anz-plus-statement/*.txt`      | ANZ Plus Male | ANZ Plus PDF 对账单（R1D），读文字以后的样子，见"ANZ Plus 对账单用例" |
+| `cba-statement/*.txt`           | CBA Female | CBA PDF 对账单（R1E），读文字以后的样子；主文件和 `cba/female-2026-09.csv` 同样的 20 笔，见"CBA 对账单用例" |
 | `receipts/*.json`               | —          | 小票识别（R20），见"小票用例"；商品类型（R21）也用这几张，见"小票商品类型用例" |
 
 ---
@@ -80,3 +81,6 @@
 | ANZ Plus 对账单用例（R1D，M7.5） | [`cases/10-anz-plus-statement.md`](cases/10-anz-plus-statement.md) | 看各用例自己的前提 |
 | 小票商品类型用例（R21，M7.6） | [`cases/11-item-types.md`](cases/11-item-types.md) | 看各用例自己的前提 |
 | 月均支出和一次性开销用例（R22，M7.7） | [`cases/12-monthly-average.md`](cases/12-monthly-average.md) | 不用 CSV，拆分列表写在用例里；今天固定 2026-11-15 |
+| CBA 对账单用例（R1E、R4.3，M8.5） | [`cases/13-cba-statement.md`](cases/13-cba-statement.md) | 看各用例自己的前提 |
+| 账户余额和用途用例（R23，M9） | [`cases/14-balance.md`](cases/14-balance.md) | 不用 CSV、PDF，锚点和交易写在用例里；另加 6 个账户；今天固定 2026-12-10 |
+| 每月条件用例（R24，M10） | [`cases/15-monthly-conditions.md`](cases/15-monthly-conditions.md) | 不用 CSV、PDF，条件、锚点、交易写在用例里，所有场景共用一份；账户沿用 14 号；今天固定 2026-12-28 |

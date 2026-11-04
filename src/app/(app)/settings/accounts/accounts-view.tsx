@@ -2,6 +2,7 @@
 
 import { Archive, ArchiveRestore, Pencil, Plus } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
@@ -23,37 +24,75 @@ import {
 } from '@/components/ui/table';
 import { ACCOUNT_TYPE_LABELS, BANK_LABELS } from '@/lib/accounts/account-input';
 import { canImportCsv, canImportStatement } from '@/lib/import/banks';
+import { ACCOUNT_PURPOSE_LABELS } from '@/lib/rules/balance';
 import type { Account } from '@/server/accounts';
 import type { Card } from '@/server/cards';
+import type { StoredCondition } from '@/server/conditions';
 import type { Member } from '@/server/members';
 import { AccountForm } from './account-form';
 import { setAccountArchivedAction } from './actions';
 import { CardsSection } from './cards-section';
+import { ConditionsSection } from './conditions-section';
 
 type Props = {
   accounts: Account[];
   cards: Card[];
+  conditions: StoredCondition[]; // 在用的条件（R24.1）
   members: Member[];
   showArchived: boolean;
+  editId: string | null; // URL 上的 ?edit=，打开这个账户的编辑
+  today: string; // Melbourne
 };
 
-// 流水来源（R1、R1C、R1D）
+// 流水来源（R1、R1C、R1D、R1E）
 function sourceLabel(bank: Account['bank']): string | null {
   if (canImportCsv(bank)) return canImportStatement(bank) ? 'CSV / 对账单' : 'CSV 导入';
   if (canImportStatement(bank)) return 'PDF 对账单';
   return null;
 }
 
-// R1D：ANZ Plus 导对账单要按尾号认账户
+// R1C、R1D、R1E：导对账单要按尾号认账户
 function needsSuffix(a: Account): boolean {
-  return a.bank === 'anz_plus' && !a.numberSuffix;
+  return canImportStatement(a.bank) && !a.numberSuffix;
+}
+
+// R23.4：被关联的账户归档了也照样显示
+function linkLabel(a: Account): string | null {
+  if (!a.linkedAccountId) return null;
+  return a.linkedAccountArchived ? `${a.linkedAccountName}（已归档）` : a.linkedAccountName;
 }
 
 // editing：null = 关闭；'new' = 新建；Account = 编辑
 type Editing = null | 'new' | Account;
 
-export function AccountsView({ accounts, cards, members, showArchived }: Props) {
+export function AccountsView({
+  accounts,
+  cards,
+  conditions,
+  members,
+  showArchived,
+  editId,
+  today,
+}: Props) {
+  const router = useRouter();
   const [editing, setEditing] = useState<Editing>(null);
+  // ?edit= 变了才打开一次（render 里调整 state，不用 effect）。找不到账户就当没传
+  const [openedEditId, setOpenedEditId] = useState<string | null>(null);
+  if (editId !== openedEditId) {
+    setOpenedEditId(editId);
+    const target = editId === null ? undefined : accounts.find((a) => a.id === editId);
+    if (target) setEditing(target);
+  }
+
+  // 关掉时去掉 ?edit=，刷新不会再打开，下次从 /accounts 点同一个账户也能打开
+  function closeEditor() {
+    setEditing(null);
+    if (editId !== null) {
+      router.replace(showArchived ? '/settings/accounts?archived=1' : '/settings/accounts', {
+        scroll: false,
+      });
+    }
+  }
   const [pending, startTransition] = useTransition();
 
   function setArchived(account: Account, archived: boolean) {
@@ -99,6 +138,8 @@ export function AccountsView({ accounts, cards, members, showArchived }: Props) 
                 <TableHead>名称</TableHead>
                 <TableHead className="hidden md:table-cell">银行</TableHead>
                 <TableHead className="hidden md:table-cell">类型</TableHead>
+                <TableHead className="hidden md:table-cell">用途</TableHead>
+                <TableHead className="hidden md:table-cell">关联账户</TableHead>
                 <TableHead>默认归属人</TableHead>
                 <TableHead className="hidden md:table-cell">尾号</TableHead>
                 <TableHead className="hidden md:table-cell">流水来源</TableHead>
@@ -113,10 +154,12 @@ export function AccountsView({ accounts, cards, members, showArchived }: Props) 
                       {a.name}
                       {a.isArchived && <Badge variant="outline">已归档</Badge>}
                     </div>
-                    {/* 手机上隐藏了银行、类型、尾号列，放在名称下面 */}
+                    {/* 手机上隐藏了银行、类型、用途、关联、尾号列，放在名称下面 */}
                     <div className="text-xs text-muted-foreground md:hidden">
-                      {BANK_LABELS[a.bank]} · {ACCOUNT_TYPE_LABELS[a.type]}
+                      {BANK_LABELS[a.bank]} · {ACCOUNT_TYPE_LABELS[a.type]} ·{' '}
+                      {ACCOUNT_PURPOSE_LABELS[a.purpose]}
                       {a.numberSuffix && ` · ••${a.numberSuffix}`}
+                      {linkLabel(a) && ` · 关联 ${linkLabel(a)}`}
                       {needsSuffix(a) && <span className="text-amber-600"> · 先填尾号</span>}
                     </div>
                   </TableCell>
@@ -124,6 +167,10 @@ export function AccountsView({ accounts, cards, members, showArchived }: Props) 
                   <TableCell className="hidden md:table-cell">
                     {ACCOUNT_TYPE_LABELS[a.type]}
                   </TableCell>
+                  <TableCell className="hidden md:table-cell">
+                    {ACCOUNT_PURPOSE_LABELS[a.purpose]}
+                  </TableCell>
+                  <TableCell className="hidden md:table-cell">{linkLabel(a) ?? '—'}</TableCell>
                   <TableCell>{a.defaultMemberName}</TableCell>
                   <TableCell className="hidden font-mono md:table-cell">
                     {a.numberSuffix ? `••${a.numberSuffix}` : '—'}
@@ -175,13 +222,13 @@ export function AccountsView({ accounts, cards, members, showArchived }: Props) 
         </div>
       )}
 
-      <Sheet open={editing !== null} onOpenChange={(open) => !open && setEditing(null)}>
+      <Sheet open={editing !== null} onOpenChange={(open) => !open && closeEditor()}>
         <SheetContent className="w-full overflow-y-auto sm:max-w-md">
           <SheetHeader>
             <SheetTitle>{editing === 'new' ? '新增账户' : '编辑账户'}</SheetTitle>
             <SheetDescription>
-              银行决定怎么导入：ANZ 可以导 CSV 和 PDF 对账单，CBA 导 CSV，ANZ Plus 只能导 PDF
-              对账单，其他只能手动录入。
+              银行决定怎么导入：ANZ、CBA 可以导 CSV 和 PDF 对账单，ANZ Plus 只能导 PDF
+              对账单，其他只能手动录入。导对账单要填尾号。
             </SheetDescription>
           </SheetHeader>
           {editing !== null && (
@@ -189,8 +236,19 @@ export function AccountsView({ accounts, cards, members, showArchived }: Props) 
               // 切换编辑对象时重置表单
               key={editing === 'new' ? 'new' : editing.id}
               account={editing === 'new' ? null : editing}
+              accounts={accounts}
               members={members}
-              onDone={() => setEditing(null)}
+              onDone={closeEditor}
+            />
+          )}
+          {/* R24.1：归档的账户不能加条件 */}
+          {editing !== null && editing !== 'new' && !editing.isArchived && (
+            <ConditionsSection
+              key={`conditions-${editing.id}`}
+              accountId={editing.id}
+              hasLinkedAccount={editing.linkedAccountId !== null}
+              conditions={conditions.filter((c) => c.accountId === editing.id)}
+              today={today}
             />
           )}
           {editing !== null && editing !== 'new' && (

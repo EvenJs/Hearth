@@ -1,6 +1,7 @@
 // 账户表单校验（F1、M1-5）。前端表单和 Server Action 共用同一个 schema
 // 纯数据和校验，不 import 数据库；枚举值和 src/db/schema.ts 保持一致（有测试检查）
 import { z } from 'zod';
+import { ACCOUNT_PURPOSES } from '@/lib/rules/balance';
 
 export const BANKS = ['anz', 'anz_plus', 'cba', 'cash', 'other'] as const;
 export const ACCOUNT_TYPES = ['everyday', 'savings', 'credit_card', 'joint', 'cash'] as const;
@@ -38,6 +39,12 @@ export const accountInputSchema = z
     type: z.enum(ACCOUNT_TYPES, '请选择类型'),
     defaultMemberId: z.uuid('请选择默认归属人'),
     numberSuffix,
+    // R23.4。不传 = 新建用默认 everyday、编辑不改
+    purpose: z.enum(ACCOUNT_PURPOSES, '请选择用途').optional(),
+    // R23.4。不传 = 新建不关联、编辑不改；null = 不关联
+    linkedAccountId: z.uuid('找不到这个账户').nullable().optional(),
+    // R23.1 开户余额（分），只有新建用，默认 0。编辑时忽略
+    openingBalanceCents: z.number().int('金额不对').min(-2147483648).max(2147483647).optional(),
   })
   .superRefine((v, ctx) => {
     if (v.type === 'cash' && v.numberSuffix !== null) {

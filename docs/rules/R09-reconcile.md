@@ -11,3 +11,4 @@ opening_balance + Σ(该账户所有 confirmed 交易，date ∈ [date_from, dat
 - 用**数据库里**的交易合计，不只是本次文件（能发现之前漏导的）
 - pending 不算
 - 相等 → `reconciled = true`；不等 → `false`，显示差额
+- 差额 = `closing_balance − (opening_balance + Σ)`：正数说明数据库里多了支出或少了收入，负数相反（2026-11-03 补，和代码一致）

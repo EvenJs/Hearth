@@ -3,11 +3,12 @@
 import { z } from 'zod';
 import type { Bank } from '@/lib/accounts/account-input';
 import { parseBalanceToCents } from '@/lib/rules/money';
+import { canImportStatement } from './banks';
 
 // 半年流水远远够
 export const MAX_CSV_BYTES = 1024 * 1024;
 
-// ANZ 对账单（R1C，M6.6-4）。Server Action 请求体上限 2 MB（next.config.ts），留余量给表单字段
+// PDF 对账单（R1C、R1D、R1E）。Server Action 请求体上限 2 MB（next.config.ts），留余量给表单字段
 export const MAX_PDF_BYTES = 1.5 * 1024 * 1024;
 
 // 余额输入框：单位是元。空 → null；允许从 PDF 对账单抄来的 $ 和千分位逗号，可以是 0 或负数
@@ -75,7 +76,7 @@ export type ImportFileKind = 'csv' | 'pdf';
 // R1D：ANZ Plus 不能导出 CSV
 export const ANZ_PLUS_PDF_ONLY = 'ANZ Plus 只能导 PDF 对账单';
 
-// 导入页的文件检查（M6.6-6）：ANZ 收 .csv 和 .pdf 对账单（R1C），CBA 只收 .csv，ANZ Plus 只收 .pdf（R1D）
+// 导入页的文件检查（M6.6-6）：ANZ 收 .csv 和 .pdf 对账单（R1C），CBA 也是（R1B、R1E，M8.5-5），ANZ Plus 只收 .pdf（R1D）
 // 按扩展名分，大小按各自的上限。kind = null 表示这种文件不能导入
 export function checkImportFile(
   file: { name: string; size: number },
@@ -86,9 +87,10 @@ export function checkImportFile(
       ? { kind: 'pdf', error: checkPdfFile(file) }
       : { kind: null, error: ANZ_PLUS_PDF_ONLY };
   }
-  if (bank === 'anz' && /.\.pdf$/i.test(file.name)) {
+  const takesPdf = canImportStatement(bank);
+  if (takesPdf && /.\.pdf$/i.test(file.name)) {
     return { kind: 'pdf', error: checkPdfFile(file) };
   }
   if (/.\.csv$/i.test(file.name)) return { kind: 'csv', error: checkCsvFile(file) };
-  return { kind: null, error: bank === 'anz' ? '只支持 .csv 或 .pdf 文件' : '只支持 .csv 文件' };
+  return { kind: null, error: takesPdf ? '只支持 .csv 或 .pdf 文件' : '只支持 .csv 文件' };
 }

@@ -2,7 +2,7 @@
 
 > 业务规则的一部分，总则和索引见 [`docs/business-rules.md`](../business-rules.md)。其他规则按编号去 `docs/rules/` 找。
 
-**输入**：CSV 文件文本（R1A、R1B），或 ANZ / ANZ Plus 对账单读出来的文字行（R1C、R1D）+ 账户的银行
+**输入**：CSV 文件文本（R1A、R1B），或 ANZ / ANZ Plus / CBA 对账单读出来的文字行（R1C、R1D、R1E）+ 账户的银行
 **输出**：`ParsedRow[]`，每行 `{ date: 'YYYY-MM-DD', amountCents: number, description: string, balanceCents: number | null, rowIndex: number }`
 
 按 `financial_account.bank` 选解析器：
@@ -10,13 +10,13 @@
 | bank                  | 解析器 | 说明                               |
 | --------------------- | ------ | ---------------------------------- |
 | anz                   | R1A    | CSV。PDF 对账单用 R1C（2026-10-28） |
-| cba                   | R1B    |                                    |
+| cba                   | R1B    | CSV。PDF 对账单用 R1E（2026-11-02），以后主要导 PDF |
 | anz_plus              | R1D    | 不能导入 CSV，只能导 PDF 对账单（R1D，2026-10-30） |
 | cash、other           | 无     | 不能导入，只能手动录入（R8.1）     |
 
 ## R1.0 两个解析器共用的规则
 
-> R1A、R1B 两个 CSV 解析器都用。R1C 对账单只用第 4（金额）、6（出错整份失败）、7（按文件顺序输出）条。R1D 只用第 4、5、6 条，输出顺序见 R1D。
+> R1A、R1B 两个 CSV 解析器都用。R1C 对账单只用第 4（金额）、6（出错整份失败）、7（按文件顺序输出）条。R1D 只用第 4、5、6 条，输出顺序见 R1D。R1E 只用第 4、6 条，描述和输出顺序见 R1E。
 
 > 引用下面某一条时写 `R1.0-N`，如 `R1.0-4` 是金额。
 
@@ -137,7 +137,7 @@ ANZ Plus 不能导出 CSV，只能导出 PDF 对账单。导入后利息不用�
 - 而且交易表表头（见下）之前有一行以 `ANZ Plus ` 开头，是产品名，如 `ANZ Plus Growth Saver`、`ANZ Plus Everyday`【4 份都是第 6 行】
 - 左上角的 ANZ Plus 是图片，读不出文字，不用它。页脚说明文字里也有 `ANZ Plus`，但在表头之后，不算
 - 和 R1C 不会互相认错：R1C 的标题要整行大写、以 ` STATEMENT` 结尾，`Account Statement` 不算【4 份 ANZ Plus 喂给 R1C 都失败"找不到对账单标题"】；`tests/local/` 里另外 7 份 PDF（R1C 的 ANZ 对账单等）第一页都没有 `ANZ Plus`
-- 上传对账单时先按这两条判断：都满足用 R1D，否则交给 R1C
+- 上传对账单时先按这两条判断用不用 R1D。三种对账单怎么选见 R1E 的"认格式"
 
 **账期**：
 
@@ -226,6 +226,157 @@ Opening Balance  $10,000.00
 | 2026-09-30 | 2000 | `BONUS CREDIT INTEREST PAID` | 1072500 |
 
 账期 `2026-09-01` 到 `2026-09-30`，期初 1000000，期末 1072500，利息 2500，账号尾号 `0004`。更多用例见 fixtures/README 的"ANZ Plus 对账单用例"。
+
+## R1E CBA PDF 对账单（2026-11-02 新增，M8.5）
+
+CBA 以后主要导 PDF 对账单，CSV 照旧能导，但不是主路（2026-11-02 定）。对账单每行都有余额，期初期末自动进 R9，上一份和下一份首尾衔接（R12.2）。CBA CSV 是从 2026-01-01 开始导的，2025-09 到 2025-12 靠对账单补；2026-01 以后和 CSV 重叠，混导见下面"和 CSV 混导"。
+
+2026-11-02 用 `tests/local/` 里同一个 Everyday 账户连续 3 份季度对账单看过（`unpdf` 读出来遮掉数字字母看行结构，脚本 `tests/local/cba-shape.test.ts`）：Statement 22（2025-11-02 到 2026-02-01，4 页，48 笔，跨年）、23（2026-02-02 到 05-01，5 页，72 笔）、24（2026-05-02 到 08-01，5 页，76 笔），记作【22】【23】【24】。下面每条后面的【】写的是从哪几份看到的，【没见过】的情况碰到就整份失败，回来改规则。3 份都是季度的；以后改成每月一份，第一份月度出来后再确认一次格式（M8.5-0），R1E 不假设账期多长。
+
+**两层**：和 R1D 一样。第一层复用 `src/server/pdf/text.ts`，**不改**；第二层是 `src/lib/import/cba-statement.ts`（纯函数），不改 R1B 的 `cba.ts`、R1C、R1D 的解析器。测试只用 `fixtures/cba-statement/` 里编的文字
+
+**左边距的乱码**（2026-11-02 定：在第二层去掉，不改第一层）：
+
+页面最左边（`x ≤ 20`，正文的日期栏从 `x = 57` 开始）印着三种不是文字的东西，`unpdf` 拼行时会粘到同一高度那一行的**行首**（紧挨着时连空格都没有）【22】【23】【24】：
+
+| 乱码 | 形状 | 在哪 |
+| --- | --- | --- |
+| 条码 | 5 段，空格隔开：`dddd.ddddd.d.d`（也见过 `ddd.dddd.d.d`）、`aadddad`、`dddd`、`aa.ad.addd.addd.a`、`add.dd.dd`（`d` 是数字，`a` 是字母）。最后一段后面可能直接粘着下一笔的日期，如 `…a12.34.5616 Sep` | 每页一个 |
+| `=` 块 | 7 个字符：`=`、5 个字符（有非 ASCII 字母，每份不一样）、`)`。后面可能直接粘着数字 | 单数页一个 |
+| `* *` | 就这 3 个字符 | 第 1 页一个 |
+
+- **每一行**（不只是交易表）先去掉行首的这三种（可能叠在一起，按条码、`=` 块、`* *` 的顺序各去一次），再去首尾空白。去完是空行就跳过
+- 有的单独一行，有的粘在交易行前面（不去掉的话这一笔认不出来）、续行前面（不去掉的话进描述）、汇总标签行前面【23】
+- 去完以后，任何一行里还有像乱码的（`数字.数字.数字.数字`，或 `=` 后面 5 个字符以内有非 ASCII 字符）→ 整份失败"第 n 笔里有一行像乱码，认不出来"（在表外写"对账单里有一行像乱码"）。形状变了的乱码不会悄悄混进描述【没见过】
+
+**读不出来的字符**：`(` 和汇总那行的 `+` 在 PDF 的文字层里就没有（PDF.js 直接读也没有，不是拼行的问题）。页眉读出来是 `Statement 22  Page 1 of 4)`（没有左括号）；描述里的 `(` 也会丢【重叠段 2 笔】。BPAY 的账单码只读得出第一位，见"和 CSV 混导"【重叠段 8 笔都是】
+
+**认格式**（三条缺一条 → 整份失败"这不像 CBA 对账单"）：
+
+- 有一行**整行**是 `Your Statement`【3 份都是第 1 页第 1 行，后面几页没有】
+- 有交易表表头（见下），而且表头之前有一行以 `Account Number ` 开头【3 份】
+- 有 `OPENING BALANCE` 那行（见下）【3 份】
+- 和 R1C、R1D 不会互相认错：R1C 的标题要整行大写、以 ` STATEMENT` 结尾；R1D 要整行 `Account Statement` 加 `ANZ Plus ` 开头的产品行。3 份 CBA 喂给 R1C 失败"找不到对账单标题"、喂给 R1D 失败"这不像 ANZ Plus 对账单"；`tests/local/` 里另外 11 份 PDF（ANZ、ANZ Plus 对账单和别的）这三条一条都不满足
+- **上传对账单时三选一**（取代原来的"不是 ANZ Plus 就是 ANZ"）：满足 R1D 的两条 → R1D；满足上面三条 → R1E；满足 R1C 的标题两条 → R1C；都不满足 → 整份失败"认不出这份对账单，只支持 ANZ、ANZ Plus、CBA 的 PDF 对账单"
+
+**页眉**（每页都有，跳过）【3 份每一页】：
+
+- `Statement NN  Page X of Y)`：`NN` 是对账单编号（3 份是 22、23、24，连着），**不用**（2026-11-02 定：R12.2 只比余额，不用编号判断少没少一份）
+- `Account Number  dd dddd dddddddd`：BSB（2 位 + 4 位）和账号（8 位），每页都一样
+- 有交易的页还有交易表表头。`Important Information` 说明在汇总之后，可能另起一页【22、23】，也可能和表尾在同一页【24】，不看
+
+**账期**：
+
+- 第 1 页有一行以 `D Mon YYYY - D Mon YYYY` **结尾**（日不补 0，月份三个字母首字母大写），如 `2 Nov 2025 - 1 Feb 2026`，前面是户名等（不用）【3 份都是第 1 页第 6 行】→ `periodFrom`、`periodTo`。找不到 → 整份失败"找不到账期"
+- **闭区间 `[periodFrom, periodTo]`，和 R1D 一样**：上一份止于 1 号，下一份从 2 号开始，中间不空一天【22→23→24】。`OPENING BALANCE` 是 `periodFrom` 当天开始前的余额。3 份里没有账期第一天的交易，这条是从首尾相接推出来的
+- `OPENING BALANCE` 那行的日期要等于 `periodFrom`，`CLOSING BALANCE` 那行的日期要等于 `periodTo`【3 份都相等】，不然整份失败"账期和 OPENING / CLOSING BALANCE 的日期对不上"
+- **会跨年**【22 是 Nov → Feb】，一开始就支持。`periodFrom` 晚于 `periodTo` → 整份失败"账期不对"；`periodTo` 不早于 `periodFrom` 加 12 个月 → 整份失败"账期超过 12 个月，还没见过这么长的 CBA 对账单"【没见过】
+- 季度和月度混着导：账期长短不比，R12.2 只比余额。改月度时最后一份季度和第一份月度之间有空档或重叠，R12.2 的提示就够，不拦
+
+**账号核对、自动认账户**：照 R1D，只是范围换成 CBA：
+
+- 用表头之前第一个 `Account Number` 行，去掉空格后是 14 位数字（BSB 6 位 + 账号 8 位）【3 份】。要以账户的 `number_suffix` 结尾，不然整份失败"这份对账单不是这个账户的"。账户没填尾号也失败。找不到 → 整份失败"找不到账号"。**BSB、账号不存、不进日志，错误信息里最多带后 4 位**
+- 不选账户时，只在本家庭**没归档的 `cba` 账户**里按尾号找，不和 ANZ、ANZ Plus 账户混着找：
+  - 正好一个 → 导入这个账户
+  - 一个都没有 → 整份失败"找不到尾号是 dddd 的 CBA 账户，先去账户设置填上尾号"（ANZ、ANZ Plus 账户尾号对得上也不算）
+  - 两个以上 → 整份失败"有 n 个 CBA 账户的尾号都对得上，去账户设置把尾号填长一点"
+
+**交易表**：
+
+- 表头：整行是 `Date  Transaction  Debit  Credit  Balance`【3 份每一页有交易的页】。**借在前、贷在后**，但下面不按栏位认。一个都没有 → 整份失败"找不到交易表"
+- 表的开头：第 1 页表头下面紧挨着 `DD Mon YYYY OPENING BALANCE  余额 CR`（**带年份**），最后一段是期初【3 份】。找不到 → 整份失败"找不到 OPENING BALANCE"
+- 表的结尾：`DD Mon YYYY CLOSING BALANCE  余额 CR`（带年份），最后一段是期末【3 份，在最后一页交易表的末尾】。找不到 → 整份失败"找不到 CLOSING BALANCE"
+- 中间是交易、续行、换页的页眉（跳过）和乱码（先去掉）。**换页**：表跨好几页，每页顶上重复页眉和表头，接着就是下一笔【22 跨 3 页，23 跨 4 页，24 跨 5 页】
+- 顺序：**旧的在前**，和 CBA CSV 相反【3 份，从 `OPENING BALANCE` 往下逐笔余额都接得上】
+
+**交易**【3 份，共 196 笔】：
+
+- 第一行以 `DD Mon`（日补 0，月份三个字母首字母大写，如 `04 Nov`）开头，后面是描述的第一段。**例外**：后面紧跟 `YYYY OPENING BALANCE` / `YYYY CLOSING BALANCE` 的是表头表尾，不是交易。描述本身可以以 4 位数字开头（如 `1000 …`），**不是年份**【23 有一笔】
+- 描述有 **1 到 3 行**【1 行 39 笔、2 行 62 笔、3 行 95 笔】，**金额和余额在最后一行的末尾**：`…  金额  余额 CR`。金额和余额都是 `1,234.56` 这样，没有 `$`，余额后面是一个空格加 `CR`。去掉千分位逗号，按 R1.0-4 转成分（余额可以是 0）
+- 一行末尾是 `金额  余额 CR` 时这一笔结束。还没结束时下一行是续行；**已经结束、下一行又不是新的一笔**（不以 `DD Mon` 开头、不是页眉、不是 `CLOSING BALANCE`）→ 整份失败"交易表里第 n 笔下面有一行认不出来"（n 是它上面那笔；紧挨着 `OPENING BALANCE` 时写"OPENING BALANCE 下面"）。还没结束就来了新的一笔或 `CLOSING BALANCE` → 整份失败"第 n 笔找不到金额和余额"
+- 一笔跨页（第一行在这一页，金额在下一页）→ 整份失败"第 n 笔跨页了，还没见过跨页的交易"【没见过，196 笔都在同一页】
+- 见过的续行：`Card xxdddd`（刷卡）、`Value Date dd/mm/yyyy`（刷卡、部分扣款，金额在这行）、`PayID Phone from CommBank App`、`to PayID Phone`、转账备注（中文变成下划线）、`Wages dddddddd`、长参考号、BPAY 的参考号和备注、`CREDIT TO ACCOUNT`【3 份】
+- **方向用余额判断**（照 R1D）：上一笔余额（第一笔用期初）− 金额 = 这一笔余额 → 借（负数）；+ 金额 = 这一笔余额 → 贷（正数）；都不是 → 整份失败"第 n 笔余额接不上"。`unpdf` 可能吃掉栏位之间的空白，所以不靠栏位位置【196 笔都能这样判断，没有对不上的】
+- **余额只认 ` CR`**。表里或汇总里出现 ` DR`（透支）→ 整份失败"没见过透支的对账单"【没见过，3 份都没有 `DR`】
+- 描述：第一行日期之后的部分和各续行（都去掉末尾的金额余额、去首尾空白）用**一个空格**拼起来。和 R1.0-5 不一样的地方只有一处：
+  - **整行正好是 `Value Date dd/mm/yyyy` 的续行改成 `Value Date: dd/mm/yyyy`**（2026-11-02 定）。CSV 里是带冒号的，R3 只去掉带冒号的，不补的话 merchant 会多一截日期、R4.1 的 key 对不上【3 份 68 笔】
+- 描述里的长参考号由 R2.3 脱敏【3 份 38 笔被改，脱敏后没有 8 位以上数字】
+- 没有利息、手续费行（Everyday 账户）【3 份】。以后有了也是普通交易，不特殊处理
+- `balanceCents`：每笔的余额，写进 R4.1 的 key（和 CBA CSV 一样）
+
+**年份**：交易只有日和月，**年份只从 `OPENING BALANCE` / `CLOSING BALANCE` 两行读**（描述可能以 4 位数字开头）。
+
+- 按表里的顺序（旧的在前），从 `periodFrom` 的年份开始，月份比上一笔小（如 Dec → Jan）就加一年；第一笔和 `OPENING BALANCE` 的月份比【22 跨年】
+- 日期比上一笔早 → 整份失败"第 n 笔的日期比上一笔早"【没见过】
+- 算出来的日期不在 `[periodFrom, periodTo]` 里 → 整份失败"第 n 笔的日期不在账期里"
+
+**汇总**【3 份都在最后一页交易表下面】：
+
+- `CLOSING BALANCE` 之后有一行以 `Opening balance` 开头、含 `Total debits`、`Total credits`、`Closing balance`（读出来是 `Opening balance  -  Total debits  Total credits  =  Closing balance`，`+` 读不出来；前面可能粘着条码，先去掉），**下一行**是 4 个数：`期初 CR  借合计  贷合计  期末 CR`。不是这个样子 → 整份失败"找不到汇总"
+- 第 1 页上面还有一行 `Closing Balance  余额 CR`【3 份都等于 `CLOSING BALANCE`】，不用
+
+**检查**（任何一条不过 → 整份失败，什么都不导，错误带第几笔和页码；第几笔是**这一页从上往下数**，和 PDF 上看到的一致。和 R1C、R1D 一样，不像 R1B.1 的 CSV 只警告）【3 份每一条都通过】：
+
+- 期初 + 逐笔 = 每一笔的余额（上面判断方向时已经做了）
+- 最后一笔的余额 = `CLOSING BALANCE`；一笔都没有时，`OPENING BALANCE` = `CLOSING BALANCE`
+- 汇总的期初 = `OPENING BALANCE`，汇总的期末 = `CLOSING BALANCE`
+- 汇总的借合计、贷合计 = 逐笔借、贷合计（都按正数比）
+
+**输出顺序**：**新的在前**（把表里的顺序反过来），和 CBA CSV（R1B、R1.0-7）一样，和 R1C、R1D 不一样（2026-11-02 定）。R4.1 的 `occurrence` 按输出顺序数，这样同一天同额同描述的几笔，PDF 和 CSV 数出来的序号一样，key 才对得上（CBA 的 key 带余额，序号数反了 key 就不同）。3 份里没有这种组【重叠段 0 组】，fixtures 里有（`ZLR*Tower Sushi` 两笔）。
+
+**一笔都没有**【没见过】：`OPENING BALANCE` 下面直接是 `CLOSING BALANCE` → 照 R1D 能导入，只建 `import_batch` 做对账和首尾衔接（R12.2）。汇总的借贷合计要是 0。要是空的对账单长得不一样（比如没有表头），会失败，碰到再改。
+
+**R9 的日期范围**：照 R1D，`import_batch.date_from` 存 `periodFrom`（不加一天），`date_to` 存 `periodTo`，`source = pdf`。R12.2 的首尾衔接只找 `source = pdf` 的批次，CBA 以前的 CSV 批次不算。
+
+**和 CSV 混导**（2026-11-02 用重叠段 2026-01-03 到 2026-08-01 对过：PDF 167 笔、`tests/local/` 的 CSV 167 笔）：
+
+- **按"日期 + 金额 + 余额"167 笔全部一一对上**，两边都没有重复的组合，日期没有差一两天的
+- 描述（R2.3 脱敏、R4.1 的 `normalizedDescription` 以后）：157 笔完全一样（其中 56 笔靠上面补的冒号）；10 笔不一样：
+  - 8 笔 BPAY：CSV 是 `… CommBank app BPAY 75556 <参考号> …`，PDF 第一行以 `BPAY 7` 结尾，账单码后面几位**读不出来**，下一行直接是参考号。参考号和后面的备注两边一样。R3 把 `COMMBANK APP BPAY` 后面整段去掉，merchant 两边一样，不影响分类
+  - 2 笔 PDF 少了 `(`（读不出来），R3 清洗后 merchant 也少一个 `(`
+- **所以 R4.1 的 key 有 10 / 167 笔对不上**。R1E 不改 key，导入 CBA 对账单时再按 R4.3 用 `(date, amount_cents, balance_cents)` 查一次（2026-11-03 定，M8.5-4a）：先导 CSV 再导同期的 PDF，这 10 笔也跳过。反过来先导 PDF 再导 CSV 不管，这 10 笔会重复（以后不导 CBA CSV）
+- 转账（R6.1）：重叠段两边都没有 `Transfer from/to xxdddd`（本家庭账户之间的转账）；PayID 转账两边写法一样。CSV 里唯一一笔带 `xx` 的在 2026-10-21，还没有对应的对账单，**PDF 里怎么写没见过** → M8.5-4b 等下一份对账单
+- R12.1 撤销导入：PDF 里被 R4 跳过的那些属于 CSV 批次，撤销 PDF 批次不动它们
+
+## R1E.1 例子
+
+`fixtures/cba-statement/female-2026-09.txt`（编的，和 `cba/female-2026-09.csv` 同样的 20 笔，导入到测试家庭的 `CBA Female`，尾号 `0003`）第 1 页，省略了说明文字：
+
+```
+Your Statement
+Statement 31  Page 1 of 3)
+Account Number  06 9999 10000003
+Female A Test  Period  1 Sep 2026 - 30 Sep 2026
+Closing Balance  11,561.59 CR
+Date  Transaction  Debit  Credit  Balance
+01 Sep 2026 OPENING BALANCE  10,000.00 CR
+01 Sep Salary EXAMPLE SCHOOL
+Wages 01092026  410.00  10,410.00 CR
+02 Sep Loan Repayment
+LN REPAY 123456789  1,480.00  8,930.00 CR
+03 Sep seene CommBank app BPAY 9
+=XÀâà9)1000999999  71.35  8,858.65 CR
+05 Sep SQ *OVERLAY COFFEE Melbourne VI AUS
+* *  Card xx5555
+Value Date 03/09/2026  6.80  8,851.85 CR
+0123.45678.9.0 ab123c4 0000 ab.c1.d234.e567.f g12.34.56
+```
+
+这几行解析出（输出是新的在前，这里只列这 4 笔）：
+
+| date | amountCents | description | balanceCents |
+| --- | --- | --- | --- |
+| 2026-09-05 | -680 | `SQ *OVERLAY COFFEE Melbourne VI AUS Card xx5555 Value Date: 03/09/2026` | 885185 |
+| 2026-09-03 | -7135 | `seene CommBank app BPAY 9 1000999999` | 885865 |
+| 2026-09-02 | -148000 | `Loan Repayment LN REPAY 123456789` | 893000 |
+| 2026-09-01 | 41000 | `Salary EXAMPLE SCHOOL Wages 01092026` | 1041000 |
+
+- `* *`、`=XÀâà9)`、条码去掉了，没进描述；`Value Date` 补了冒号
+- 9/1 是账期第一天，算这一份（闭区间）
+- 整份 20 笔和 R1B 解析 `cba/female-2026-09.csv` 的结果一样（顺序也一样），**只有 3 笔 BPAY 的描述不一样**（账单码只剩第一位），R2.3 脱敏后是 `seene CommBank app BPAY 9 ****9999`，CSV 是 `seene CommBank app BPAY 959502 ****9999`
+- 账期 `2026-09-01` 到 `2026-09-30`，期初 1000000，期末 1156159，借合计 342585，贷合计 498744，账号尾号 `0003`
+
+更多用例见 fixtures/README 的"CBA 对账单用例"。
 
 ## R1B CBA（2026-10 用真实导出确认）
 

@@ -17,10 +17,10 @@
 
 | 规则 | 文件 | 小节 |
 |---|---|---|
-| R1. 解析（CSV 和 PDF 对账单） | [`rules/R01-parse.md`](rules/R01-parse.md) | R1.0、R1A、R1C、R1C.1、R1D、R1D.1、R1B、R1B.1、R1B.2 |
+| R1. 解析（CSV 和 PDF 对账单） | [`rules/R01-parse.md`](rules/R01-parse.md) | R1.0、R1A、R1C、R1C.1、R1D、R1D.1、R1E、R1E.1、R1B、R1B.1、R1B.2 |
 | R2. 提取和脱敏 | [`rules/R02-extract-mask.md`](rules/R02-extract-mask.md) | R2.1、R2.2、R2.3 |
 | R3. 清洗商家名 | [`rules/R03-merchant.md`](rules/R03-merchant.md) | — |
-| R4. 去重 | [`rules/R04-dedupe.md`](rules/R04-dedupe.md) | R4.1、R4.2 |
+| R4. 去重 | [`rules/R04-dedupe.md`](rules/R04-dedupe.md) | R4.1、R4.2、R4.3 |
 | R5. 归属人 | [`rules/R05-member.md`](rules/R05-member.md) | R5.1 |
 | R6. 内部转账识别 | [`rules/R06-transfer.md`](rules/R06-transfer.md) | R6.1、R6.2、R6.3、R6.4 |
 | R7. 分类 | [`rules/R07-classify.md`](rules/R07-classify.md) | R7.1、R7.2 |
@@ -39,3 +39,5 @@
 | R20. 小票识别（2026-10-27 新增） | [`rules/R20-receipt.md`](rules/R20-receipt.md) | R20.1、R20.1a、R20.1b、R20.2、R20.3、R20.4、R20.5、R20.6、R20.7、R20.8 |
 | R21. 小票商品类型（2026-11-01 新增） | [`rules/R21-item-type.md`](rules/R21-item-type.md) | R21.1、R21.2、R21.3、R21.4、R21.5、R21.6、R21.7、R21.8、R21.9 |
 | R22. 月均支出和一次性开销（F11，2026-11-01 新增） | [`rules/R22-monthly-average.md`](rules/R22-monthly-average.md) | R22.1、R22.2、R22.3、R22.4、R22.5、R22.6、R22.7、R22.8、R22.9、R22.10、R22.11 |
+| R23. 账户余额和用途（F12，2026-11-03 新增） | [`rules/R23-balance.md`](rules/R23-balance.md) | R23.1、R23.2、R23.3、R23.4、R23.5、R23.6、R23.7 |
+| R24. 每月条件（F13，2026-11-04 新增） | [`rules/R24-monthly-condition.md`](rules/R24-monthly-condition.md) | R24.1、R24.2、R24.3、R24.4、R24.5、R24.6、R24.7、R24.8、R24.9、R24.10、R24.11 |
