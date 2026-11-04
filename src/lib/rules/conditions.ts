@@ -24,6 +24,22 @@ export type DepositFilter = (typeof DEPOSIT_FILTERS)[number];
 export const CONDITION_OUTCOMES = ['bonus', 'fee_waiver'] as const;
 export type ConditionOutcome = (typeof CONDITION_OUTCOMES)[number];
 
+// R24.1 类型的"显示"一列
+export const CONDITION_TYPE_LABELS: Record<ConditionType, string> = {
+  min_deposit: '当月存入至少 $X',
+  no_withdrawal: '当月不取款',
+  balance_growth: '月末余额比上月末高',
+  linked_min_deposit: '关联账户当月存入至少 $X',
+  linked_card_count: '关联账户当月刷卡至少 N 笔',
+  other: '其他（文字描述）',
+};
+
+// R24.3
+export const DEPOSIT_FILTER_LABELS: Record<DepositFilter, string> = {
+  any: '任何存入',
+  exclude_linked: '去掉关联到这个账户的 saver 转回来的',
+};
+
 // 生效月份（ConditionPeriod）由调用方用 isJudgedIn 筛，evaluateCondition 不看
 export type MonthlyCondition = {
   id: string;

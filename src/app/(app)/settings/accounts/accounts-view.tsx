@@ -26,16 +26,20 @@ import { canImportCsv, canImportStatement } from '@/lib/import/banks';
 import { ACCOUNT_PURPOSE_LABELS } from '@/lib/rules/balance';
 import type { Account } from '@/server/accounts';
 import type { Card } from '@/server/cards';
+import type { StoredCondition } from '@/server/conditions';
 import type { Member } from '@/server/members';
 import { AccountForm } from './account-form';
 import { setAccountArchivedAction } from './actions';
 import { CardsSection } from './cards-section';
+import { ConditionsSection } from './conditions-section';
 
 type Props = {
   accounts: Account[];
   cards: Card[];
+  conditions: StoredCondition[]; // 在用的条件（R24.1）
   members: Member[];
   showArchived: boolean;
+  today: string; // Melbourne
 };
 
 // 流水来源（R1、R1C、R1D、R1E）
@@ -59,7 +63,14 @@ function linkLabel(a: Account): string | null {
 // editing：null = 关闭；'new' = 新建；Account = 编辑
 type Editing = null | 'new' | Account;
 
-export function AccountsView({ accounts, cards, members, showArchived }: Props) {
+export function AccountsView({
+  accounts,
+  cards,
+  conditions,
+  members,
+  showArchived,
+  today,
+}: Props) {
   const [editing, setEditing] = useState<Editing>(null);
   const [pending, startTransition] = useTransition();
 
@@ -207,6 +218,16 @@ export function AccountsView({ accounts, cards, members, showArchived }: Props) 
               accounts={accounts}
               members={members}
               onDone={() => setEditing(null)}
+            />
+          )}
+          {/* R24.1：归档的账户不能加条件 */}
+          {editing !== null && editing !== 'new' && !editing.isArchived && (
+            <ConditionsSection
+              key={`conditions-${editing.id}`}
+              accountId={editing.id}
+              hasLinkedAccount={editing.linkedAccountId !== null}
+              conditions={conditions.filter((c) => c.accountId === editing.id)}
+              today={today}
             />
           )}
           {editing !== null && editing !== 'new' && (

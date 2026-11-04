@@ -388,6 +388,29 @@ export async function getConditionProgress(
 
 // ---------- 配置（R24.1） ----------
 
+// 设置页只列在用的条件（disabled_from 是 null），归档账户的不列。按建的先后
+export async function listActiveConditions(ctx: HouseholdContext): Promise<StoredCondition[]> {
+  const rows = await db
+    .select({ condition: accountCondition })
+    .from(accountCondition)
+    .innerJoin(
+      financialAccount,
+      and(
+        eq(financialAccount.id, accountCondition.accountId),
+        eq(financialAccount.householdId, ctx.householdId),
+      ),
+    )
+    .where(
+      and(
+        eq(accountCondition.householdId, ctx.householdId),
+        isNull(accountCondition.disabledFrom),
+        eq(financialAccount.isArchived, false),
+      ),
+    )
+    .orderBy(accountCondition.createdAt, accountCondition.id);
+  return rows.map((r) => toStoredCondition(r.condition));
+}
+
 const paramsSchema = z.object({
   type: z.enum(CONDITION_TYPES),
   outcome: z.enum(CONDITION_OUTCOMES),

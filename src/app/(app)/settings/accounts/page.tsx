@@ -1,11 +1,13 @@
 import { Suspense } from 'react';
+import { todayInMelbourne } from '@/lib/rules/periods';
 import { listAccounts } from '@/server/accounts';
 import { listCards } from '@/server/cards';
+import { listActiveConditions } from '@/server/conditions';
 import { getHouseholdContext } from '@/server/context';
 import { listMembers } from '@/server/members';
 import { AccountsView } from './accounts-view';
 
-// F1 账户设置（设计图 09）：账户列表 + 编辑侧栏里的卡号映射（M1-6）
+// F1 账户设置（设计图 09）：账户列表 + 编辑侧栏里的每月条件（M10-5）、卡号映射（M1-6）
 export default function AccountsPage(props: PageProps<'/settings/accounts'>) {
   return (
     <>
@@ -32,12 +34,20 @@ async function AccountsSection({
 }) {
   const showArchived = (await searchParams).archived === '1';
   const ctx = await getHouseholdContext();
-  const [accounts, cards, members] = await Promise.all([
+  const [accounts, cards, conditions, members] = await Promise.all([
     listAccounts(ctx, { includeArchived: showArchived }),
     listCards(ctx),
+    listActiveConditions(ctx),
     listMembers(ctx),
   ]);
   return (
-    <AccountsView accounts={accounts} cards={cards} members={members} showArchived={showArchived} />
+    <AccountsView
+      accounts={accounts}
+      cards={cards}
+      conditions={conditions}
+      members={members}
+      showArchived={showArchived}
+      today={todayInMelbourne()}
+    />
   );
 }

@@ -9,6 +9,7 @@ import {
   type AccountValues,
 } from '@/lib/accounts/account-input';
 import { cardInputSchema, type CardInput } from '@/lib/accounts/card-input';
+import { todayInMelbourne } from '@/lib/rules/periods';
 import {
   AccountError,
   createAccount,
@@ -17,6 +18,15 @@ import {
   updateAccount,
 } from '@/server/accounts';
 import { CardError, createCard, deleteCard } from '@/server/cards';
+import {
+  createCondition,
+  deactivateCondition,
+  updateCondition,
+  type ConditionActionResult,
+  type ConditionParamsInput,
+  type CreateConditionInput,
+  type SaveConditionResult,
+} from '@/server/conditions';
 import { getHouseholdContext } from '@/server/context';
 
 export type ActionResult<Field extends string = keyof AccountInput> =
@@ -153,6 +163,46 @@ export async function deleteCardAction(cardId: string): Promise<ActionResult<nev
   }
   revalidatePath(PAGE);
   return { ok: true };
+}
+
+// ---------- 每月条件（M10-5，R24.1） ----------
+// 校验在 src/server/conditions.ts 里（Zod + R24.1 校验表），出错返回按字段的 errors
+
+// 条件变了，/accounts 的进度和首页提示也要刷新
+function revalidateConditions() {
+  revalidatePath(PAGE);
+  revalidatePath('/accounts');
+  revalidatePath('/');
+}
+
+export async function createConditionAction(
+  input: CreateConditionInput,
+): Promise<SaveConditionResult> {
+  const ctx = await getHouseholdContext();
+  const result = await createCondition(ctx, input, todayInMelbourne());
+  if (result.ok) revalidateConditions();
+  return result;
+}
+
+// 修改 = 停用旧的、建新的（同一个事务）
+export async function updateConditionAction(
+  conditionId: string,
+  input: ConditionParamsInput,
+): Promise<SaveConditionResult> {
+  const ctx = await getHouseholdContext();
+  const result = await updateCondition(ctx, conditionId, input, todayInMelbourne());
+  if (result.ok) revalidateConditions();
+  return result;
+}
+
+// 删除 = 停用，历史保留
+export async function deactivateConditionAction(
+  conditionId: string,
+): Promise<ConditionActionResult> {
+  const ctx = await getHouseholdContext();
+  const result = await deactivateCondition(ctx, conditionId, todayInMelbourne());
+  if (result.ok) revalidateConditions();
+  return result;
 }
 
 function toFailure<Field extends string>(err: unknown): ActionFailure<Field> {
