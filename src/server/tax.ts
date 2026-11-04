@@ -246,3 +246,32 @@ export async function saveTaxProfile(
     });
   return { ok: true };
 }
+
+const deleteSchema = z.object({
+  memberId: z.uuid(),
+  financialYear: z.number().int(),
+});
+
+export type DeleteTaxProfileInput = z.input<typeof deleteSchema>;
+
+// R14.8：删掉这一行 = 回到"还没填"（不是改成 0）。只删本家庭的
+// 记录已经不在（另一个人刚清了）也算成功；不检查税率表
+export async function deleteTaxProfile(
+  ctx: HouseholdContext,
+  input: DeleteTaxProfileInput,
+): Promise<TaxWriteResult> {
+  const parsed = deleteSchema.safeParse(input);
+  if (!parsed.success) return INVALID;
+  const { memberId, financialYear } = parsed.data;
+
+  await db
+    .delete(taxProfile)
+    .where(
+      and(
+        eq(taxProfile.householdId, ctx.householdId),
+        eq(taxProfile.memberId, memberId),
+        eq(taxProfile.financialYear, financialYear),
+      ),
+    );
+  return { ok: true };
+}

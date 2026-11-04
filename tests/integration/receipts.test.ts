@@ -717,6 +717,7 @@ describeDb('R-U 撤销导入和重新挂（R12.1、R20.7）', () => {
       ok: true,
       transactionId: new19.id,
       oneOffCleared: false,
+      goalCleared: false, // R25.8
     });
     expect(await splitShape(new19.id)).toEqual(R_A_SPLITS);
     expect(await listUnattachedReceipts(t.ctx)).toEqual([]);
@@ -1044,7 +1045,7 @@ describeDb('交易详情的小票、没挂上的小票重新挂（M6.7-8，R20.7
 
     expect(
       await attachReceipt(t.ctx, r.receiptId, { kind: 'transaction', transactionId: new19.id }),
-    ).toEqual({ ok: true, transactionId: new19.id, oneOffCleared: false });
+    ).toEqual({ ok: true, transactionId: new19.id, oneOffCleared: false, goalCleared: false });
     expect(preview.rows.map((x) => [x.amountCents, x.categoryLabel, x.isPrimary])).toEqual(
       R_A_SPLITS.map((x) => [x.amountCents, x.category, x.primary]),
     );

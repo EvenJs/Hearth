@@ -1,6 +1,7 @@
 // R23 账户余额、手动校准、用途和关联账户（docs/rules/R23-balance.md）
 // 纯函数，不 import 数据库和 Next.js
 import type { Bank } from './types';
+import type { AverageWindow } from './monthly-average';
 import { addDays, todayInMelbourne } from './periods';
 
 // ---------- 用途（R23.4） ----------
@@ -121,6 +122,25 @@ export function balanceAt(
   return transactions
     .filter((t) => t.status === 'confirmed' && t.date > anchor.date && t.date <= date)
     .reduce((s, t) => s + t.amountCents, anchor.amountCents);
+}
+
+// ---------- 账户月净流入（R25.4） ----------
+
+// 月净流入 = totalCents ÷ months，不先取整（R25.4 用整数算月数）
+export type AccountNetInflow = { months: number; totalCents: number };
+
+// R25.4：窗口内全部交易（任何分类、含转账、含 pending）合计。没有完整月 → null（"数据不够"）
+// window = averageWindow(today, 这个账户最早一笔交易的日期, 3)；transactions 只传这个账户的
+export function accountNetInflow(
+  transactions: readonly BalanceTx[],
+  window: AverageWindow,
+): AccountNetInflow | null {
+  if (window.months === 0 || window.range === null) return null;
+  const { start, end } = window.range;
+  const totalCents = transactions
+    .filter((t) => t.date >= start && t.date <= end)
+    .reduce((s, t) => s + t.amountCents, 0);
+  return { months: window.months, totalCents };
 }
 
 // ---------- 手动校准（R23.3） ----------

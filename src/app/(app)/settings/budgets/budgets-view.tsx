@@ -1,7 +1,7 @@
 'use client';
 
 // 设置 → 预算（设计图 10，R11、R11.1、R11.3）。电脑上表格，手机上卡片（10-settings-budgets-mobile）
-// 顶部是 R11.1 的总览；被一级包含的二级预算照常显示进度，标"不进合计"
+// 顶部是 R11.1 的总览（有要按月存的目标时多一行"还能花"，R25.10）；被一级包含的二级预算照常显示进度，标"不进合计"
 // 固定开关直接保存；新建、修改、删除走对话框（budget-dialog.tsx）
 import { MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
 import Link from 'next/link';
@@ -24,7 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import type { BudgetOverview } from '@/lib/rules/budget';
+import type { BudgetOverview, SpendableAfterGoals } from '@/lib/rules/budget';
 import type { MonthlyAverage } from '@/lib/rules/monthly-average';
 import { formatAud } from '@/lib/rules/money';
 import type { BudgetLevel } from '@/lib/rules/stats';
@@ -42,6 +42,7 @@ export type CategoryRefMap = Record<string, CategoryRef>;
 type Props = {
   budgets: BudgetItem[]; // 已经按分类顺序排好
   overview: BudgetOverview;
+  spendable: SpendableAfterGoals | null; // R25.10，null 不显示那一行
   refs: CategoryRefMap;
   sections: PickerSections; // 新建时的分类下拉（R11.2）
   average: MonthlyAverage | null; // 近 12 个月月均，全家（R22.11）
@@ -64,7 +65,7 @@ const PERCENT_TEXT: Record<BudgetLevel, string> = {
   over: 'text-destructive',
 };
 
-export function BudgetsView({ budgets, overview, refs, sections, average }: Props) {
+export function BudgetsView({ budgets, overview, spendable, refs, sections, average }: Props) {
   const [dialog, setDialog] = useState<Dialog | null>(null);
 
   // 对话框是一次性的：页面被 <Activity> 藏起来时关掉（docs/tech-stack.md 2 "页面状态"）
@@ -84,7 +85,7 @@ export function BudgetsView({ budgets, overview, refs, sections, average }: Prop
         </div>
       ) : (
         <>
-          <Overview overview={overview} />
+          <Overview overview={overview} spendable={spendable} />
 
           <div className="flex items-center gap-3">
             <h2 className="text-lg font-semibold">预算列表</h2>
@@ -183,7 +184,14 @@ export function BudgetsView({ budgets, overview, refs, sections, average }: Prop
 }
 
 // R11.1：上限合计、已花合计、还剩（可以是负数）、没设预算的分类
-function Overview({ overview }: { overview: BudgetOverview }) {
+// R25.10：还剩 − 为目标存 = 还能花，可以是负数；不改上限和进度
+function Overview({
+  overview,
+  spendable,
+}: {
+  overview: BudgetOverview;
+  spendable: SpendableAfterGoals | null;
+}) {
   const { limitCents, spentCents, remainingCents, uncovered } = overview;
   return (
     <Card className="grid gap-6 p-4 md:grid-cols-[repeat(3,minmax(0,1fr))_minmax(0,1.5fr)] md:p-6">
@@ -215,6 +223,23 @@ function Overview({ overview }: { overview: BudgetOverview }) {
           </ul>
         )}
       </div>
+      {spendable && (
+        <p className="border-t pt-4 text-sm tabular-nums md:col-span-full">
+          还剩 {formatAud(remainingCents)} −{' '}
+          <Link href="/goals" className="underline-offset-4 hover:underline">
+            为目标存 {formatAud(spendable.goalsCents)}
+          </Link>{' '}
+          = 还能花{' '}
+          <span
+            className={cn(
+              'text-base font-semibold',
+              spendable.spendableCents < 0 && 'text-destructive',
+            )}
+          >
+            {formatAud(spendable.spendableCents)}
+          </span>
+        </p>
+      )}
     </Card>
   );
 }

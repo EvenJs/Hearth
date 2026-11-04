@@ -4,6 +4,7 @@
 // 拆出一部分、改拆分用同一个对话框（split-dialog.tsx），删除非主拆分先确认
 // 主拆分改了分类按 R16.9 弹"存成规则"（和列表一致）；子拆分不弹
 // R22.1 支出拆分一个"一次性"勾选；R22.3 大额未标时上面一行提示，带"是""不是一次性"
+// R25.7 支出拆分一个"挂到目标"下拉（goal-select.tsx），在一次性旁边
 // 电脑（lg 以上）是表格，窄屏是卡片
 import { Loader2, Pencil, Plus, Split, Trash2 } from 'lucide-react';
 import { useLayoutEffect, useOptimistic, useState, useTransition } from 'react';
@@ -49,11 +50,20 @@ import { answerOneOffHintAction, setSplitOneOffAction } from './actions';
 import { offerRuleAfterChange, type EditOptions, type RuleDraft } from '../inline-edit';
 import { SaveRuleDialog } from '../save-rule-dialog';
 import { CategoryTag } from '../tx-badges';
+import { GoalSelect, type LinkableGoal } from './goal-select';
 import { SplitDialog, type SplitSaved } from './split-dialog';
 
 type DialogState = { mode: 'add' } | { mode: 'edit'; split: SplitView } | null;
 
-export function SplitSection({ tx, options }: { tx: TransactionDetail; options: EditOptions }) {
+export function SplitSection({
+  tx,
+  options,
+  goals,
+}: {
+  tx: TransactionDetail;
+  options: EditOptions;
+  goals: readonly LinkableGoal[];
+}) {
   const [dialog, setDialog] = useState<DialogState>(null);
   const [removing, setRemoving] = useState<SplitView | null>(null);
   const [ruleDraft, setRuleDraft] = useState<{ key: number; draft: RuleDraft } | null>(null);
@@ -137,6 +147,7 @@ export function SplitSection({ tx, options }: { tx: TransactionDetail; options: 
                 <TableHead>归属人</TableHead>
                 <TableHead>备注</TableHead>
                 {markable && <TableHead className="w-16">一次性</TableHead>}
+                {markable && <TableHead className="w-52">目标</TableHead>}
                 <TableHead className="w-24 pr-4 text-right">操作</TableHead>
               </TableRow>
             </TableHeader>
@@ -166,6 +177,11 @@ export function SplitSection({ tx, options }: { tx: TransactionDetail; options: 
                       {canMarkOneOff(s.category) && <OneOffCheckbox split={s} />}
                     </TableCell>
                   )}
+                  {markable && (
+                    <TableCell className="max-w-52 whitespace-normal">
+                      {canMarkOneOff(s.category) && <GoalSelect split={s} goals={goals} />}
+                    </TableCell>
+                  )}
                   <TableCell className="pr-4 text-right">
                     <RowButtons {...rowActions(s)} />
                   </TableCell>
@@ -178,7 +194,7 @@ export function SplitSection({ tx, options }: { tx: TransactionDetail; options: 
                   <TableCell className="pl-4 text-right font-medium">
                     <Amount cents={sumOf(tx.splits)} />
                   </TableCell>
-                  <TableCell colSpan={markable ? 5 : 4} className="text-muted-foreground">
+                  <TableCell colSpan={markable ? 6 : 4} className="text-muted-foreground">
                     拆分合计 = 交易金额 {formatAud(tx.amountCents)}
                   </TableCell>
                 </TableRow>
@@ -206,6 +222,7 @@ export function SplitSection({ tx, options }: { tx: TransactionDetail; options: 
                 </div>
                 <RowButtons {...rowActions(s)} />
               </div>
+              {canMarkOneOff(s.category) && <GoalSelect split={s} goals={goals} />}
             </li>
           ))}
           {isSplit && (

@@ -84,3 +84,4 @@
 | CBA 对账单用例（R1E、R4.3，M8.5） | [`cases/13-cba-statement.md`](cases/13-cba-statement.md) | 看各用例自己的前提 |
 | 账户余额和用途用例（R23，M9） | [`cases/14-balance.md`](cases/14-balance.md) | 不用 CSV、PDF，锚点和交易写在用例里；另加 6 个账户；今天固定 2026-12-10 |
 | 每月条件用例（R24，M10） | [`cases/15-monthly-conditions.md`](cases/15-monthly-conditions.md) | 不用 CSV、PDF，条件、锚点、交易写在用例里，所有场景共用一份；账户沿用 14 号；今天固定 2026-12-28 |
+| 目标和应急金用例（R25，M11） | [`cases/16-goals.md`](cases/16-goals.md) | 不用 CSV、PDF，目标、锚点、交易、月均、收支写在用例里，所有场景共用一份；账户沿用 14 号；今天固定 2026-12-15 |

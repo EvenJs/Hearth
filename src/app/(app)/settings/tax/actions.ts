@@ -2,10 +2,11 @@
 
 // 设置 → 税务的 Server Actions（M7-5，R14.7）。输入在这里用 Zod 再校验一次（前端校验可以被绕过）
 // 金额转分、已代扣 ≤ 税前总额、财年有没有税率表、member 是不是 person 在 src/server/tax.ts 里判断
+// 清除工资信息见 R14.8
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { getHouseholdContext } from '@/server/context';
-import { saveTaxProfile, type TaxWriteResult } from '@/server/tax';
+import { deleteTaxProfile, saveTaxProfile, type TaxWriteResult } from '@/server/tax';
 
 const saveSchema = z.object({
   memberId: z.uuid(),
@@ -34,5 +35,30 @@ export async function saveTaxProfileAction(
     // 不打印错误内容，免得把金额之类的数据写进日志
     console.error('[tax] 保存工资信息失败', err instanceof Error ? err.name : typeof err);
     return FAILED;
+  }
+}
+
+const deleteSchema = z.object({
+  memberId: z.uuid(),
+  financialYear: z.number().int(),
+});
+
+export type DeleteTaxProfileActionInput = z.infer<typeof deleteSchema>;
+
+const DELETE_FAILED = { ok: false, reason: 'invalid', message: '清除失败，请稍后再试' } as const;
+
+export async function deleteTaxProfileAction(
+  input: DeleteTaxProfileActionInput,
+): Promise<TaxWriteResult> {
+  const parsed = deleteSchema.safeParse(input);
+  if (!parsed.success) return INVALID;
+  const ctx = await getHouseholdContext();
+  try {
+    const r = await deleteTaxProfile(ctx, parsed.data);
+    if (r.ok) revalidatePath('/', 'layout');
+    return r;
+  } catch (err) {
+    console.error('[tax] 清除工资信息失败', err instanceof Error ? err.name : typeof err);
+    return DELETE_FAILED;
   }
 }

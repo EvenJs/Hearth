@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  accountNetInflow,
   anchorFromBatch,
   balanceAt,
   calibrationDiff,
@@ -13,6 +14,7 @@ import {
   type BalanceAnchor,
   type BalanceTx,
 } from './balance';
+import { averageWindow } from './monthly-average';
 
 // 期望值来自 docs/rules/R23-balance.md 和 fixtures/cases/14-balance.md（今天 = 2026-12-10）
 
@@ -546,5 +548,54 @@ describe('balanceAt（R23、R24.4）', () => {
   it('R23.1: same-day anchors pick PDF over manual', () => {
     const anchors = [manual('2026-11-30', 111, '2026-12-05'), pdf('2026-11-30', 222, '2026-12-01')];
     expect(balanceAt(anchors, [], '2026-12-01')).toBe(222);
+  });
+});
+
+// ---------- 账户月净流入（R25.4） ----------
+
+// 期望值来自 docs/rules/R25-goal.md R25.4 和 fixtures/cases/16-goals.md 场景 C-1、C-4（今天 = 2026-12-15）
+describe('accountNetInflow（R25.4）', () => {
+  const window = (firstDate: string | null) => averageWindow('2026-12-15', firstDate, 3);
+
+  const PLUS_MALE = [c('2026-09-10', 30000), c('2026-10-10', 30000), c('2026-11-10', 28000), c('2026-11-30', 2000), c('2026-12-05', 50000)];
+
+  it('R25.4 C-1: ANZ Plus Male — transfers count, this month left out → Σ 90000 over 3', () => {
+    expect(accountNetInflow(PLUS_MALE, window('2026-09-10'))).toEqual({ months: 3, totalCents: 90000 });
+  });
+
+  it('R25.4 C-1: CBA Female Saver s1 to s6 → Σ 63000 over 3', () => {
+    const txs = [
+      c('2026-09-15', 20000), c('2026-09-30', 1000), c('2026-10-15', 20000), c('2026-10-31', 1000),
+      c('2026-11-15', 20000), c('2026-11-30', 1000), c('2026-12-10', 1234),
+    ];
+    expect(accountNetInflow(txs, window('2026-09-15'))).toEqual({ months: 3, totalCents: 63000 });
+  });
+
+  it('R25.4 C-1: ANZ Card starts 2026-11 → n = 1, Σ −20000', () => {
+    const txs = [c('2026-11-20', -20000), c('2026-12-02', -5000)];
+    expect(accountNetInflow(txs, window('2026-11-20'))).toEqual({ months: 1, totalCents: -20000 });
+  });
+
+  it('R25.4 C-1: ANZ Male salary in, transfers out → Σ 0', () => {
+    const txs = ['09', '10'].flatMap((m) => [c(`2026-${m}-01`, 100000), c(`2026-${m}-10`, -30000), c(`2026-${m}-15`, -70000)]);
+    txs.push(c('2026-11-01', 100000), c('2026-11-10', -28000), c('2026-11-15', -72000));
+    expect(accountNetInflow(txs, window('2026-09-01'))).toEqual({ months: 3, totalCents: 0 });
+  });
+
+  it('R25.4 C-1: CBA Female — goal-linked spending counts too (account flow, not R25.5)', () => {
+    const txs = [c('2026-11-05', -180000), c('2026-11-25', 250000), c('2026-12-03', -148000)];
+    expect(accountNetInflow(txs, window('2026-11-05'))).toEqual({ months: 1, totalCents: 70000 });
+  });
+
+  it('R25.4: pending counts', () => {
+    expect(accountNetInflow([...PLUS_MALE, p('2026-10-20', -3000)], window('2026-09-10'))).toEqual({ months: 3, totalCents: 87000 });
+  });
+
+  it('R25.4 C-4: no transactions → null ("数据不够")', () => {
+    expect(accountNetInflow([], window(null))).toBeNull();
+  });
+
+  it('R25.4: first transaction this month → null', () => {
+    expect(accountNetInflow([c('2026-12-05', 50000)], window('2026-12-05'))).toBeNull();
   });
 });

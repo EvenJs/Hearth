@@ -17,7 +17,7 @@ import { changeCategory, changeMember, isSelectableCategory } from '@/lib/rules/
 import type { CategorySource, MemberSource, TransferStatus } from '@/lib/rules/types';
 import type { HouseholdContext } from './context';
 import { isActiveMember } from './members';
-import { loadEditContext, type DbTx } from './transactions';
+import { goalIdAfterCategory, loadEditContext, type DbTx } from './transactions';
 
 export type SplitWriteResult = { ok: true; splitId: string } | { ok: false; message: string };
 
@@ -74,7 +74,8 @@ const updateSchema = z
     message: '没有要改的字段',
   });
 
-export type StoredSplit = SplitRow & { id: string };
+// goalId 只读不写：writeSplits 不碰它（R25.8），小票保存要知道原来挂没挂目标
+export type StoredSplit = SplitRow & { id: string; goalId: string | null };
 
 export type LoadedTx = Omit<SplitTx, 'splits'> & {
   id: string;
@@ -113,6 +114,7 @@ export async function lockTransaction(
       isPreTax: transactionSplit.isPreTax,
       note: transactionSplit.note,
       isOneOff: transactionSplit.isOneOff,
+      goalId: transactionSplit.goalId,
     })
     .from(transactionSplit)
     .where(
@@ -198,7 +200,7 @@ export async function writeSplits(
     if (JSON.stringify(fields(old)) === JSON.stringify(fields(s))) continue;
     await tx
       .update(transactionSplit)
-      .set(fields(s))
+      .set({ ...fields(s), goalId: goalIdAfterCategory(ctx, s.categoryId) }) // R25.8
       .where(and(eq(transactionSplit.id, s.id), eq(transactionSplit.householdId, ctx.householdId)));
   }
 

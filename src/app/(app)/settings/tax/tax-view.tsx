@@ -2,11 +2,20 @@
 
 // 设置 → 税务（设计图 11，R14.3、R14.6、R14.7）。只按人，不做家庭合计
 // 上面每人一张表单（全年工资税前总额、雇主已代扣的税），下面只读的估算表
-// 已预缴只从 Tax (ATO) 拆分算，不能手填（R14.6）
+// 已预缴只从 Tax (ATO) 拆分算，不能手填（R14.6）；填过的可以清除（R14.8）
 import { Info, Loader2, TriangleAlert } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -29,7 +38,7 @@ import {
 import { formatAud } from '@/lib/rules/money';
 import { cn } from '@/lib/utils';
 import type { HouseholdTax, PersonTax } from '@/server/tax';
-import { saveTaxProfileAction } from './actions';
+import { deleteTaxProfileAction, saveTaxProfileAction } from './actions';
 
 type LoadedTax = Extract<HouseholdTax, { missingRates: null }>;
 
@@ -102,6 +111,10 @@ export function TaxView({ years, missingRates, tax }: Props) {
               <ProfileForm
                 key={`${tax.financialYear}:${p.member.id}:${p.profile?.updatedAt.getTime() ?? 'none'}`}
                 financialYear={tax.financialYear}
+                yearLabel={
+                  years.find((y) => y.value === tax.financialYear)?.label ??
+                  String(tax.financialYear)
+                }
                 person={p}
               />
             ))}
@@ -132,11 +145,20 @@ function Notice({ tone, children }: { tone: 'info' | 'warn'; children: React.Rea
   );
 }
 
-function ProfileForm({ financialYear, person }: { financialYear: number; person: PersonTax }) {
+function ProfileForm({
+  financialYear,
+  yearLabel,
+  person,
+}: {
+  financialYear: number;
+  yearLabel: string; // "2026-27"
+  person: PersonTax;
+}) {
   const { member, profile } = person;
   const [gross, setGross] = useState(profile ? centsToInput(profile.paygGrossCents) : '');
   const [withheld, setWithheld] = useState(profile ? centsToInput(profile.paygWithheldCents) : '');
   const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const [pending, startTransition] = useTransition();
   const id = (field: string) => `tax-${member.id}-${field}`;
 
@@ -200,7 +222,17 @@ function ProfileForm({ financialYear, person }: { financialYear: number; person:
             </p>
           )}
 
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            {profile && (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={pending}
+                onClick={() => setConfirming(true)}
+              >
+                清除
+              </Button>
+            )}
             <Button type="submit" disabled={pending}>
               {pending && <Loader2 className="animate-spin" />}
               保存
@@ -208,7 +240,72 @@ function ProfileForm({ financialYear, person }: { financialYear: number; person:
           </div>
         </form>
       </CardContent>
+
+      {confirming && (
+        <ClearDialog
+          memberId={member.id}
+          memberName={member.name}
+          financialYear={financialYear}
+          yearLabel={yearLabel}
+          onClose={() => setConfirming(false)}
+        />
+      )}
     </Card>
+  );
+}
+
+// R14.8：删掉这一行 tax_profile。成功后 updatedAt 变成 none，ProfileForm 的 key 变了会自己重建成空表单
+function ClearDialog(props: {
+  memberId: string;
+  memberName: string;
+  financialYear: number;
+  yearLabel: string;
+  onClose: () => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  function clear() {
+    setError(null);
+    startTransition(async () => {
+      const r = await deleteTaxProfileAction({
+        memberId: props.memberId,
+        financialYear: props.financialYear,
+      });
+      if (!r.ok) {
+        setError(r.message);
+        return;
+      }
+      toast.success(`已清除 ${props.memberName} 的工资信息`);
+      props.onClose();
+    });
+  }
+
+  return (
+    <AlertDialog open onOpenChange={(open) => !open && !pending && props.onClose()}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            清除 {props.memberName} {props.yearLabel} 财年的工资信息？
+          </AlertDialogTitle>
+          <AlertDialogDescription>清除后估算按工资 0 算。</AlertDialogDescription>
+        </AlertDialogHeader>
+        {error && (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        )}
+        <AlertDialogFooter>
+          <AlertDialogCancel type="button" disabled={pending}>
+            取消
+          </AlertDialogCancel>
+          <Button type="button" variant="destructive" disabled={pending} onClick={clear}>
+            {pending && <Loader2 className="animate-spin" />}
+            清除
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
