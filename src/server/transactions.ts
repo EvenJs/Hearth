@@ -26,6 +26,7 @@ import {
   card,
   category,
   financialAccount,
+  goal,
   importBatch,
   member,
   transaction,
@@ -88,6 +89,7 @@ export type SplitView = {
   isPreTax: boolean;
   note: string | null;
   isOneOff: OneOffFlag; // R22.1
+  goal: { id: string; name: string; status: 'active' | 'done' } | null; // R25.7 挂的目标
 };
 
 export type TransactionListItem = {
@@ -321,6 +323,9 @@ async function loadSplits(
       parentNameZh: parentCategory.nameZh,
       memberId: member.id,
       memberName: member.name,
+      goalId: goal.id,
+      goalName: goal.name,
+      goalStatus: goal.status,
     })
     .from(transactionSplit)
     .innerJoin(category, splitCategoryJoin(ctx))
@@ -334,6 +339,10 @@ async function loadSplits(
     .innerJoin(
       member,
       and(eq(member.id, transactionSplit.memberId), eq(member.householdId, ctx.householdId)),
+    )
+    .leftJoin(
+      goal,
+      and(eq(goal.id, transactionSplit.goalId), eq(goal.householdId, ctx.householdId)),
     )
     .where(
       and(
@@ -369,6 +378,10 @@ async function loadSplits(
       isPreTax: r.isPreTax,
       note: r.note,
       isOneOff: r.isOneOff,
+      goal:
+        r.goalId && r.goalName && r.goalStatus
+          ? { id: r.goalId, name: r.goalName, status: r.goalStatus }
+          : null,
     });
   }
   return out;

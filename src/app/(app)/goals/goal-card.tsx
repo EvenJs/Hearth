@@ -69,7 +69,7 @@ type Props = {
 
 export function GoalCard({ goal: g, isFirst, isLast, onAction }: Props) {
   return (
-    <Card className="min-w-0 gap-3 p-4 lg:p-5">
+    <Card id={`goal-${g.id}`} className="min-w-0 scroll-mt-20 gap-3 p-4 lg:p-5">
       <div className="flex items-start gap-2">
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <div className="flex min-w-0 flex-wrap items-center gap-2">

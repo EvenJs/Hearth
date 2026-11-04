@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 import { listAccounts } from '@/server/accounts';
 import { listCategoryTree } from '@/server/categories';
 import { getHouseholdContext } from '@/server/context';
+import { listLinkableGoals } from '@/server/goals';
 import { listMembers } from '@/server/members';
 import { getReceiptReader } from '@/server/receipt-readers';
 import { getTransactionReceipt } from '@/server/receipts';
@@ -57,12 +58,13 @@ async function DetailSection({
   const ctx = await getHouseholdContext();
   await connection(); // "今天"每次请求重新算
   const today = todayInMelbourne();
-  const [tx, members, categories, accounts, receipt] = await Promise.all([
+  const [tx, members, categories, accounts, receipt, goals] = await Promise.all([
     getTransaction(ctx, id),
     listMembers(ctx),
     listCategoryTree(ctx),
     listAccounts(ctx), // 编辑整笔时选账户（没归档的）
     getTransactionReceipt(ctx, id), // R20.7：挂了小票的显示明细
+    listLinkableGoals(ctx), // R25.7 拆分"挂到目标"下拉
   ]);
   if (!tx) notFound();
 
@@ -110,7 +112,7 @@ async function DetailSection({
       />
       <DuplicatesCard tx={tx} today={today} detailHref={detailHref} />
       <InfoCard tx={tx} today={today} pairHref={tx.pair ? detailHref(tx.pair.id) : null} />
-      <SplitSection tx={tx} options={options} />
+      <SplitSection tx={tx} options={options} goals={goals} />
       {receipt && <ReceiptSection receipt={receipt} today={today} />}
     </>
   );

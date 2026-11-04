@@ -762,6 +762,23 @@ export async function deleteGoal(ctx: HouseholdContext, goalId: string): Promise
 
 // ---------- 挂交易（R25.7） ----------
 
+// R25.7 交易详情"挂到目标"下拉：active 的 spend 目标，按优先级
+export async function listLinkableGoals(
+  ctx: HouseholdContext,
+): Promise<{ id: string; name: string }[]> {
+  return db
+    .select({ id: goal.id, name: goal.name })
+    .from(goal)
+    .where(
+      and(
+        eq(goal.householdId, ctx.householdId),
+        eq(goal.kind, 'spend'),
+        eq(goal.status, 'active'),
+      ),
+    )
+    .orderBy(asc(goal.priority), asc(goal.id));
+}
+
 export type LinkSplitResult = { ok: true } | { ok: false; message: string };
 
 // R25.7：只有支出口径的拆分能挂，只能挂 active 的 spend 目标。挂上时同一个事务里 is_one_off = true
