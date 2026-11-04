@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   ReceiptText,
   Settings,
+  Target,
   Wallet,
   type LucideIcon,
 } from 'lucide-react';
@@ -17,6 +18,8 @@ export const NAV_ITEMS: NavItem[] = [
   { label: '流水', href: '/transactions', icon: ReceiptText },
   // M9-5 账户总览（R23.5）；/settings/accounts 不会让它高亮
   { label: '账户', href: '/accounts', icon: Wallet },
+  // M11-5 目标（R25.11）
+  { label: '目标', href: '/goals', icon: Target },
   {
     label: '导入',
     href: null,
