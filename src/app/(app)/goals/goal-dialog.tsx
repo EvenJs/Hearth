@@ -7,7 +7,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Loader2 } from 'lucide-react';
 import { useState, useTransition } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { z } from 'zod';
 import {
   AlertDialog,
@@ -167,7 +167,8 @@ export function GoalDialog({ goal, isEmergency, accounts, onClose, onSaved }: Pr
     defaultValues: defaultsOf(goal, isEmergency),
   });
   const submitting = form.formState.isSubmitting;
-  const kind = form.watch('kind');
+  const kind = useWatch({ control: form.control, name: 'kind' });
+  const recurrence = useWatch({ control: form.control, name: 'recurrence' });
 
   // R25.1：已经挂着、后来归档了的账户留在下拉里，不改就不重新校验
   const options =
@@ -357,7 +358,7 @@ export function GoalDialog({ goal, isEmergency, accounts, onClose, onSaved }: Pr
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>
-                          目标日期{form.watch('recurrence') === 'once' && '（可选）'}
+                          目标日期{recurrence === 'once' && '（可选）'}
                         </FormLabel>
                         <FormControl>
                           <Input type="date" {...field} />

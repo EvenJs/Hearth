@@ -835,31 +835,79 @@ export async function linkSplitToGoal(
   });
 }
 
-// ---------- 预算总览"还能花"（R25.10） ----------
+// ---------- 预算总览"还能花"（R25.10）、首页固定目标（R25.11） ----------
 
-// R25.10：本月每月要存合计，口径同 getGoals 的 affordability.requiredTotalCents
-// 只查目标和余额；月均只在应急金和有日期的目标挂同一个账户时才查（应急金先占钱，R25.3）
-export async function getBudgetSpendable(ctx: HouseholdContext, today: string): Promise<number> {
-  const records = await loadGoals(db, ctx);
-  const dated = records.filter(
-    (g) => g.status === 'active' && !g.isEmergency && g.targetDate !== null,
-  );
-  if (dated.length === 0) return 0;
+// R25.11 首页小卡片要的：进度、还差、每月要存
+export type PinnedGoal = Pick<GoalRecord, 'id' | 'name' | 'isEmergency'> & {
+  progress: GoalProgress;
+  monthlyRequiredCents: number | null;
+  overdue: boolean;
+};
 
-  const emergency = records.find((g) => g.isEmergency && g.status === 'active') ?? null;
-  const sharesAccount =
-    emergency?.account != null && dated.some((g) => g.account?.id === emergency.account!.id);
+export type HomeGoals = {
+  goalsCents: number; // R25.10 每月要存合计
+  pinned: PinnedGoal[]; // 应急金在最前，其他按优先级
+};
+
+// 只查目标和余额，不查挂的交易、净流入、近 3 个月实际
+// 月均只在用得到时查：应急金固定了（要算目标金额），或者应急金和有日期的 / 固定的目标挂同一个账户（应急金先占钱，R25.3）
+async function computeHomeGoals(
+  ctx: HouseholdContext,
+  records: GoalRecord[],
+  today: string,
+  withPinned: boolean,
+): Promise<HomeGoals> {
+  const active = records.filter((g) => g.status === 'active');
+  const dated = active.filter((g) => !g.isEmergency && g.targetDate !== null);
+  const pinned = withPinned ? active.filter((g) => g.isPinned) : [];
+  if (dated.length === 0 && pinned.length === 0) return { goalsCents: 0, pinned: [] };
+
+  const emergency = active.find((g) => g.isEmergency) ?? null;
+  const needsAverage =
+    emergency !== null &&
+    (pinned.includes(emergency) ||
+      (emergency.account !== null &&
+        [...dated, ...pinned].some((g) => g.account?.id === emergency.account!.id)));
 
   const [figures, average] = await Promise.all([
     loadAccountFigures(db, ctx, records, today, false),
-    sharesAccount ? getBudgetAverage(ctx, today) : Promise.resolve(null),
+    needsAverage ? getBudgetAverage(ctx, today) : Promise.resolve(null),
   ]);
-  const emergencyTargetCents = sharesAccount
+  const emergencyTargetCents = needsAverage
     ? emergencyTarget(average, emergency!.emergencyMonths!)
     : null;
 
   const rules = records.map(toRule);
   const progress = fillByPriority(rules, figures.balances, emergencyTargetCents);
   const required = goalMonthlyRequired(rules, progress, today);
-  return affordability(required, null).requiredTotalCents;
+  const progressOf = new Map(progress.map((p) => [p.goalId, p]));
+
+  // R25.11：按 /goals 的顺序，应急金在最前
+  const ordered = [...pinned].sort((a, b) => Number(b.isEmergency) - Number(a.isEmergency));
+  return {
+    goalsCents: affordability(required, null).requiredTotalCents,
+    pinned: ordered.map((g) => {
+      const p = progressOf.get(g.id)!;
+      return {
+        id: g.id,
+        name: g.name,
+        isEmergency: g.isEmergency,
+        progress: p,
+        monthlyRequiredCents: required.get(g.id) ?? null,
+        overdue: g.targetDate !== null && g.targetDate < today && !p.reached,
+      };
+    }),
+  };
+}
+
+// R25.10：本月每月要存合计，口径同 getGoals 的 affordability.requiredTotalCents。预算设置页用
+export async function getBudgetSpendable(ctx: HouseholdContext, today: string): Promise<number> {
+  const records = await loadGoals(db, ctx);
+  return (await computeHomeGoals(ctx, records, today, false)).goalsCents;
+}
+
+// 首页：R25.10 合计和 R25.11 固定目标一次算。不跟看板筛选（全家、今天）
+export async function getHomeGoals(ctx: HouseholdContext, today: string): Promise<HomeGoals> {
+  const records = await loadGoals(db, ctx);
+  return computeHomeGoals(ctx, records, today, true);
 }

@@ -166,7 +166,11 @@ export function ProgressBlock({ progress: p }: { progress: GoalProgress }) {
 }
 
 // R25.2：已存够 / 已过期 / 没有日期 / 每月 $X
-function MonthlyRequired({ goal: g }: { goal: ActiveGoal }) {
+export function MonthlyRequired({
+  goal: g,
+}: {
+  goal: Pick<ActiveGoal, 'progress' | 'overdue' | 'monthlyRequiredCents'>;
+}) {
   if (g.progress.reached) return <span className="text-muted-foreground">已存够</span>;
   if (g.overdue) {
     return (
