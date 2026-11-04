@@ -41,6 +41,9 @@ transaction_source   csv | manual | receipt
 transfer_status      none | auto | suggested | confirmed
 rule_match_type      contains | starts_with
 item_type            fruit | vegetable | meat | seafood | dairy_egg | pantry | snack | drink | household | other
+goal_type            keep | spend                                     （M11-4 建，待确认）
+goal_recurrence      once | yearly                                    （M11-4 建，待确认）
+goal_status          active | done                                    （M11-4 建，待确认）
 ```
 
 `item_type` 说明：R21.1 的 key，列表在 `src/lib/rules/item-type.ts`（`ITEM_TYPE_KEYS`），enum 从那里取。不含 `untyped`（统计里的"未分"不是一个类型）。以后加类型要迁移 `ALTER TYPE ... ADD VALUE`
@@ -315,8 +318,9 @@ item_type            fruit | vegetable | meat | seafood | dairy_egg | pantry | s
 | is_pre_tax      | boolean | not null, default false                       | 税前收入，用于税后估算（R14）                                                          |
 | note            | text    | null                                          |                                                                                        |
 | is_one_off      | boolean | null                                          | M7.7-4 加（2026-11-01）。一次性开销：`null` 没看过 / `true` 是 / `false` 确认不是。只有支出口径的拆分会有非 `null` 的值（R22.1、R22.2） |
+| goal_id         | uuid    | FK → goal, null, on delete restrict           | **M11-4 加，待确认**。挂的目标（R25.7）。只有支出口径的拆分会有值；怎么变见 R25.8 |
 
-索引：`(household_id, category_id)`、`(household_id, member_id)`、`(transaction_id)`
+索引：`(household_id, category_id)`、`(household_id, member_id)`、`(transaction_id)`、`(goal_id)`（M11-4 加）
 应用层保证：同一交易所有拆分的 `amount_cents` 合计 = 交易的 `amount_cents`；至少有一行；恰好一行 `is_primary = true`。拆分规则见 R15。
 唯一：`(transaction_id)` where `is_primary`（partial unique index）
 
@@ -371,6 +375,41 @@ item_type            fruit | vegetable | meat | seafood | dairy_egg | pantry | s
 
 唯一：`(household_id, category_id)`
 
+### goal（M11-4 建，待确认）
+
+目标和应急金（R25.1）。进度、每月要存、预计达成、应急金金额都不存，每次实时算。
+
+| 字段             | 类型            | 约束                              | 说明 |
+| ---------------- | --------------- | --------------------------------- | ---- |
+| id               | uuid            | PK                                |      |
+| household_id     | uuid            | FK, not null                      |      |
+| name             | text            | not null                          | 最长 50（R25.1） |
+| type             | goal_type       | not null                          |      |
+| recurrence       | goal_recurrence | not null, default `once`          |      |
+| target_cents     | integer         | null                              | 应急金是 `null`（自动算，R25.6），其他 > 0 |
+| target_date      | date            | null                              | `yearly` 必填 |
+| account_id       | uuid            | FK → financial_account, null      | 挂的账户，最多一个。不级联（账户只软删除） |
+| priority         | integer         | not null                          | 全家一个顺序；应急金存 0 |
+| is_emergency     | boolean         | not null, default false           |      |
+| emergency_months | integer         | null                              | 应急金的月数，1 到 24 |
+| is_pinned        | boolean         | not null, default false           | 固定到首页 |
+| status           | goal_status     | not null, default `active`        |      |
+| done_at          | timestamptz     | null                              | `done` 时记 |
+| prev_goal_id     | uuid            | FK → goal, null, on delete set null | `yearly` 自动建的下一期指向上一期（R25.9 撤销完成用） |
+| created_by       | text            | FK → user.id, not null            |      |
+| created_at       | timestamptz     | not null                          |      |
+
+索引：`(household_id, status)`、`(account_id)`
+唯一：`(household_id)` where `is_emergency`（一个家庭最多一个应急金）
+检查：
+- `is_emergency` 时：`type = keep`、`recurrence = once`、`target_cents` 为空、`emergency_months between 1 and 24`、`status = active`
+- 不是应急金时：`target_cents > 0`、`emergency_months` 为空
+- `recurrence = yearly` 时：`type = spend`、`target_date` 不为空
+- `status = done` ⇔ `done_at` 不为空
+- 删除是硬删除（没有 `is_archived`），挂了交易的不能删（R25.9，`transaction_split.goal_id` 是 `restrict`）
+- 名字查重（`active` 里不区分大小写）、账户校验（本家庭、没归档、不是现金）在 R25.1 的代码里做
+- `priority` 不加唯一：上下移动时两行交换会撞，代码保证 `active` 的不重复
+
 ### tax_profile
 
 每个人每个财年的工资信息，来自工资单或 myGov income statement，手动填写。用于税后估算（R14）。
@@ -400,9 +439,10 @@ household ─┬─ household_user ── user (Better Auth)
            │                     └─ account_condition ── account_condition_check
            ├─ category (自引用 parent_id，default_member_id → member) ── category_rule
            ├─ import_batch
-           ├─ transaction ─┬─ transaction_split ── category / member
+           ├─ transaction ─┬─ transaction_split ── category / member / goal
            │               └─ receipt（0 或 1 张）
-           └─ budget ── category
+           ├─ budget ── category
+           └─ goal ── financial_account（0 或 1 个）
 ```
 
 ---
