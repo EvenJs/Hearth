@@ -1,18 +1,27 @@
 import { describe, expect, it } from 'vitest';
+import { buildTestHousehold } from '../../../tests/helpers/household';
+import type { AccountNetInflow } from './balance';
 import {
+  actualSavings,
+  affordability,
   emergencyTarget,
   fillByPriority,
+  goalMonthlyRequired,
+  goalSpend,
   monthlyRequired,
   monthsCovered,
   monthsUntil,
+  nextCycle,
+  projectedCompletion,
   type Goal,
   type GoalAccountBalance,
   type GoalProgress,
+  type SavingsSplit,
 } from './goals';
-import type { MonthlyAverage } from './monthly-average';
+import { averageWindow, type MonthlyAverage } from './monthly-average';
 
-// 期望值来自 docs/rules/R25-goal.md R25.2、R25.3、R25.6
-// 和 fixtures/cases/16-goals.md 场景 A、B、E（今天 = 2026-12-15）
+// 期望值来自 docs/rules/R25-goal.md R25.2 到 R25.7、R25.9
+// 和 fixtures/cases/16-goals.md 场景 A 到 G（今天 = 2026-12-15）
 
 const TODAY = '2026-12-15';
 
@@ -351,5 +360,315 @@ describe('fillByPriority 应急金（R25.3、R25.6，用例 E-2、E-4、E-5）',
     const r = byId(fillByPriority(withGoals((g) => (g.id === 'E' ? emergency(6, null) : g)), BALANCES, E_TARGET));
     expect(r.get('E')).toMatchObject({ targetCents: 2400000, filledCents: null, noProgress: 'no_account' });
     expect(r.get('G3')).toMatchObject({ filledCents: 1559000, remainingCents: 3441000 });
+  });
+});
+
+// ---------- R25.2 每月要存合计 ----------
+
+describe('goalMonthlyRequired + affordability 合计（R25.2，用例 A-1）', () => {
+  const progress = fillByPriority(GOALS, BALANCES, E_TARGET);
+  const required = goalMonthlyRequired(GOALS, progress, TODAY);
+
+  it('R25.2 A-1: per goal; no date / expired → null', () => {
+    expect(Object.fromEntries(required)).toEqual({
+      E: null,
+      G1: 0,
+      G2: 33334,
+      G3: null,
+      G4: 30000,
+      G5: 10000,
+      G6: 0,
+      G8: 12500,
+      G9: 60000,
+      G10: null,
+      G11: 25000,
+      G12: 50000,
+      G13: 1429,
+    });
+  });
+
+  it('R25.2 A-1: done G7 not included', () => {
+    expect(required.has('G7')).toBe(false);
+  });
+
+  it('R25.2 A-1: total = 222263, expired G10 left out', () => {
+    expect(affordability(required, 193333).requiredTotalCents).toBe(222263);
+  });
+
+  it('R25.2 E-4: emergency without average has no monthly required', () => {
+    const r = goalMonthlyRequired(GOALS, fillByPriority(GOALS, BALANCES, null), TODAY);
+    expect(r.get('E')).toBeNull();
+  });
+});
+
+// ---------- R25.4 预计达成 ----------
+
+const INFLOW = new Map<string, AccountNetInflow | null>([
+  ['anz_plus_male', { months: 3, totalCents: 90000 }],
+  ['cba_saver', { months: 3, totalCents: 63000 }],
+  ['anz_card', { months: 1, totalCents: -20000 }],
+  ['anz_male', { months: 3, totalCents: 0 }],
+  ['cba_female', { months: 1, totalCents: 70000 }],
+  ['westpac', null],
+]);
+
+const project = (goals: Goal[], balances = BALANCES, inflow = INFLOW) =>
+  projectedCompletion(goals, fillByPriority(goals, balances, E_TARGET), balances, inflow, TODAY);
+
+describe('projectedCompletion 基础数据（R25.4，用例 C-1）', () => {
+  const r = project(GOALS);
+
+  it('R25.4 C-1: emergency first in Saver → 841000 × 3 ÷ 63000 → 41 months → 2030-05', () => {
+    expect(r.get('E')).toEqual({ kind: 'projected', month: '2030-05', lateMonths: null });
+  });
+
+  it('R25.4 C-1: G3 waits for E → 5841000 → 279 months → 2050-03', () => {
+    expect(r.get('G3')).toEqual({ kind: 'projected', month: '2050-03', lateMonths: null });
+  });
+
+  it('R25.4 C-1: G2 waits for G1 → 200000 → 7 months → 2027-07, 1 month late', () => {
+    expect(r.get('G2')).toEqual({ kind: 'projected', month: '2027-07', lateMonths: 1 });
+  });
+
+  it('R25.4 C-1: G8 skips done G7 → 50000 → 1 month → 2027-01, not late', () => {
+    expect(r.get('G8')).toEqual({ kind: 'projected', month: '2027-01', lateMonths: 0 });
+  });
+
+  it('R25.4 C-1: reached goals are not projected', () => {
+    expect(r.get('G1')).toEqual({ kind: 'reached' });
+    expect(r.get('G6')).toEqual({ kind: 'reached' });
+  });
+
+  it('R25.4 C-1: Σ < 0 (G4) and Σ = 0 (G5) → unreachable', () => {
+    expect(r.get('G4')).toEqual({ kind: 'unreachable' });
+    expect(r.get('G5')).toEqual({ kind: 'unreachable' });
+  });
+
+  it('R25.4 C-1: no account / no balance / archived → not projected', () => {
+    for (const id of ['G9', 'G10', 'G13']) expect(r.get(id)).toEqual({ kind: 'no_progress', reason: 'no_account' });
+    expect(r.get('G11')).toEqual({ kind: 'no_progress', reason: 'no_balance' });
+    expect(r.get('G12')).toEqual({ kind: 'no_progress', reason: 'archived' });
+  });
+
+  it('R25.4: done G7 not included', () => {
+    expect(r.has('G7')).toBe(false);
+    expect(r.size).toBe(13);
+  });
+});
+
+describe('projectedCompletion 变体（R25.4，用例 C-2 到 C-4）', () => {
+  it('R25.4 C-2: balance 300000 → G1 2027-07 (4 late), G2 2028-08 (14 late)', () => {
+    const balances = new Map(BALANCES).set('anz_plus_male', ok(300000));
+    const r = project(GOALS, balances);
+    expect(r.get('G1')).toEqual({ kind: 'projected', month: '2027-07', lateMonths: 4 });
+    expect(r.get('G2')).toEqual({ kind: 'projected', month: '2028-08', lateMonths: 14 });
+  });
+
+  it('R25.4 C-3: projected month = target month is not late', () => {
+    const r = project(withGoals((g) => (g.id === 'G2' ? { ...g, targetDate: '2027-07-31' } : g)));
+    expect(r.get('G2')).toEqual({ kind: 'projected', month: '2027-07', lateMonths: 0 });
+  });
+
+  it('R25.4 C-4: G1 on Westpac (n = 0) → no_data; G2 alone on ANZ Plus is reached', () => {
+    const r = project(withGoals((g) => (g.id === 'G1' ? { ...g, accountId: 'westpac' } : g)));
+    expect(r.get('G1')).toEqual({ kind: 'no_data' });
+    expect(r.get('G2')).toEqual({ kind: 'reached' });
+  });
+
+  it('R25.4: emergency without average takes no money and is not in Σ(target)', () => {
+    const r = projectedCompletion(GOALS, fillByPriority(GOALS, BALANCES, null), BALANCES, INFLOW, TODAY);
+    expect(r.get('E')).toEqual({ kind: 'no_progress', reason: 'no_average' });
+    // G3：5000000 − 1559000 = 3441000 → ceil(10323000 ÷ 63000) = 164 → 2040-08
+    expect(r.get('G3')).toEqual({ kind: 'projected', month: '2040-08', lateMonths: null });
+  });
+});
+
+// ---------- R25.5 存不存得过来 ----------
+
+const h = buildTestHousehold();
+const MEMBER = h.members[0].id;
+
+const split = (date: string, amountCents: number, path: string, goalId: string | null = null): SavingsSplit => ({
+  date,
+  amountCents,
+  categoryId: h.category(path).id,
+  memberId: MEMBER,
+  isPreTax: false,
+  goalId,
+});
+
+// 用例的"近 3 个月收支"：每月一笔收入凑出合计，支出用 Groceries 凑，11 月另有挂 G10 的 f1、j1、j2
+function savingsSplits(income: [number, number, number] = [600000, 600000, 600000], linked = true): SavingsSplit[] {
+  const goal = linked ? 'G10' : null;
+  return [
+    split('2026-09-01', income[0], 'Income / Salary'),
+    split('2026-09-12', -420000, 'Groceries / Supermarket'),
+    split('2026-10-01', income[1], 'Income / Salary'),
+    split('2026-10-12', -380000, 'Groceries / Supermarket'),
+    split('2026-11-01', income[2], 'Income / Salary'),
+    split('2026-11-12', -420000, 'Groceries / Supermarket'),
+    split('2026-11-05', -180000, 'Entertainment & eat-out / Holidays', goal),
+    split('2026-11-18', -150000, 'Entertainment & eat-out / Holidays', goal),
+    split('2026-11-28', 10000, 'Entertainment & eat-out / Holidays', goal),
+    // 不算的：转账、未分类、窗口外
+    { ...split('2026-10-10', -30000, 'Groceries / Supermarket'), categoryId: h.systemCategory('internal_transfer').id },
+    { ...split('2026-10-11', -999, 'Groceries / Supermarket'), categoryId: h.systemCategory('uncategorized').id },
+    split('2026-08-20', -500000, 'Groceries / Supermarket'),
+    split('2026-12-03', -148000, 'Personal & medical / Computers & gadgets', 'G7'),
+    split('2026-12-05', 300000, 'Income / Salary'),
+  ];
+}
+
+const WINDOW_3 = averageWindow(TODAY, '2026-01-08', 3);
+
+describe('actualSavings（R25.5，用例 D）', () => {
+  it('R25.5 D-1: goal-linked splits excluded → 580000 ÷ 3 = 193333', () => {
+    expect(actualSavings(savingsSplits(), WINDOW_3, h.categories)).toBe(193333);
+  });
+
+  it('R25.5 F-3: without goal links → 260000 ÷ 3 = 86667', () => {
+    expect(actualSavings(savingsSplits(undefined, false), WINDOW_3, h.categories)).toBe(86667);
+  });
+
+  it('R25.5 D-2: Oct income 700000 → 226667', () => {
+    expect(actualSavings(savingsSplits([600000, 700000, 600000]), WINDOW_3, h.categories)).toBe(226667);
+  });
+
+  it('R25.5 D-3: actual 0', () => {
+    expect(actualSavings(savingsSplits([420000, 380000, 420000]), WINDOW_3, h.categories)).toBe(0);
+  });
+
+  it('R25.5 D-4: negative rounds by absolute value → −106667', () => {
+    expect(actualSavings(savingsSplits([300000, 300000, 300000]), WINDOW_3, h.categories)).toBe(-106667);
+  });
+
+  it('R25.5 D-6: no full month → null', () => {
+    expect(actualSavings(savingsSplits(), averageWindow(TODAY, '2026-12-01', 3), h.categories)).toBeNull();
+  });
+});
+
+describe('affordability（R25.5，用例 D）', () => {
+  const required = goalMonthlyRequired(GOALS, fillByPriority(GOALS, BALANCES, E_TARGET), TODAY);
+
+  it('R25.5 D-1: 222263 > 193333 → short', () => {
+    expect(affordability(required, 193333)).toEqual({ requiredTotalCents: 222263, actualCents: 193333, short: true });
+  });
+
+  it('R25.5 D-2: 226667 ≥ 222263 → not short', () => {
+    expect(affordability(required, 226667).short).toBe(false);
+  });
+
+  it('R25.5: total = actual → not short', () => {
+    expect(affordability(required, 222263).short).toBe(false);
+  });
+
+  it('R25.5 D-3: actual 0 → short', () => {
+    expect(affordability(required, 0).short).toBe(true);
+  });
+
+  it('R25.5 D-4: actual negative → short', () => {
+    expect(affordability(required, -106667).short).toBe(true);
+  });
+
+  it('R25.5 D-5: total 0 → not short even if actual is negative', () => {
+    const kept = new Set(['E', 'G1', 'G3', 'G6', 'G10']);
+    const goals = GOALS.filter((g) => kept.has(g.id));
+    const r = goalMonthlyRequired(goals, fillByPriority(goals, BALANCES, E_TARGET), TODAY);
+    expect(affordability(r, -106667)).toEqual({ requiredTotalCents: 0, actualCents: -106667, short: false });
+  });
+
+  it('R25.5 D-6: no full month → no comparison', () => {
+    expect(affordability(required, null)).toEqual({ requiredTotalCents: 222263, actualCents: null, short: false });
+  });
+});
+
+// ---------- R25.7 计划和实际 ----------
+
+const linked = (goalId: string | null, amountCents: number) => ({ goalId, amountCents });
+
+const LINKED = [
+  linked('G10', -180000), // f1
+  linked('G10', -150000), // j1
+  linked('G10', 10000), // j2 退款
+  linked('G7', -148000), // f2
+  linked(null, -5000), // c2
+];
+
+const byGoal = (id: string) => GOALS.find((g) => g.id === id)!;
+
+describe('goalSpend（R25.7，用例 F）', () => {
+  it('R25.7 F-1: G10 plan 300000, actual 320000 (refund offsets), over by 20000, 3 splits', () => {
+    expect(goalSpend(byGoal('G10'), LINKED)).toEqual({ planCents: 300000, actualCents: 320000, diffCents: 20000, count: 3 });
+  });
+
+  it('R25.7 F-1: G7 actual 148000, under by 2000', () => {
+    expect(goalSpend(byGoal('G7'), LINKED)).toEqual({ planCents: 150000, actualCents: 148000, diffCents: -2000, count: 1 });
+  });
+
+  it('R25.7 F-1: nothing linked → actual 0, 0 splits', () => {
+    expect(goalSpend(byGoal('G1'), LINKED)).toEqual({ planCents: 500000, actualCents: 0, diffCents: -500000, count: 0 });
+  });
+
+  it('R25.7: actual = plan → diff 0', () => {
+    expect(goalSpend(byGoal('G1'), [linked('G1', -500000)]).diffCents).toBe(0);
+  });
+
+  it('R25.8 F-5: f1 moved to income (goal cleared) → G10 actual 140000, under by 160000', () => {
+    const splits = LINKED.map((s, i) => (i === 0 ? { ...s, goalId: null } : s));
+    expect(goalSpend(byGoal('G10'), splits)).toMatchObject({ actualCents: 140000, diffCents: -160000, count: 2 });
+  });
+
+  it('R25.8 F-5: split −50000 out of j1 → G10 actual 270000, under by 30000', () => {
+    const splits = [linked('G10', -180000), linked('G10', -100000), linked(null, -50000), linked('G10', 10000)];
+    expect(goalSpend(byGoal('G10'), splits)).toMatchObject({ actualCents: 270000, diffCents: -30000, count: 3 });
+  });
+
+  it('R25.7 F-6: done G7 unlinked → actual 0, under by 150000', () => {
+    expect(goalSpend(byGoal('G7'), [])).toEqual({ planCents: 150000, actualCents: 0, diffCents: -150000, count: 0 });
+  });
+});
+
+// ---------- R25.9 每年重复 ----------
+
+describe('nextCycle（R25.9，用例 G）', () => {
+  it('R25.9 G-2: G5 → next cycle 2028-03-15, same amount / account / priority, active, prev = G5', () => {
+    expect(nextCycle(byGoal('G5'))).toEqual({
+      kind: 'spend',
+      repeat: 'yearly',
+      targetCents: 80000,
+      targetDate: '2028-03-15',
+      accountId: 'anz_male',
+      priority: 5,
+      emergencyMonths: null,
+      status: 'active',
+      prevGoalId: 'G5',
+    });
+  });
+
+  it('R25.9 G-2: G5′ filled 50000, monthly 2000; total 214263', () => {
+    const goals = [
+      ...withGoals((g) => (g.id === 'G5' ? { ...g, status: 'done' } : g)),
+      { id: 'G5b', ...nextCycle(byGoal('G5')) },
+    ];
+    const progress = fillByPriority(goals, BALANCES, E_TARGET);
+    expect(byId(progress).get('G5b')).toMatchObject({ filledCents: 50000, remainingCents: 30000 });
+    const required = goalMonthlyRequired(goals, progress, TODAY);
+    expect(required.get('G5b')).toBe(2000);
+    expect(affordability(required, null).requiredTotalCents).toBe(214263);
+  });
+
+  it('R25.9 G-3: 2028-02-29 → 2029-02-28; monthly ceil(20000 ÷ 26) = 770', () => {
+    const next = nextCycle(byGoal('G13'));
+    expect(next.targetDate).toBe('2029-02-28');
+    expect(monthlyRequired(20000, next.targetDate!, TODAY)).toBe(770);
+  });
+
+  it('R25.9: 02-28 stays 02-28 the year after', () => {
+    expect(nextCycle({ ...byGoal('G13'), targetDate: '2029-02-28' }).targetDate).toBe('2030-02-28');
+  });
+
+  it('R25.9: once goal or no date → throws', () => {
+    expect(() => nextCycle(byGoal('G1'))).toThrow();
+    expect(() => nextCycle({ ...byGoal('G5'), targetDate: null })).toThrow();
   });
 });

@@ -95,3 +95,22 @@ export function budgetOverview(
     progress,
   };
 }
+
+// ---------- R11.1 还能花（R25.10） ----------
+
+export type SpendableAfterGoals = {
+  goalsCents: number; // 为目标存 = R25.2 每月要存合计
+  spendableCents: number; // 还剩 − 为目标存，可以是负数
+};
+
+// R11.1、R25.10：合计是 0 → null，不显示这一行。不改预算的上限和进度
+export function spendableAfterGoals(
+  overview: Pick<BudgetOverview, 'remainingCents'>,
+  monthlyRequiredTotal: number,
+): SpendableAfterGoals | null {
+  if (monthlyRequiredTotal === 0) return null;
+  return {
+    goalsCents: monthlyRequiredTotal,
+    spendableCents: overview.remainingCents - monthlyRequiredTotal,
+  };
+}

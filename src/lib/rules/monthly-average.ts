@@ -59,8 +59,8 @@ export function averageWindow(
 
 // ---------- R22.7 取整 ----------
 
-// R22.7 第 1 步：s ÷ n 四舍五入到分，按绝对值（−500.5 → −501）
-function roundDiv(s: number, n: number): number {
+// R22.7 第 1 步：s ÷ n 四舍五入到分，按绝对值（−500.5 → −501）。R25.5 也用
+export function roundDiv(s: number, n: number): number {
   const q = Math.floor((2 * Math.abs(s) + n) / (2 * n));
   return s < 0 && q > 0 ? -q : q;
 }
