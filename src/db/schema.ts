@@ -24,6 +24,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { ITEM_TYPE_KEYS } from '../lib/rules/item-type';
 import { ACCOUNT_PURPOSES } from '../lib/rules/balance';
+import { CONDITION_OUTCOMES, CONDITION_TYPES, DEPOSIT_FILTERS } from '../lib/rules/conditions';
 
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
@@ -133,6 +134,10 @@ export const accountType = pgEnum('account_type', [
 ]);
 // R23.4，列表在 src/lib/rules/balance.ts。和 account_type 分开
 export const accountPurpose = pgEnum('account_purpose', ACCOUNT_PURPOSES);
+// R24.1，列表在 src/lib/rules/conditions.ts
+export const conditionType = pgEnum('condition_type', CONDITION_TYPES);
+export const conditionOutcome = pgEnum('condition_outcome', CONDITION_OUTCOMES);
+export const depositFilter = pgEnum('deposit_filter', DEPOSIT_FILTERS);
 export const categoryKind = pgEnum('category_kind', ['expense', 'income', 'system']);
 export const systemCategoryKey = pgEnum('system_category_key', [
   'internal_transfer',
@@ -238,6 +243,73 @@ export const accountBalance = pgTable(
     createdAt: createdAt(), // 同一天几条取最晚的（R23.1）
   },
   (t) => [index('account_balance_account_id_date_idx').on(t.accountId, t.date)],
+);
+
+// R24.1：每月条件的配置。判断结果不存，每次实时算
+// 不删：修改 = 停用旧的、建新的；删除 = 停用。所以没有 is_archived
+// 本家庭、没归档、有关联账户、生效月份不晚于本月在 src/server/conditions.ts 里查
+export const accountCondition = pgTable(
+  'account_condition',
+  {
+    id: id(),
+    householdId: householdId(),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => financialAccount.id),
+    type: conditionType('type').notNull(),
+    outcome: conditionOutcome('outcome').notNull(),
+    amountCents: integer('amount_cents'), // min_deposit、linked_min_deposit
+    depositFilter: depositFilter('deposit_filter'), // min_deposit、linked_min_deposit（R24.3）
+    cardCount: integer('card_count'), // linked_card_count
+    description: text('description'), // other
+    effectiveFrom: date('effective_from', { mode: 'string' }).notNull(), // 月初
+    disabledFrom: date('disabled_from', { mode: 'string' }), // 月初；null = 在用
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => user.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('account_condition_account_id_idx').on(t.accountId),
+    check(
+      'account_condition_months_check',
+      sql`extract(day from ${t.effectiveFrom}) = 1 and (${t.disabledFrom} is null or (extract(day from ${t.disabledFrom}) = 1 and ${t.disabledFrom} >= ${t.effectiveFrom}))`,
+    ),
+    check(
+      'account_condition_params_check',
+      // coalesce：check 结果是 NULL 时算通过，金额为空会漏过去
+      sql`coalesce(case ${t.type}
+        when 'min_deposit' then ${t.amountCents} > 0 and ${t.depositFilter} is not null and ${t.cardCount} is null and ${t.description} is null
+        when 'linked_min_deposit' then ${t.amountCents} > 0 and ${t.depositFilter} is not null and ${t.cardCount} is null and ${t.description} is null
+        when 'linked_card_count' then ${t.cardCount} >= 1 and ${t.amountCents} is null and ${t.depositFilter} is null and ${t.description} is null
+        when 'other' then ${t.description} is not null and ${t.amountCents} is null and ${t.depositFilter} is null and ${t.cardCount} is null
+        else ${t.amountCents} is null and ${t.depositFilter} is null and ${t.cardCount} is null and ${t.description} is null
+      end, false)`,
+    ),
+  ],
+);
+
+// R24.7："其他"类型每月的手动勾。只有 type = other 的（应用层保证）
+// 改 = 更新这一行；清掉（回到"还没勾"）= 硬删除
+export const accountConditionCheck = pgTable(
+  'account_condition_check',
+  {
+    id: id(),
+    householdId: householdId(),
+    conditionId: uuid('condition_id')
+      .notNull()
+      .references(() => accountCondition.id),
+    month: date('month', { mode: 'string' }).notNull(), // 月初
+    isMet: boolean('is_met').notNull(),
+    createdBy: text('created_by') // 最后勾的人
+      .notNull()
+      .references(() => user.id),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    unique('account_condition_check_condition_id_month_unique').on(t.conditionId, t.month),
+    check('account_condition_check_month_check', sql`extract(day from ${t.month}) = 1`),
+  ],
 );
 
 export const card = pgTable(

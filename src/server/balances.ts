@@ -176,7 +176,7 @@ function diffFrom(
 // ---------- 利息（R23.6） ----------
 
 // Interest 不是系统分类：按名字找一级 Income 下的 Interest，不区分大小写。含已归档的
-async function findInterestCategoryId(tx: Tx, ctx: HouseholdContext): Promise<string | null> {
+export async function findInterestCategoryId(tx: Tx, ctx: HouseholdContext): Promise<string | null> {
   const rows = await tx
     .select({ id: category.id, parentId: category.parentId, nameEn: category.nameEn })
     .from(category)

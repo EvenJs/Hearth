@@ -40,3 +40,4 @@
 | R21. 小票商品类型（2026-11-01 新增） | [`rules/R21-item-type.md`](rules/R21-item-type.md) | R21.1、R21.2、R21.3、R21.4、R21.5、R21.6、R21.7、R21.8、R21.9 |
 | R22. 月均支出和一次性开销（F11，2026-11-01 新增） | [`rules/R22-monthly-average.md`](rules/R22-monthly-average.md) | R22.1、R22.2、R22.3、R22.4、R22.5、R22.6、R22.7、R22.8、R22.9、R22.10、R22.11 |
 | R23. 账户余额和用途（F12，2026-11-03 新增） | [`rules/R23-balance.md`](rules/R23-balance.md) | R23.1、R23.2、R23.3、R23.4、R23.5、R23.6、R23.7 |
+| R24. 每月条件（F13，2026-11-04 新增） | [`rules/R24-monthly-condition.md`](rules/R24-monthly-condition.md) | R24.1、R24.2、R24.3、R24.4、R24.5、R24.6、R24.7、R24.8、R24.9、R24.10、R24.11 |

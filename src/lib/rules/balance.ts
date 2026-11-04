@@ -107,6 +107,22 @@ export function currentBalance(
   return { postedCents, availableCents: postedCents + pendingCents, pendingCount, pendingCents, asOf };
 }
 
+// ---------- 某天结束时的余额（R24.4） ----------
+
+// R24.4：date 这一天结束时的入账余额。锚点 = 日期 ≤ date 的里按 R23.1 选；加 (锚点日期, date] 的 confirmed
+// 没有日期 ≤ date 的锚点 → null。transactions 只传这个账户的
+export function balanceAt(
+  anchors: readonly BalanceAnchor[],
+  transactions: readonly BalanceTx[],
+  date: string,
+): number | null {
+  const anchor = pickAnchor(anchors.filter((a) => a.date <= date));
+  if (anchor === null) return null;
+  return transactions
+    .filter((t) => t.status === 'confirmed' && t.date > anchor.date && t.date <= date)
+    .reduce((s, t) => s + t.amountCents, anchor.amountCents);
+}
+
 // ---------- 手动校准（R23.3） ----------
 
 // R23.3 第 1 步：除 manual 以外、日期 ≤ manual 日期的锚点里按 R23.1 选。同一天的 PDF 也算

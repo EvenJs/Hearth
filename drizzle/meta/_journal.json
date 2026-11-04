@@ -50,6 +50,13 @@
       "when": 1793691883001,
       "tag": "0006_m9_3_account_balance",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793748086163,
+      "tag": "0007_m10_4_account_condition",
+      "breakpoints": true
     }
   ]
 }

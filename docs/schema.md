@@ -31,6 +31,9 @@ member_kind          person | shared | child
 bank                 anz | anz_plus | cba | cash | other
 account_type         everyday | savings | credit_card | joint | cash
 account_purpose      everyday | bills | emergency | savings | goal     （M9-3 建）
+condition_type       min_deposit | no_withdrawal | balance_growth | linked_min_deposit | linked_card_count | other   （M10-4 建）
+condition_outcome    bonus | fee_waiver                                （M10-4 建）
+deposit_filter       any | exclude_linked                              （M10-4 建）
 category_kind        expense | income | system
 system_category_key  internal_transfer | cash_withdrawal | bank_fee | uncategorized
 transaction_status   pending | confirmed
@@ -135,6 +138,55 @@ item_type            fruit | vegetable | meat | seafood | dairy_egg | pantry | s
 索引：`(account_id, date)`
 - 不加 `(account_id, date)` 唯一：同一天可以有几条，取 `created_at` 最晚的
 - 只能硬删除，不能改（R23.3）。差额实时算，不存
+
+### account_condition（M10-4 建）
+
+每月条件的配置（R24.1）。判断结果不存，每次实时算。
+
+| 字段           | 类型              | 约束                             | 说明 |
+| -------------- | ----------------- | -------------------------------- | ---- |
+| id             | uuid              | PK                               |      |
+| household_id   | uuid              | FK, not null                     |      |
+| account_id     | uuid              | FK → financial_account, not null | 配条件的账户。关联类型看的是它的 `linked_account_id`，不另存 |
+| type           | condition_type    | not null                         |      |
+| outcome        | condition_outcome | not null                         | 拿 bonus / 免月费 |
+| amount_cents   | integer           | null                             | `min_deposit`、`linked_min_deposit` 的金额 |
+| deposit_filter | deposit_filter    | null                             | `min_deposit`、`linked_min_deposit` 的"哪些存入算数"（R24.3） |
+| card_count     | integer           | null                             | `linked_card_count` 的笔数 |
+| description    | text              | null                             | `other` 的文字 |
+| effective_from | date              | not null                         | 月初日期，从这个月开始判断 |
+| disabled_from  | date              | null                             | 月初日期，从这个月起不判断；`null` = 在用 |
+| created_by     | text              | FK → user.id, not null           |      |
+| created_at     | timestamptz       | not null                         |      |
+
+索引：`(account_id)`
+检查：
+- `effective_from`、`disabled_from` 是月初（`extract(day from …) = 1`）；`disabled_from >= effective_from`（不为空时）
+- 参数和类型对得上：
+  - `min_deposit`、`linked_min_deposit`：`amount_cents > 0`、`deposit_filter` 不为空，`card_count`、`description` 为空
+  - `linked_card_count`：`card_count >= 1`，其他参数为空
+  - `other`：`description` 不为空，其他参数为空
+  - `no_withdrawal`、`balance_growth`：参数都为空
+- 不删：修改 = 停用旧的、建新的；删除 = 停用（R24.1）。所以没有 `is_archived`
+- 别的校验（本家庭、没归档、有关联账户、生效月份不晚于本月）在 R24.1 的代码里做
+
+### account_condition_check（M10-4 建）
+
+"其他"类型每月的手动勾（R24.7）。
+
+| 字段         | 类型        | 约束                             | 说明 |
+| ------------ | ----------- | -------------------------------- | ---- |
+| id           | uuid        | PK                               |      |
+| household_id | uuid        | FK, not null                     |      |
+| condition_id | uuid        | FK → account_condition, not null | 只有 `type = other` 的（应用层保证） |
+| month        | date        | not null                         | 月初日期 |
+| is_met       | boolean     | not null                         | 满足了 / 没满足 |
+| created_by   | text        | FK → user.id, not null           | 最后勾的人 |
+| updated_at   | timestamptz | not null                         |      |
+
+唯一：`(condition_id, month)`
+检查：`month` 是月初
+- 改 = 更新这一行；清掉（回到"还没勾"）= 硬删除这一行
 
 ### card
 
@@ -344,7 +396,8 @@ item_type            fruit | vegetable | meat | seafood | dairy_egg | pantry | s
 ```
 household ─┬─ household_user ── user (Better Auth)
            ├─ member ── tax_profile
-           ├─ financial_account ── card
+           ├─ financial_account ─┬─ card
+           │                     └─ account_condition ── account_condition_check
            ├─ category (自引用 parent_id，default_member_id → member) ── category_rule
            ├─ import_batch
            ├─ transaction ─┬─ transaction_split ── category / member

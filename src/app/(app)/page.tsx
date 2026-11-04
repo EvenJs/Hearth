@@ -7,12 +7,14 @@ import { periodRange, todayInMelbourne } from '@/lib/rules/periods';
 import { financialYearOf } from '@/lib/tax/estimate';
 import { filtersFromSearchParams } from '@/lib/transactions/filters';
 import { listBudgetsWithProgress } from '@/server/budgets';
+import { getConditionReminder } from '@/server/conditions';
 import { getHouseholdContext } from '@/server/context';
 import { getDashboard, getPivot } from '@/server/dashboard';
 import { getItemTypeStats } from '@/server/item-types';
 import { listMembers } from '@/server/members';
 import { getMonthlyAverage } from '@/server/monthly-average';
 import { getHouseholdTax } from '@/server/tax';
+import { ConditionReminder } from './_dashboard/condition-reminder';
 import { ExpenseCategories } from './_dashboard/expense-categories';
 import { ItemTypes } from './_dashboard/item-types';
 import { KpiCards, PendingNote } from './_dashboard/kpi-cards';
@@ -30,6 +32,7 @@ import { TopMerchants } from './_dashboard/top-merchants';
 // 顶部置顶预算（M7-4，R11.3）固定本月、全家，不跟筛选；税务卡片（M7-6，R14.6）固定今天所在的财年
 // 商品类型统计（M7.6-7，R21.7）跟时间段、不跟归属人，放在汇总表下面
 // 月均卡片（M7.7-7，R22.8）跟归属人、不跟时间段，放在汇总表上面；KPI 支出下面"其中一次性"（R22.10）
+// 每月条件提示（M10-7，R24.9）一行放在最上面，只在本月最后几天出现，不跟筛选
 export default function HomePage(props: PageProps<'/'>) {
   return (
     // 读 session 和 searchParams 的部分放在 Suspense 里（cacheComponents）
@@ -66,18 +69,21 @@ async function DashboardSection({
   const memberId = members.some((m) => m.id === filters.memberId) ? filters.memberId : undefined;
   const input = { period: filters.period ?? DEFAULT_PERIOD, memberId };
   const period = periodRange(input.period, today);
-  const [dashboard, pivotData, budgets, tax, itemTypeStats, monthlyAverage] = await Promise.all([
-    getDashboard(ctx, input, today),
-    getPivot(ctx, { ...input, ...view }, today),
-    // R11.3：不传时间段和归属人
-    listBudgetsWithProgress(ctx, today),
-    // R14.6：不跟时间段
-    getHouseholdTax(ctx, financialYearOf(today)),
-    // R21.7：全家，不传归属人
-    getItemTypeStats(ctx, period),
-    // R22.8：跟归属人，不跟时间段
-    getMonthlyAverage(ctx, today, memberId),
-  ]);
+  const [dashboard, pivotData, budgets, tax, itemTypeStats, monthlyAverage, conditionReminder] =
+    await Promise.all([
+      getDashboard(ctx, input, today),
+      getPivot(ctx, { ...input, ...view }, today),
+      // R11.3：不传时间段和归属人
+      listBudgetsWithProgress(ctx, today),
+      // R14.6：不跟时间段
+      getHouseholdTax(ctx, financialYearOf(today)),
+      // R21.7：全家，不传归属人
+      getItemTypeStats(ctx, period),
+      // R22.8：跟归属人，不跟时间段
+      getMonthlyAverage(ctx, today, memberId),
+      // R24.9：不跟时间段和归属人
+      getConditionReminder(ctx, today),
+    ]);
   const scope: DashboardScope = { period: dashboard.period, memberId };
 
   return (
@@ -100,6 +106,8 @@ async function DashboardSection({
           />
         </div>
       </header>
+
+      <ConditionReminder reminder={conditionReminder} />
 
       <PinnedBudgets
         budgets={budgets.budgets}
