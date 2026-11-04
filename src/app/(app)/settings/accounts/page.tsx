@@ -8,6 +8,7 @@ import { listMembers } from '@/server/members';
 import { AccountsView } from './accounts-view';
 
 // F1 账户设置（设计图 09）：账户列表 + 编辑侧栏里的每月条件（M10-5）、卡号映射（M1-6）
+// ?edit=<账户 id> 直接打开那个账户的编辑侧栏（/accounts 的"去设置"，M10-6）
 export default function AccountsPage(props: PageProps<'/settings/accounts'>) {
   return (
     <>
@@ -32,7 +33,9 @@ async function AccountsSection({
 }: {
   searchParams: PageProps<'/settings/accounts'>['searchParams'];
 }) {
-  const showArchived = (await searchParams).archived === '1';
+  const params = await searchParams;
+  const showArchived = params.archived === '1';
+  const editId = typeof params.edit === 'string' ? params.edit : null;
   const ctx = await getHouseholdContext();
   const [accounts, cards, conditions, members] = await Promise.all([
     listAccounts(ctx, { includeArchived: showArchived }),
@@ -47,6 +50,7 @@ async function AccountsSection({
       conditions={conditions}
       members={members}
       showArchived={showArchived}
+      editId={editId}
       today={todayInMelbourne()}
     />
   );

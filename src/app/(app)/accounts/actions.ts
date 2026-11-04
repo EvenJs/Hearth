@@ -1,6 +1,6 @@
 'use server';
 
-// R23.3 手动校准的 Server Actions。校验在 src/server/balances.ts 里用 Zod 做
+// R23.3 手动校准、R24.7 "其他"手动勾的 Server Actions。校验在 src/server/balances.ts、conditions.ts 里做
 import { revalidatePath } from 'next/cache';
 import { todayInMelbourne } from '@/lib/rules/periods';
 import {
@@ -10,6 +10,7 @@ import {
   type DeleteManualBalanceResult,
   type ManualBalanceInput,
 } from '@/server/balances';
+import { setManualCheck, type ConditionActionResult } from '@/server/conditions';
 import { getHouseholdContext } from '@/server/context';
 
 const PAGE = '/accounts';
@@ -29,5 +30,21 @@ export async function deleteManualBalanceAction(id: string): Promise<DeleteManua
   const ctx = await getHouseholdContext();
   const result = await deleteManualBalance(ctx, id);
   if (result.ok) revalidatePath(PAGE);
+  return result;
+}
+
+// R24.7 "其他"类型的手动勾：true 满足了 / false 没满足 / null 清掉
+// 首页提示不管"其他"，但首页也读条件进度，一起刷新
+export async function setManualCheckAction(
+  conditionId: string,
+  month: string,
+  isMet: boolean | null,
+): Promise<ConditionActionResult> {
+  const ctx = await getHouseholdContext();
+  const result = await setManualCheck(ctx, conditionId, month, isMet, todayInMelbourne());
+  if (result.ok) {
+    revalidatePath(PAGE);
+    revalidatePath('/');
+  }
   return result;
 }

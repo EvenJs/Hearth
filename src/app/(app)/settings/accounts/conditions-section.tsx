@@ -21,8 +21,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { DEPOSIT_FILTER_LABELS, OUTCOME_LABELS } from '@/lib/rules/conditions';
-import { formatAud } from '@/lib/rules/money';
+import { conditionText } from '@/lib/accounts/condition-text';
+import { OUTCOME_LABELS } from '@/lib/rules/conditions';
 import type { StoredCondition } from '@/server/conditions';
 import { deactivateConditionAction } from './actions';
 import { ConditionForm } from './condition-form';
@@ -33,26 +33,6 @@ type Props = {
   conditions: StoredCondition[]; // 只含这个账户在用的条件
   today: string;
 };
-
-// R24.1 设置页的一行说明，金额和笔数填进去
-function conditionText(c: StoredCondition): string {
-  switch (c.type) {
-    case 'min_deposit':
-    case 'linked_min_deposit': {
-      const prefix = c.type === 'min_deposit' ? '当月存入' : '关联账户当月存入';
-      const filter = c.depositFilter === 'any' ? '' : `（${DEPOSIT_FILTER_LABELS[c.depositFilter]}）`;
-      return `${prefix}至少 ${formatAud(c.amountCents)}${filter}`;
-    }
-    case 'linked_card_count':
-      return `关联账户当月刷卡至少 ${c.cardCount} 笔`;
-    case 'no_withdrawal':
-      return '当月不取款';
-    case 'balance_growth':
-      return '月末余额比上月末高';
-    case 'other':
-      return `其他：${c.description}`;
-  }
-}
 
 // editing：null = 关闭；'new' = 添加；StoredCondition = 修改
 type Editing = null | 'new' | StoredCondition;

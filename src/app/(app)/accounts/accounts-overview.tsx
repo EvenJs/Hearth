@@ -4,20 +4,28 @@ import { BANK_LABELS } from '@/lib/accounts/account-input';
 import { ACCOUNT_PURPOSE_LABELS, type AccountsOverview as Overview } from '@/lib/rules/balance';
 import { formatAud } from '@/lib/rules/money';
 import type { AccountBalance } from '@/server/balances';
+import type { AccountConditionProgress } from '@/server/conditions';
 import { CalibrateButton } from './calibrate-dialog';
+import { ConditionHistory } from './condition-history';
+import { ConditionProgress } from './condition-progress';
 import { formatDiff } from './format-diff';
 
 // R23.5 账户总览：顶部合计、按用途分组、每个账户一张卡片
 // 合计都是可用余额，只算有锚点的账户（groupByPurpose）
+// R24.10 有条件的账户卡片下面加"本月条件"和历史
 
 const SOURCE_LABELS: Record<NonNullable<AccountBalance['anchorSource']>, string> = {
   pdf: '对账单期末',
   manual: '手动填的',
 };
 
-type Props = { overview: Overview<AccountBalance>; today: string };
+type Props = {
+  overview: Overview<AccountBalance>;
+  conditions: Map<string, AccountConditionProgress>; // 按账户 id，没条件的账户没有 key
+  today: string;
+};
 
-export function AccountsOverview({ overview, today }: Props) {
+export function AccountsOverview({ overview, conditions, today }: Props) {
   return (
     <>
       <Card className="min-w-0 gap-1 p-4 lg:p-5">
@@ -47,7 +55,12 @@ export function AccountsOverview({ overview, today }: Props) {
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:gap-4 xl:grid-cols-3">
             {g.accounts.map((a) => (
-              <AccountCard key={a.id} account={a} today={today} />
+              <AccountCard
+                key={a.id}
+                account={a}
+                conditions={conditions.get(a.id) ?? null}
+                today={today}
+              />
             ))}
           </div>
         </section>
@@ -56,7 +69,15 @@ export function AccountsOverview({ overview, today }: Props) {
   );
 }
 
-function AccountCard({ account: a, today }: { account: AccountBalance; today: string }) {
+function AccountCard({
+  account: a,
+  conditions,
+  today,
+}: {
+  account: AccountBalance;
+  conditions: AccountConditionProgress | null;
+  today: string;
+}) {
   const b = a.balance;
   const diff = a.lastCalibrationDiffCents;
   return (
@@ -99,7 +120,13 @@ function AccountCard({ account: a, today }: { account: AccountBalance; today: st
         </>
       )}
 
-      <div className="mt-auto pt-3">
+      <div className="mt-auto flex flex-col gap-3 pt-3">
+        {conditions !== null && (
+          <>
+            <ConditionProgress progress={conditions} />
+            <ConditionHistory progress={conditions} />
+          </>
+        )}
         <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 border-t pt-3 text-xs">
           <dt className="text-muted-foreground">关联账户</dt>
           <dd className="truncate text-right">
@@ -110,7 +137,7 @@ function AccountCard({ account: a, today }: { account: AccountBalance; today: st
           <dt className="text-muted-foreground">本财年利息</dt>
           <dd className="text-right tabular-nums">{formatAud(a.interestCents)}</dd>
         </dl>
-        <div className="flex justify-end pt-3">
+        <div className="flex justify-end">
           <CalibrateButton account={a} today={today} />
         </div>
       </div>
