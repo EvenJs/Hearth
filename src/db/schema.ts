@@ -155,6 +155,8 @@ export const itemType = pgEnum('item_type', ITEM_TYPE_KEYS);
 export const goalKind = pgEnum('goal_kind', ['keep', 'spend']);
 export const goalRecurrence = pgEnum('goal_recurrence', ['once', 'yearly']);
 export const goalStatus = pgEnum('goal_status', ['active', 'done']);
+export const invitePurpose = pgEnum('invite_purpose', ['join', 'new_household']);
+export const llmUsagePurpose = pgEnum('llm_usage_purpose', ['receipt']);
 
 // ---------- 通用列 ----------
 
@@ -622,4 +624,55 @@ export const taxProfile = pgTable(
     updatedAt: updatedAt(),
   },
   (t) => [unique('tax_profile_member_id_financial_year_unique').on(t.memberId, t.financialYear)],
+);
+
+// R26.1 到 R26.3。状态不存，按 used_at、revoked_at、expires_at 实时算（inviteStatus）
+// new_household 的码没有 household_id：列表、撤销按 created_by 查，注册按 code 查
+export const invite = pgTable(
+  'invite',
+  {
+    id: id(),
+    code: text('code').notNull().unique(), // 8 位大写，不带横杠
+    purpose: invitePurpose('purpose').notNull(),
+    householdId: uuid('household_id').references(() => household.id),
+    memberId: uuid('member_id').references(() => member.id),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => user.id),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    usedBy: text('used_by').references(() => user.id),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('invite_created_by_created_at_idx').on(t.createdBy, t.createdAt),
+    check(
+      'invite_purpose_check',
+      sql`(${t.purpose} = 'join' and ${t.householdId} is not null and ${t.memberId} is not null) or (${t.purpose} = 'new_household' and ${t.householdId} is null and ${t.memberId} is null)`,
+    ),
+    check('invite_used_check', sql`(${t.usedBy} is null) = (${t.usedAt} is null)`),
+    check('invite_used_revoked_check', sql`${t.usedAt} is null or ${t.revokedAt} is null`),
+  ],
+);
+
+// R26.9：一次 LLM 调用一行，只用来数限额。不存图片、请求、返回内容
+export const llmUsage = pgTable(
+  'llm_usage',
+  {
+    id: id(),
+    householdId: householdId(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id),
+    purpose: llmUsagePurpose('purpose').notNull(),
+    createdAt: createdAt(), // 调用 LLM 前写入
+  },
+  (t) => [
+    index('llm_usage_household_id_purpose_created_at_idx').on(
+      t.householdId,
+      t.purpose,
+      t.createdAt,
+    ),
+  ],
 );

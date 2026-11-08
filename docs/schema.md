@@ -44,8 +44,8 @@ item_type            fruit | vegetable | meat | seafood | dairy_egg | pantry | s
 goal_kind            keep | spend                                     （M11-4 建）
 goal_recurrence      once | yearly                                    （M11-4 建）
 goal_status          active | done                                    （M11-4 建）
-invite_purpose       join | new_household                             （M12-3 建，待确认）
-llm_usage_purpose    receipt                                          （M12-3 建，待确认）
+invite_purpose       join | new_household                             （M12-3 建）
+llm_usage_purpose    receipt                                          （M12-3 建）
 ```
 
 `item_type` 说明：R21.1 的 key，列表在 `src/lib/rules/item-type.ts`（`ITEM_TYPE_KEYS`），enum 从那里取。不含 `untyped`（统计里的"未分"不是一个类型）。以后加类型要迁移 `ALTER TYPE ... ADD VALUE`
@@ -433,7 +433,7 @@ M12（F15，R26）：`verification` 表存重置密码的链接（验证邮箱�
 
 **税率表不进数据库**，按财年写在 `src/lib/tax/rates.ts`。
 
-### invite（M12-3 建，待确认）
+### invite（M12-3 建）
 
 邀请码（R26.1 到 R26.3）。状态（没用 / 已用 / 过期 / 撤销）不存，每次按下面几列实时算。
 
@@ -462,7 +462,7 @@ M12（F15，R26）：`verification` 表存重置密码的链接（验证邮箱�
 - 删除：不删，撤销记 `revoked_at`
 - 外键都不级联（用户、家庭、归属人都不硬删）
 
-### llm_usage（M12-3 建，待确认）
+### llm_usage（M12-3 建）
 
 LLM 调用记录，一次一行，只用来数限额（R26.9）。不存图片、请求、返回内容。
 

@@ -4,6 +4,7 @@
 // household_user，不碰 category、category_rule，管理页里删掉或改过的不会被加回来
 // member 幂等：ON CONFLICT DO NOTHING，靠 M1-1 的唯一约束跳过已存在的行；已存在的行不更新
 // 不创建账户和卡（真实尾号不进代码）
+// R26.6：seedNewHousehold 给邀请码注册的新家庭用，在注册事务里跑，和这里共用 seedCatalog
 // scripts/ 用 node 直接跑，不认 @/ 路径别名，所以这里用相对路径 + .ts 后缀
 import { and, eq } from 'drizzle-orm';
 import { db } from '../db/index.ts';
@@ -14,6 +15,7 @@ import {
   SEED_RULE_DEFAULTS,
   SEED_RULES,
   SEED_SYSTEM_CATEGORIES,
+  type SeedMemberName,
 } from '../lib/seed/data.ts';
 
 export type SeedCounts = Record<string, { inserted: number; total: number }>;
@@ -25,7 +27,7 @@ export type SeedResult = {
   catalogSkipped: boolean;
 };
 
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 export async function seedHousehold(input: {
   email: string;
@@ -85,9 +87,7 @@ export async function seedHousehold(input: {
     // ---------- household_user ----------
     // 已经有关联就不改（包括 member_id）
     if (!link) {
-      await tx
-        .insert(householdUser)
-        .values({ householdId, userId: u.id, memberId: requireMember('Male') });
+      await linkHouseholdUser(tx, { householdId, userId: u.id, memberId: requireMember('Male') });
     }
 
     // ---------- category、category_rule ----------
@@ -105,11 +105,57 @@ export async function seedHousehold(input: {
   });
 }
 
+export async function linkHouseholdUser(
+  tx: Tx,
+  values: { householdId: string; userId: string; memberId: string },
+): Promise<void> {
+  await tx.insert(householdUser).values(values);
+}
+
+// R26.6 新家庭的名字。共同归属人的名字也在这里，注册时不让 new_household 的人叫这个（R26.4 第 6 条）
+export const SHARED_MEMBER_NAME = '共同';
+export const newHouseholdName = (name: string) => `${name}的家`;
+
+// R26.6 seed 里写的是我们家的归属人名字，新家庭映射过去
+export function mapSeedMember(
+  seedName: SeedMemberName,
+  ids: { person: string; shared: string },
+): string {
+  return seedName === 'Home' ? ids.shared : ids.person;
+}
+
+// R26.6：邀请码注册的新家庭。在注册事务里跑（tx 由调用方传），失败了跟着整个注册回滚
+// 建 household、两个归属人（注册的人、共同）、household_user，再插分类和预置规则
+export async function seedNewHousehold(
+  tx: Tx,
+  input: { userId: string; name: string },
+): Promise<{ householdId: string; memberId: string }> {
+  const [h] = await tx
+    .insert(household)
+    .values({ name: newHouseholdName(input.name) })
+    .returning({ id: household.id });
+  const householdId = h.id;
+
+  const [person, shared] = await tx
+    .insert(member)
+    .values([
+      { householdId, name: input.name, kind: 'person' as const, sortOrder: 0 },
+      { householdId, name: SHARED_MEMBER_NAME, kind: 'shared' as const, sortOrder: 1 },
+    ])
+    .returning({ id: member.id });
+  const ids = { person: person.id, shared: shared.id };
+
+  await linkHouseholdUser(tx, { householdId, userId: input.userId, memberId: ids.person });
+  await seedCatalog(tx, householdId, (name) => mapSeedMember(name, ids), {});
+  return { householdId, memberId: ids.person };
+}
+
 // 第一次 seed：分类（一级 + 系统分类 + 二级含 Other）和预置规则
+// requireMember 把 seed 里的归属人名字换成本家庭的 member id
 async function seedCatalog(
   tx: Tx,
   householdId: string,
-  requireMember: (name: string) => string,
+  requireMember: (name: SeedMemberName) => string,
   counts: SeedCounts,
 ): Promise<void> {
   // ---------- category：一级 + 系统分类 ----------
