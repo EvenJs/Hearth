@@ -44,6 +44,8 @@ item_type            fruit | vegetable | meat | seafood | dairy_egg | pantry | s
 goal_kind            keep | spend                                     （M11-4 建）
 goal_recurrence      once | yearly                                    （M11-4 建）
 goal_status          active | done                                    （M11-4 建）
+invite_purpose       join | new_household                             （M12-3 建，待确认）
+llm_usage_purpose    receipt                                          （M12-3 建，待确认）
 ```
 
 `item_type` 说明：R21.1 的 key，列表在 `src/lib/rules/item-type.ts`（`ITEM_TYPE_KEYS`），enum 从那里取。不含 `untyped`（统计里的"未分"不是一个类型）。以后加类型要迁移 `ALTER TYPE ... ADD VALUE`
@@ -61,6 +63,8 @@ goal_status          active | done                                    （M11-4 �
 
 `user`、`session`、`account`、`verification` 四张表由 Better Auth CLI 生成，不手写。不在 `user` 上加业务字段，家庭关系放在下面的 `household_user`。
 
+M12（F15，R26）：`verification` 表存重置密码的链接（验证邮箱的链接是 Better Auth 签的 token，不进表）。M12-3 的迁移里把现有用户的 `user.email_verified` 都设成 `true`（R26.7）。
+
 ---
 
 ## 3. 业务表
@@ -75,7 +79,7 @@ goal_status          active | done                                    （M11-4 �
 
 ### household_user
 
-登录用户和家庭的关系。MVP 只有一行。
+登录用户和家庭的关系。M12 起一个家庭可以有多个登录用户（R26.5）。`member_id` 不加唯一：一个归属人可以对应多个登录用户。
 
 | 字段         | 类型        | 约束                           | 说明                       |
 | ------------ | ----------- | ------------------------------ | -------------------------- |
@@ -429,6 +433,49 @@ goal_status          active | done                                    （M11-4 �
 
 **税率表不进数据库**，按财年写在 `src/lib/tax/rates.ts`。
 
+### invite（M12-3 建，待确认）
+
+邀请码（R26.1 到 R26.3）。状态（没用 / 已用 / 过期 / 撤销）不存，每次按下面几列实时算。
+
+| 字段         | 类型           | 约束                         | 说明 |
+| ------------ | -------------- | ---------------------------- | ---- |
+| id           | uuid           | PK                           |      |
+| code         | text           | not null, unique             | 8 位大写，不带横杠（R26.1） |
+| purpose      | invite_purpose | not null                     |      |
+| household_id | uuid           | FK → household, null         | `join` 是发码人的家庭；`new_household` 是 `null` |
+| member_id    | uuid           | FK → member, null            | `join` 必填（码上指定的归属人）；`new_household` 是 `null` |
+| created_by   | text           | FK → user.id, not null       | 发码人 |
+| expires_at   | timestamptz    | not null                     | `created_at` + 72 小时 |
+| used_by      | text           | FK → user.id, null           |      |
+| used_at      | timestamptz    | null                         |      |
+| revoked_at   | timestamptz    | null                         |      |
+| created_at   | timestamptz    | not null                     |      |
+
+索引：`(created_by, created_at)`（设置 → 邀请的列表）
+检查：
+- `purpose = join` 时 `household_id`、`member_id` 都不为空；`purpose = new_household` 时都为空
+- `used_by` 和 `used_at` 同时为空或同时不为空
+- `used_at`、`revoked_at` 不能都不为空（撤销只能撤没用的，R26.3）
+
+说明：
+- **例外**：`new_household` 的码没有 `household_id`（注册前还没有家庭），所以这张表不全是按 `household_id` 查。列表和撤销按 `created_by` 查（R26.3），注册时按 `code` 查（登录前，没有家庭）
+- 删除：不删，撤销记 `revoked_at`
+- 外键都不级联（用户、家庭、归属人都不硬删）
+
+### llm_usage（M12-3 建，待确认）
+
+LLM 调用记录，一次一行，只用来数限额（R26.9）。不存图片、请求、返回内容。
+
+| 字段         | 类型              | 约束                     | 说明 |
+| ------------ | ----------------- | ------------------------ | ---- |
+| id           | uuid              | PK                       |      |
+| household_id | uuid              | FK → household, not null |      |
+| user_id      | text              | FK → user.id, not null   | 谁点的识别 |
+| purpose      | llm_usage_purpose | not null                 | 现在只有 `receipt` |
+| created_at   | timestamptz       | not null                 | 调用 LLM 前写入 |
+
+索引：`(household_id, purpose, created_at)`
+
 ---
 
 ## 4. 关系图
@@ -443,7 +490,9 @@ household ─┬─ household_user ── user (Better Auth)
            ├─ transaction ─┬─ transaction_split ── category / member / goal
            │               └─ receipt（0 或 1 张）
            ├─ budget ── category
-           └─ goal ── financial_account（0 或 1 个）
+           ├─ goal ── financial_account（0 或 1 个）
+           ├─ invite（join；new_household 的码没有家庭）── member、user（发码人、使用人）
+           └─ llm_usage ── user
 ```
 
 ---

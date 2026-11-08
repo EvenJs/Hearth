@@ -42,3 +42,4 @@
 | R23. 账户余额和用途（F12，2026-11-03 新增） | [`rules/R23-balance.md`](rules/R23-balance.md) | R23.1、R23.2、R23.3、R23.4、R23.5、R23.6、R23.7 |
 | R24. 每月条件（F13，2026-11-04 新增） | [`rules/R24-monthly-condition.md`](rules/R24-monthly-condition.md) | R24.1、R24.2、R24.3、R24.4、R24.5、R24.6、R24.7、R24.8、R24.9、R24.10、R24.11 |
 | R25. 目标和应急金（F14，2026-11-04 新增） | [`rules/R25-goal.md`](rules/R25-goal.md) | R25.1、R25.2、R25.3、R25.4、R25.5、R25.6、R25.7、R25.8、R25.9、R25.10、R25.11、R25.12 |
+| R26. 邀请码注册（F15，2026-11-08 新增） | [`rules/R26-invite.md`](rules/R26-invite.md) | R26.1、R26.2、R26.3、R26.4、R26.5、R26.6、R26.7、R26.8、R26.9、R26.10 |
