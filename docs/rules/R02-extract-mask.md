@@ -23,6 +23,7 @@
 - `TRANSFER FROM 012345-400000004 #123456` → `400000004`（转入方向还没见过真实导出，先按同样格式处理）
 - `Transfer from xx5678 CommBank app Home` → `5678`
 - `Transfer To MISS X Y PayID Phone from CommBank App Eat Eat` → `null`（PayID 转账只有人名，没有账号）
+- `ANZ MOBILE BANKING PAYMENT 123456 TO MR X Y` → `null`（ANZ 转到外行，用 BSB + 账号转也只显示户名；不含关键词，`123456` 是流水号。2026-11-07 用真实导出确认，同 PayID 靠 R6.3）
 - 注意 `681801`、`815033` 是转账流水号，不是账号，不提取
 - 提取出的数字**只在内存里用于 R6 匹配，不入库**
 
