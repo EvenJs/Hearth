@@ -2,6 +2,7 @@
 // 纯函数，不 import 数据库和 Next.js。判断结果每次实时算，不存
 import { balanceAt, type BalanceAnchor } from './balance';
 import { formatAud } from './money';
+import { MAX_DAYS_LATER } from './pending';
 import { addDays, endOfMonth, lastTwelveMonths, startOfMonth } from './periods';
 import { storedTransferAccountId } from './transfer';
 import type { Account, TransferStatus } from './types';
@@ -136,32 +137,70 @@ const effectiveCents = (t: ConditionTx) => t.amountCents - t.bankFeeCents - t.in
 const isWithdrawal = (t: ConditionTx) => effectiveCents(t) < 0;
 const isCard = (t: ConditionTx) => isWithdrawal(t) && t.transferStatus === 'none';
 
+// R24.3：exclude_linked 去掉对方账户的 linked_account_id = 看的账户的存入；对方未知按算数
+function depositFilterOf(
+  watched: Pick<ConditionAccount, 'id'>,
+  filter: DepositFilter,
+  accounts: readonly Pick<ConditionAccount, 'id' | 'linkedAccountId'>[],
+): (t: ConditionTx) => boolean {
+  const linkedToWatched = new Set(accounts.filter((a) => a.linkedAccountId === watched.id).map((a) => a.id));
+  return (t) =>
+    effectiveCents(t) > 0 &&
+    !(filter === 'exclude_linked' && t.counterpartyAccountId !== null && linkedToWatched.has(t.counterpartyAccountId));
+}
+
 export type DepositSum = {
   totalCents: number;
   unknownCount: number; // 对方未知的存入笔数，只有 exclude_linked 算，any 是 0
 };
 
-// R24.2、R24.3：transactions 是看的账户当月的交易，这里只筛 confirmed
-// exclude_linked：去掉对方账户的 linked_account_id = 看的账户的存入；对方未知按算数
+// R24.2、R24.3：transactions 是看的账户当月、已经按 R24.2a 筛过的交易（pending 都算）
 export function countableDeposits(
   transactions: readonly ConditionTx[],
   watched: Pick<ConditionAccount, 'id'>,
   filter: DepositFilter,
   accounts: readonly Pick<ConditionAccount, 'id' | 'linkedAccountId'>[],
 ): DepositSum {
-  const linkedToWatched = new Set(accounts.filter((a) => a.linkedAccountId === watched.id).map((a) => a.id));
+  const counts = depositFilterOf(watched, filter, accounts);
   let totalCents = 0;
   let unknownCount = 0;
   for (const t of transactions) {
-    const cents = effectiveCents(t);
-    if (t.status !== 'confirmed' || cents <= 0) continue;
-    if (filter === 'exclude_linked') {
-      if (t.counterpartyAccountId === null) unknownCount += 1;
-      else if (linkedToWatched.has(t.counterpartyAccountId)) continue;
-    }
-    totalCents += cents;
+    if (!counts(t)) continue;
+    if (filter === 'exclude_linked' && t.counterpartyAccountId === null) unknownCount += 1;
+    totalCents += effectiveCents(t);
   }
   return { totalCents, unknownCount };
+}
+
+// ---------- pending（R24.2a） ----------
+
+export const MONTH_END_PENDING_DAYS = 3;
+
+export type PendingVerdict = 'counted' | 'stale' | 'duplicate';
+
+// R24.2a：tx 是 pending。可能重复（R17.6，数据层传进来）→ duplicate；
+// 日期 ≤ 看的账户截至 − MAX_DAYS_LATER → stale（和 R8.4 一样）；没有截至不算过期
+export function countablePending(
+  tx: Pick<ConditionTx, 'id' | 'date'>,
+  asOf: string | null,
+  duplicateIds: ReadonlySet<string>,
+): PendingVerdict {
+  if (duplicateIds.has(tx.id)) return 'duplicate';
+  if (asOf !== null && tx.date <= addDays(asOf, -MAX_DAYS_LATER)) return 'stale';
+  return 'counted';
+}
+
+type PendingCounts = Pick<ConditionResult, 'pendingCount' | 'unmatchedPendingCount' | 'monthEndPendingCount'>;
+
+// R24.2a：measured 是算进这个口径的交易，missed 是没算进去、本来属于这个口径的 pending
+function pendingCounts(measured: readonly ConditionTx[], missed: readonly ConditionTx[], end: string): PendingCounts {
+  const pending = measured.filter((t) => t.status === 'pending');
+  const monthEnd = addDays(end, -(MONTH_END_PENDING_DAYS - 1));
+  return {
+    pendingCount: pending.length,
+    unmatchedPendingCount: missed.length,
+    monthEndPendingCount: pending.filter((t) => t.date >= monthEnd).length,
+  };
 }
 
 // ---------- 判断（R24.5） ----------
@@ -173,6 +212,7 @@ export type WithdrawalReason = {
   amountCents: number; // 绝对值
   counterpartyName: string | null; // 认不出 → null，显示 merchant
   merchant: string | null;
+  pending: boolean; // R24.5：这笔是 pending → 后面加"（待入账）"
   count: number; // 本月取款笔数
 };
 
@@ -188,6 +228,10 @@ export type ConditionResult = {
   remaining: number | null; // 还差多少，够了是 0；balance_growth 不算
   unknownDepositCount: number; // R24.3 小字的 N
   withdrawal: WithdrawalReason | null; // no_withdrawal 失败原因
+  // R24.2a，只数这个条件口径（存入 / 取款 / 刷卡）的 pending
+  pendingCount: number; // 算进去的
+  unmatchedPendingCount: number; // 过期或可能重复，没算进去的
+  monthEndPendingCount: number; // 算进去的里日期在这个月最后 MONTH_END_PENDING_DAYS 天的
   asOf: string | null; // 看的账户的截至
   monthOver: boolean;
   stale: boolean; // 月份过完、截至早于月底（或没有数据）
@@ -203,6 +247,7 @@ export type ConditionContext = {
   transactions: readonly ConditionTx[];
   anchors: readonly BalanceAnchor[]; // 本账户的锚点（R23.1），balance_growth 用
   manualCheck: ManualCheck | null; // 这个条件这个月的手动勾，other 用
+  possibleDuplicatePendingIds: ReadonlySet<string>; // R24.2a #2，数据层按 R17.6 算
 };
 
 const isLinkedType = (type: ConditionType) => type === 'linked_min_deposit' || type === 'linked_card_count';
@@ -233,6 +278,9 @@ export function evaluateCondition(condition: MonthlyCondition, ctx: ConditionCon
     remaining: null,
     unknownDepositCount: 0,
     withdrawal: null,
+    pendingCount: 0,
+    unmatchedPendingCount: 0,
+    monthEndPendingCount: 0,
     asOf: watched?.asOf ?? null,
     monthOver,
     stale: false,
@@ -243,9 +291,16 @@ export function evaluateCondition(condition: MonthlyCondition, ctx: ConditionCon
 
   const label = isLinkedType(condition.type) ? watched.name + (watched.archived ? '（已归档）' : '') : null;
   const watchedId = watched.id;
-  const txs = ctx.transactions.filter(
-    (t) => t.accountId === watchedId && t.status === 'confirmed' && t.date >= start && t.date <= end,
-  );
+  const asOf = watched.asOf;
+  // R24.2：confirmed 全算；R24.2a：pending 过期、可能重复的不算，放进 missed
+  const txs: ConditionTx[] = [];
+  const missed: ConditionTx[] = [];
+  for (const t of ctx.transactions) {
+    if (t.accountId !== watchedId || t.date < start || t.date > end) continue;
+    const counted =
+      t.status === 'confirmed' || countablePending(t, asOf, ctx.possibleDuplicatePendingIds) === 'counted';
+    (counted ? txs : missed).push(t);
+  }
   // other 没有看的账户（R24.1），不加"可能不准"
   const stale = condition.type !== 'other' && monthOver && (watched.asOf === null || watched.asOf < end);
   const result = { ...base, watchedLabel: label, stale };
@@ -262,27 +317,37 @@ export function evaluateCondition(condition: MonthlyCondition, ctx: ConditionCon
   switch (condition.type) {
     case 'min_deposit':
     case 'linked_min_deposit': {
+      const counts = depositFilterOf(watched, condition.depositFilter, ctx.accounts);
       const sum = countableDeposits(txs, watched, condition.depositFilter, ctx.accounts);
-      return { ...reachTarget(sum.totalCents, condition.amountCents), unknownDepositCount: sum.unknownCount };
+      return {
+        ...reachTarget(sum.totalCents, condition.amountCents),
+        unknownDepositCount: sum.unknownCount,
+        ...pendingCounts(txs.filter(counts), missed.filter(counts), end),
+      };
     }
-    case 'linked_card_count':
-      return reachTarget(txs.filter(isCard).length, condition.cardCount);
+    case 'linked_card_count': {
+      const cards = txs.filter(isCard);
+      return { ...reachTarget(cards.length, condition.cardCount), ...pendingCounts(cards, missed.filter(isCard), end) };
+    }
     case 'no_withdrawal': {
       const withdrawals = txs.filter(isWithdrawal).sort(firstByDate);
+      const pending = pendingCounts(withdrawals, missed.filter(isWithdrawal), end);
       const first = withdrawals[0];
-      if (!first) return { ...result, status: monthOver ? 'met' : 'in_progress' };
+      if (!first) return { ...result, ...pending, status: monthOver ? 'met' : 'in_progress' };
       const counterparty =
         first.counterpartyAccountId === null
           ? undefined
           : ctx.accounts.find((a) => a.id === first.counterpartyAccountId);
       return {
         ...result,
+        ...pending,
         status: 'failed',
         withdrawal: {
           date: first.date,
           amountCents: -effectiveCents(first),
           counterpartyName: counterparty?.name ?? null,
           merchant: first.merchant,
+          pending: first.status === 'pending',
           count: withdrawals.length,
         },
       };
@@ -329,7 +394,8 @@ function mainText(r: ConditionResult): string {
         w.counterpartyName !== null
           ? `${mmdd(w.date)} 转出 ${amount} 到 ${w.counterpartyName}`
           : `${mmdd(w.date)} 取出 ${amount}${w.merchant ? `（${w.merchant}）` : ''}`;
-      return w.count > 1 ? `${text}，本月共 ${w.count} 笔取款` : text;
+      const reason = w.pending ? `${text}（待入账）` : text;
+      return w.count > 1 ? `${reason}，本月共 ${w.count} 笔取款` : reason;
     }
     case 'balance_growth': {
       const diff = r.currentValue! - r.target!;
@@ -348,11 +414,13 @@ const UNKNOWN_TEXT: Record<NonNullable<ConditionResult['unknownReason']>, string
   not_checked: '还没勾',
 };
 
-// R24.5：一行条件说明。关联类型前面加"{关联账户名}："；月份过完且截至早于月底时 met、failed 后面加"可能不准"
+// R24.5：一行条件说明。关联类型前面加"{关联账户名}："；有算进去的 pending 加"（含 N 笔待入账）"
+// （no_withdrawal 只在原因里标）；月份过完且截至早于月底时 met、failed 后面再加"可能不准"
 export function describeCondition(r: ConditionResult): string {
   if (r.unknownReason !== null) return UNKNOWN_TEXT[r.unknownReason];
   let text = mainText(r);
   if (r.watchedLabel !== null) text = `${r.watchedLabel}：${text}`;
+  if (r.type !== 'no_withdrawal' && r.pendingCount > 0) text += `（含 ${r.pendingCount} 笔待入账）`;
   if (r.stale && (r.status === 'met' || r.status === 'failed')) {
     text += r.asOf === null ? '（还没有数据，可能不准）' : `（数据截至 ${mmdd(r.asOf)}，可能不准）`;
   }
@@ -362,6 +430,17 @@ export function describeCondition(r: ConditionResult): string {
 // R24.3：只有 exclude_linked 显示，N 是 0 不显示
 export function unknownDepositNote(r: ConditionResult): string | null {
   return r.unknownDepositCount > 0 ? `${r.unknownDepositCount} 笔存入认不出来自哪个账户，按算数处理` : null;
+}
+
+// R24.5 pending 的说明，N 是 0 不显示
+export function unmatchedPendingNote(r: ConditionResult): string | null {
+  return r.unmatchedPendingCount > 0 ? `${r.unmatchedPendingCount} 笔待入账可能没配上，没算进去，去流水看看` : null;
+}
+
+export function monthEndPendingNote(r: ConditionResult): string | null {
+  return r.monthEndPendingCount > 0
+    ? `${r.monthEndPendingCount} 笔待入账在月底 ${MONTH_END_PENDING_DAYS} 天内，银行可能算到下个月`
+    : null;
 }
 
 // ---------- 合并（R24.5） ----------

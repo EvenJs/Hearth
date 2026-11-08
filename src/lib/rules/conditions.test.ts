@@ -3,8 +3,10 @@ import type { BalanceAnchor } from './balance';
 import {
   CONDITION_REMINDER_DAYS,
   MONTH_CELL_LABELS,
+  MONTH_END_PENDING_DAYS,
   asOfLabel,
   countableDeposits,
+  countablePending,
   dataAsOf,
   describeCondition,
   evaluateCondition,
@@ -13,11 +15,13 @@ import {
   homeReminder,
   inReminderWindow,
   isJudgedIn,
+  monthEndPendingNote,
   monthsForHistory,
   outcomeSummaryText,
   resolveCounterparty,
   summarizeAccountMonth,
   unknownDepositNote,
+  unmatchedPendingNote,
   type ConditionAccount,
   type ConditionPeriod,
   type ConditionTx,
@@ -141,14 +145,18 @@ const BASE_TXS: ConditionTx[] = [
 ];
 
 // 变体
-const J16_ENOUGH = tx('j16', JOINT, '2026-12-28', 8001);
-const J16_SHORT = tx('j16', JOINT, '2026-12-28', 8000);
+const J16_ENOUGH = tx('j16', JOINT, '2026-12-28', 1);
 const V_S1 = [
   tx('s6', SAVER, '2026-12-03', -20000, auto(FEMALE)),
   tx('f11', FEMALE, '2026-12-03', 20000, auto(SAVER)),
 ];
 const V_S2 = [tx('s7', SAVER, '2026-12-20', -3000, { merchant: 'CBA ATM' })];
 const V_F1 = BASE_TXS.map((t) => (t.id === 'f9' ? { ...t, status: 'confirmed' as const } : t));
+const withTx = (id: string, change: Partial<ConditionTx>, txs: readonly ConditionTx[] = BASE_TXS) =>
+  txs.map((t) => (t.id === id ? { ...t, ...change } : t));
+const V_L1 = withTx('f9', { date: '2026-12-19' }); // f9 过期（R24.2a #1）
+const V_L2_DUPLICATES = new Set(['f9']); // f9 可能重复（R24.2a #2）
+const S8 = tx('s8', SAVER, '2026-12-21', -1000, { status: 'pending', merchant: 'CBA ATM' }); // V-L5
 
 // 截至按 R24.6 从交易和锚点算出来
 function accountsFor(
@@ -224,6 +232,7 @@ type EvalOpts = {
   accounts?: ConditionAccount[];
   anchors?: Record<string, BalanceAnchor[]>;
   checks?: Record<string, ManualCheck>;
+  duplicates?: ReadonlySet<string>; // R17.6 可能重复的 pending id
 };
 
 function evaluate(condition: MonthlyCondition, month: string, opts: EvalOpts = {}) {
@@ -237,6 +246,7 @@ function evaluate(condition: MonthlyCondition, month: string, opts: EvalOpts = {
     transactions: txs,
     anchors: (opts.anchors ?? BASE_ANCHORS)[condition.accountId] ?? [],
     manualCheck: (opts.checks ?? BASE_CHECKS)[`${condition.id} ${month}`] ?? null,
+    possibleDuplicatePendingIds: opts.duplicates ?? new Set(),
   });
 }
 
@@ -315,10 +325,11 @@ describe('countableDeposits（R24.2、R24.3）', () => {
   const inDecember = (accountId: string) =>
     BASE_TXS.filter((t) => t.accountId === accountId && t.date >= '2026-12-01' && t.date <= '2026-12-31');
 
-  it('R24.2: any — interest, fee reversal and pending excluded; refunds and own transfers counted (A-1)', () => {
+  // R24.2a 的过滤在 evaluateCondition 里做，传进来的 pending 都算
+  it('R24.2a: any — interest and fee reversal excluded; refunds, own transfers and pending counted (A-1)', () => {
     const joint = accounts.find((a) => a.id === JOINT)!;
     expect(countableDeposits(inDecember(JOINT), joint, 'any', accounts)).toEqual({
-      totalCents: 191999,
+      totalCents: 199999,
       unknownCount: 0,
     });
   });
@@ -341,30 +352,41 @@ describe('countableDeposits（R24.2、R24.3）', () => {
 // ---------- 场景 A：min_deposit ----------
 
 describe('R24 场景 A：min_deposit', () => {
-  it('R24 A-1: ANZ Joint December in progress, 8001 short', () => {
+  it('R24.2a A-1: ANZ Joint December in progress, pending j15 counted, 1 short', () => {
     const r = evaluate(K2, '2026-12-01');
-    expect(r).toMatchObject({ status: 'in_progress', currentValue: 191999, target: 200000, remaining: 8001 });
-    expect(describeCondition(r)).toBe('存入 $1,919.99 / $2,000.00，还差 $80.01');
+    expect(r).toMatchObject({
+      status: 'in_progress',
+      currentValue: 199999,
+      target: 200000,
+      remaining: 1,
+      pendingCount: 1,
+      unmatchedPendingCount: 0,
+      monthEndPendingCount: 0,
+    });
+    expect(describeCondition(r)).toBe('存入 $1,999.99 / $2,000.00，还差 $0.01（含 1 笔待入账）');
     expect(asOfLabel(r.asOf)).toBe('数据截至 12-20');
+    expect(unmatchedPendingNote(r)).toBeNull();
+    expect(monthEndPendingNote(r)).toBeNull();
   });
 
-  it('R24 A-2: exactly enough is met mid-month', () => {
+  it('R24.2a A-2: exactly enough is met mid-month, j15 still not stale', () => {
     const txs = [...BASE_TXS, J16_ENOUGH];
     const r = evaluate(K2, '2026-12-01', { txs });
-    expect(r).toMatchObject({ status: 'met', currentValue: 200000, remaining: 0 });
-    expect(describeCondition(r)).toBe('存入 $2,000.00 / $2,000.00');
+    expect(r).toMatchObject({ status: 'met', currentValue: 200000, remaining: 0, pendingCount: 1 });
+    expect(describeCondition(r)).toBe('存入 $2,000.00 / $2,000.00（含 1 笔待入账）');
     expect(asOfLabel(r.asOf)).toBe('数据截至 12-28');
   });
 
-  it('R24 A-3: one cent short — in progress, then failed with stale as-of after month end', () => {
-    const txs = [...BASE_TXS, J16_SHORT];
-    const now = evaluate(K2, '2026-12-01', { txs });
+  it('R24.2a A-3: one cent short — in progress, then failed; 待入账 suffix before 可能不准', () => {
+    const now = evaluate(K2, '2026-12-01');
     expect(now).toMatchObject({ status: 'in_progress', remaining: 1 });
-    expect(describeCondition(now)).toBe('存入 $1,999.99 / $2,000.00，还差 $0.01');
+    expect(describeCondition(now)).toBe('存入 $1,999.99 / $2,000.00，还差 $0.01（含 1 笔待入账）');
 
-    const later = evaluate(K2, '2026-12-01', { txs, today: '2027-01-02' });
-    expect(later).toMatchObject({ status: 'failed', remaining: 1 });
-    expect(describeCondition(later)).toBe('存入 $1,999.99 / $2,000.00，还差 $0.01（数据截至 12-28，可能不准）');
+    const later = evaluate(K2, '2026-12-01', { today: '2027-01-02' });
+    expect(later).toMatchObject({ status: 'failed', remaining: 1, pendingCount: 1 });
+    expect(describeCondition(later)).toBe(
+      '存入 $1,999.99 / $2,000.00，还差 $0.01（含 1 笔待入账）（数据截至 12-20，可能不准）',
+    );
   });
 
   it('R24 A-4: past months use the condition amount of that condition', () => {
@@ -475,22 +497,22 @@ describe('R24 场景 E：关联账户', () => {
     expect(asOfLabel(r.asOf)).toBe('数据截至 12-15');
   });
 
-  it('R24 E-2: card count skips transfers, suggestions, fees, refunds and pending', () => {
+  it('R24.2a E-2: card count skips transfers, suggestions, fees and refunds; pending f9 counted', () => {
     const r = evaluate(K8, '2026-12-01');
-    expect(r).toMatchObject({ status: 'in_progress', currentValue: 4, target: 5, remaining: 1 });
-    expect(describeCondition(r)).toBe('CBA Female：刷卡 4 / 5 笔，还差 1 笔');
+    expect(r).toMatchObject({ status: 'met', currentValue: 5, target: 5, remaining: 0, pendingCount: 1 });
+    expect(describeCondition(r)).toBe('CBA Female：刷卡 5 / 5 笔（含 1 笔待入账）');
     expect(asOfLabel(r.asOf)).toBe('数据截至 12-22');
   });
 
-  it('R24 E-2 V-F1: f9 confirmed → 5 cards, met', () => {
+  it('R24 E-2 V-F1: f9 confirmed → 5 cards, met, no 待入账', () => {
     const r = evaluate(K8, '2026-12-01', { txs: V_F1 });
-    expect(r).toMatchObject({ status: 'met', currentValue: 5 });
+    expect(r).toMatchObject({ status: 'met', currentValue: 5, pendingCount: 0 });
     expect(describeCondition(r)).toBe('CBA Female：刷卡 5 / 5 笔');
     expect(asOfLabel(r.asOf)).toBe('数据截至 12-22');
   });
 
   it('R24 E-2: V-S1 incoming f11 does not change the card count', () => {
-    expect(evaluate(K8, '2026-12-01', { txs: [...BASE_TXS, ...V_S1] }).currentValue).toBe(4);
+    expect(evaluate(K8, '2026-12-01', { txs: [...BASE_TXS, ...V_S1] }).currentValue).toBe(5);
   });
 
   it('R24 E-3: no linked account → unknown', () => {
@@ -512,8 +534,8 @@ describe('R24 场景 E：关联账户', () => {
   it('R24.1: archived linked account is still evaluated, label marks it', () => {
     const accounts = accountsFor(BASE_TXS).map((a) => (a.id === FEMALE ? { ...a, archived: true } : a));
     const r = evaluate(K8, '2026-12-01', { accounts });
-    expect(r.status).toBe('in_progress');
-    expect(describeCondition(r)).toBe('CBA Female（已归档）：刷卡 4 / 5 笔，还差 1 笔');
+    expect(r.status).toBe('met');
+    expect(describeCondition(r)).toBe('CBA Female（已归档）：刷卡 5 / 5 笔（含 1 笔待入账）');
   });
 });
 
@@ -644,7 +666,9 @@ describe('R24 场景 F：summarizeAccountMonth', () => {
     expect(accountMonth(PLUS, '2026-11-01').summary.byOutcome).toEqual({ bonus: 'met' });
     expect(accountMonth(PLUS, '2026-12-01').summary.byOutcome).toEqual({ bonus: 'in_progress' });
     expect(accountMonth(SAVER, '2026-11-01').summary.byOutcome).toEqual({ bonus: 'unknown' });
-    expect(accountMonth(SAVER, '2026-12-01').summary.byOutcome).toEqual({ bonus: 'in_progress' });
+    const saverDec = accountMonth(SAVER, '2026-12-01');
+    expect(saverDec.results.map((r) => r.status)).toEqual(['in_progress', 'in_progress', 'met']); // K6、K7、K8（f9 算进去）
+    expect(saverDec.summary.byOutcome).toEqual({ bonus: 'in_progress' });
     expect(accountMonth(JOINT, '2026-11-01').summary.byOutcome).toEqual({ fee_waiver: 'failed', bonus: 'met' });
   });
 
@@ -728,19 +752,19 @@ function reminderItems(today: string, opts: EvalOpts = {}, conditions = ALL_COND
 }
 
 describe('R24 场景 I：homeReminder', () => {
-  it('R24 I-1: five conditions, earliest as-of', () => {
+  it('R24.2a I-1: four conditions (K8 met with pending f9), earliest as-of', () => {
     expect(homeReminder(reminderItems(TODAY), TODAY)).toEqual({
-      count: 5,
+      count: 4,
       asOf: '2026-11-30',
-      text: '5 个账户条件本月还没满足（数据截至 11-30）',
+      text: '4 个账户条件本月还没满足（数据截至 11-30）',
     });
   });
 
   it('R24 I-2: only in the last CONDITION_REMINDER_DAYS days of the month', () => {
     expect(CONDITION_REMINDER_DAYS).toBe(5);
     expect(homeReminder(reminderItems('2026-12-26'), '2026-12-26')).toBeNull();
-    expect(homeReminder(reminderItems('2026-12-27'), '2026-12-27')?.count).toBe(5);
-    expect(homeReminder(reminderItems('2026-12-31'), '2026-12-31')?.count).toBe(5);
+    expect(homeReminder(reminderItems('2026-12-27'), '2026-12-27')?.count).toBe(4);
+    expect(homeReminder(reminderItems('2026-12-31'), '2026-12-31')?.count).toBe(4);
     expect(homeReminder(reminderItems('2027-01-01'), '2027-01-01')).toBeNull();
   });
 
@@ -760,11 +784,13 @@ describe('R24 场景 I：homeReminder', () => {
     expect(homeReminder(december, '2027-01-28')).toBeNull();
   });
 
-  it('R24 I-3: a single condition gets its own line', () => {
-    const only = (c: MonthlyCondition) => homeReminder(reminderItems(TODAY, {}, [c]), TODAY)?.text ?? null;
-    expect(only(K2)).toBe('ANZ Joint 本月存入还差 $80.01（数据截至 12-20）');
+  it('R24.2a I-3: a single condition gets its own line, no 待入账 count', () => {
+    const only = (c: MonthlyCondition, opts: EvalOpts = {}) =>
+      homeReminder(reminderItems(TODAY, opts, [c]), TODAY)?.text ?? null;
+    expect(only(K2)).toBe('ANZ Joint 本月存入还差 $0.01（数据截至 12-20）');
     expect(only(K5)).toBe('ANZ Plus Male 的关联账户 ANZ Male 本月存入还差 $200.00（数据截至 12-15）');
-    expect(only(K8)).toBe('CBA Female Saver 的关联账户 CBA Female 本月刷卡还差 1 笔（数据截至 12-22）');
+    expect(only(K8)).toBeNull();
+    expect(only(K8, { txs: V_L1 })).toBe('CBA Female Saver 的关联账户 CBA Female 本月刷卡还差 1 笔（数据截至 12-22）');
     expect(only(K4)).toBe('ANZ Plus Male 现在和上月末一样，月底要比上月末高（数据截至 11-30）');
     expect(only(K6)).toBeNull();
     expect(only(K7)).toBeNull();
@@ -779,19 +805,23 @@ describe('R24 场景 I：homeReminder', () => {
 
   it('R24.9: no as-of date → 还没有数据', () => {
     const accounts = accountsFor(BASE_TXS).map((a) => (a.id === JOINT ? { ...a, asOf: null } : a));
+    // 没有截至 → j15 不算过期（R24.2a）
     expect(homeReminder(reminderItems(TODAY, { accounts }, [K2]), TODAY)?.text).toBe(
-      'ANZ Joint 本月存入还差 $80.01（还没有数据）',
+      'ANZ Joint 本月存入还差 $0.01（还没有数据）',
     );
   });
 
-  it('R24 I-4: variants', () => {
+  it('R24.2a I-4: variants', () => {
     expect(homeReminder(reminderItems(TODAY, { txs: [...BASE_TXS, J16_ENOUGH] }), TODAY)?.text).toBe(
-      '4 个账户条件本月还没满足（数据截至 11-30）',
+      '3 个账户条件本月还没满足（数据截至 11-30）',
     );
-    expect(homeReminder(reminderItems(TODAY, { txs: [...BASE_TXS, ...V_S1] }), TODAY)?.count).toBe(5);
+    expect(homeReminder(reminderItems(TODAY, { txs: [...BASE_TXS, ...V_S1] }), TODAY)?.count).toBe(4);
     const accounts = accountsFor(BASE_TXS, { [PLUS]: { linkedAccountId: null } });
     expect(homeReminder(reminderItems(TODAY, { accounts }), TODAY)?.text).toBe(
-      '3 个账户条件本月还没满足（数据截至 11-30）',
+      '2 个账户条件本月还没满足（数据截至 11-30）',
+    );
+    expect(homeReminder(reminderItems(TODAY, { txs: V_L1 }), TODAY)?.text).toBe(
+      '5 个账户条件本月还没满足（数据截至 11-30）',
     );
   });
 });
@@ -859,15 +889,22 @@ describe('R24 场景 K：生效月份', () => {
     expect(isJudgedIn(PERIODS.K2!, '2027-06-01')).toBe(true);
   });
 
-  it('R24 K-10: edited amount — December uses the new condition', () => {
+  it('R24.2a K-10: edited amount — December uses the new condition', () => {
     const K2b = cond({ ...K2, id: "K2'", amountCents: 250000 });
-    expect(describeCondition(evaluate(K2b, '2026-12-01'))).toBe('存入 $1,919.99 / $2,500.00，还差 $580.01');
+    expect(describeCondition(evaluate(K2b, '2026-12-01'))).toBe(
+      '存入 $1,999.99 / $2,500.00，还差 $500.01（含 1 笔待入账）',
+    );
   });
 
   it('R24 K-11: deleted K3 — history keeps November, December has no condition', () => {
     const periods = [{ effectiveFrom: '2026-11-01', disabledFrom: '2026-12-01' }];
     expect(monthsForHistory(periods, TODAY)).toEqual(['2026-11-01', '2026-12-01']);
     expect(isJudgedIn(periods[0]!, '2026-12-01')).toBe(false);
+  });
+
+  it('R24.2a K-11: deleted K3 — home reminder drops to 3', () => {
+    const withoutK3 = ALL_CONDITIONS.filter((c) => c.id !== 'K3');
+    expect(homeReminder(reminderItems(TODAY, {}, withoutK3), TODAY)?.count).toBe(3);
   });
 
   it('R24 K-12: no_withdrawal from October with no transactions → met', () => {
@@ -884,5 +921,125 @@ describe('R24 场景 K：生效月份', () => {
     const periods = [{ effectiveFrom: '2026-12-01', disabledFrom: '2026-12-01' }];
     expect(isJudgedIn(periods[0]!, '2026-12-01')).toBe(false);
     expect(monthsForHistory(periods, TODAY)).toEqual([]);
+  });
+});
+
+// ---------- 场景 L：pending（R24.2a） ----------
+
+describe('countablePending（R24.2a）', () => {
+  const f9 = BASE_TXS.find((t) => t.id === 'f9')!;
+  const none = new Set<string>();
+
+  it('R24.2a: pending after as-of − 3 days is counted (f9 12-20, as-of 12-22)', () => {
+    expect(countablePending(f9, '2026-12-22', none)).toBe('counted');
+  });
+
+  it('R24.2a: pending on or before as-of − 3 days is stale (≤, not <)', () => {
+    expect(countablePending({ ...f9, date: '2026-12-19' }, '2026-12-22', none)).toBe('stale');
+    expect(countablePending({ ...f9, date: '2026-12-10' }, '2026-12-22', none)).toBe('stale');
+  });
+
+  it('R24.2a: no as-of → never stale', () => {
+    expect(countablePending({ ...f9, date: '2026-12-01' }, null, none)).toBe('counted');
+  });
+
+  it('R24.2a: possible duplicate (R17.6) is not counted', () => {
+    expect(countablePending(f9, '2026-12-22', V_L2_DUPLICATES)).toBe('duplicate');
+  });
+});
+
+describe('R24 场景 L：pending', () => {
+  it('R24.2a L-1 V-L1: stale f9 not counted → 4 cards, in progress, unmatched note', () => {
+    const r = evaluate(K8, '2026-12-01', { txs: V_L1 });
+    expect(r).toMatchObject({
+      status: 'in_progress',
+      currentValue: 4,
+      remaining: 1,
+      pendingCount: 0,
+      unmatchedPendingCount: 1,
+    });
+    expect(describeCondition(r)).toBe('CBA Female：刷卡 4 / 5 笔，还差 1 笔');
+    expect(unmatchedPendingNote(r)).toBe('1 笔待入账可能没配上，没算进去，去流水看看');
+    expect(asOfLabel(r.asOf)).toBe('数据截至 12-22');
+  });
+
+  it('R24.2a L-1: stale uses the watched account as-of, not the condition account', () => {
+    // CBA Female Saver 截至 12-16，按它算 12-19 不过期；要按 CBA Female 的 12-22
+    expect(evaluate(K8, '2026-12-01', { txs: V_L1 }).currentValue).toBe(4);
+  });
+
+  it('R24.2a L-2 V-L2: possible duplicate f9 not counted → 4 cards, unmatched note', () => {
+    const r = evaluate(K8, '2026-12-01', { duplicates: V_L2_DUPLICATES });
+    expect(r).toMatchObject({ status: 'in_progress', currentValue: 4, remaining: 1, unmatchedPendingCount: 1 });
+    expect(describeCondition(r)).toBe('CBA Female：刷卡 4 / 5 笔，还差 1 笔');
+    expect(unmatchedPendingNote(r)).toBe('1 笔待入账可能没配上，没算进去，去流水看看');
+  });
+
+  it('R24.2a L-3: no as-of date — pending j15 counted', () => {
+    const txs = BASE_TXS.filter((t) => t.id === 'j15');
+    const r = evaluate(K2, '2026-12-01', { txs });
+    expect(r).toMatchObject({ status: 'in_progress', currentValue: 8000, remaining: 192000, pendingCount: 1, asOf: null });
+    expect(describeCondition(r)).toBe('存入 $80.00 / $2,000.00，还差 $1,920.00（含 1 笔待入账）');
+    expect(asOfLabel(r.asOf)).toBe('还没有数据');
+  });
+
+  it('R24.2a L-4 V-L4: pending in the last MONTH_END_PENDING_DAYS days gets the month-end note', () => {
+    expect(MONTH_END_PENDING_DAYS).toBe(3);
+    const today = '2026-12-30';
+
+    const late = evaluate(K2, '2026-12-01', { txs: withTx('j15', { date: '2026-12-29' }), today });
+    expect(late).toMatchObject({ currentValue: 199999, pendingCount: 1, monthEndPendingCount: 1 });
+    expect(describeCondition(late)).toBe('存入 $1,999.99 / $2,000.00，还差 $0.01（含 1 笔待入账）');
+    expect(monthEndPendingNote(late)).toBe('1 笔待入账在月底 3 天内，银行可能算到下个月');
+
+    const before = evaluate(K2, '2026-12-01', { txs: withTx('j15', { date: '2026-12-28' }), today });
+    expect(before).toMatchObject({ currentValue: 199999, pendingCount: 1, monthEndPendingCount: 0 });
+    expect(describeCondition(before)).toBe('存入 $1,999.99 / $2,000.00，还差 $0.01（含 1 笔待入账）');
+    expect(monthEndPendingNote(before)).toBeNull();
+  });
+
+  it('R24.2a L-5 V-L5: pending withdrawal fails no_withdrawal mid-month, marked 待入账', () => {
+    const txs = [...BASE_TXS, S8];
+    const r = evaluate(K6, '2026-12-01', { txs });
+    expect(r).toMatchObject({
+      status: 'failed',
+      withdrawal: { date: '2026-12-21', amountCents: 1000, counterpartyName: null, pending: true, count: 1 },
+    });
+    expect(describeCondition(r)).toBe('12-21 取出 $10.00（CBA ATM）（待入账）');
+    // s8 不是刷卡账户上的
+    expect(evaluate(K8, '2026-12-01', { txs }).currentValue).toBe(5);
+  });
+
+  it('R24.2a L-5: stale pending withdrawal not counted → in progress, unmatched note', () => {
+    const txs = [...BASE_TXS, { ...S8, date: '2026-12-10' }];
+    const r = evaluate(K6, '2026-12-01', { txs });
+    expect(r).toMatchObject({ status: 'in_progress', unmatchedPendingCount: 1 });
+    expect(describeCondition(r)).toBe('到目前没有取款');
+    expect(unmatchedPendingNote(r)).toBe('1 笔待入账可能没配上，没算进去，去流水看看');
+  });
+
+  it('R24.5: confirmed earliest withdrawal is not marked 待入账', () => {
+    const r = evaluate(K6, '2026-12-01', { txs: [...BASE_TXS, ...V_S2, S8] });
+    expect(r.withdrawal).toMatchObject({ date: '2026-12-20', pending: false, count: 2 });
+    expect(describeCondition(r)).toBe('12-20 取出 $30.00（CBA ATM），本月共 2 笔取款');
+  });
+
+  it('R24.5: pending earliest withdrawal — 待入账 before the count', () => {
+    const later = tx('s9', SAVER, '2026-12-22', -3000, { merchant: 'CBA ATM' });
+    const r = evaluate(K6, '2026-12-01', { txs: [...BASE_TXS, S8, later] });
+    expect(describeCondition(r)).toBe('12-21 取出 $10.00（CBA ATM）（待入账），本月共 2 笔取款');
+  });
+
+  it('R24.2a L-6: f9 confirmed with bank date 12-21 → 5 cards met, no 待入账', () => {
+    const txs = withTx('f9', { status: 'confirmed', date: '2026-12-21' });
+    const r = evaluate(K8, '2026-12-01', { txs });
+    expect(r).toMatchObject({ status: 'met', currentValue: 5, pendingCount: 0, unmatchedPendingCount: 0 });
+    expect(describeCondition(r)).toBe('CBA Female：刷卡 5 / 5 笔');
+    expect(asOfLabel(r.asOf)).toBe('数据截至 12-22');
+  });
+
+  it('R24.2a: balance_growth still ignores pending', () => {
+    const r = evaluate(K7, '2026-12-01', { txs: [...BASE_TXS, S8] });
+    expect(r).toMatchObject({ currentValue: 1549500, target: 1500000 });
   });
 });

@@ -12,7 +12,9 @@ import {
   asOfLabel,
   describeCondition,
   feeMismatchText,
+  monthEndPendingNote,
   unknownDepositNote,
+  unmatchedPendingNote,
   type ConditionResult,
   type ConditionStatus,
 } from '@/lib/rules/conditions';
@@ -87,7 +89,10 @@ export function ConditionRow({
   condition: StoredCondition;
 }) {
   const Icon = STATUS_ICONS[r.status];
-  const note = unknownDepositNote(r);
+  // R24.3、R24.5 的小字，N 是 0 的是 null
+  const notes = [unknownDepositNote(r), unmatchedPendingNote(r), monthEndPendingNote(r)].filter(
+    (n) => n !== null,
+  );
   return (
     <li className="flex min-w-0 flex-col gap-0.5 text-sm">
       <div className="flex min-w-0 items-start justify-between gap-2">
@@ -101,7 +106,11 @@ export function ConditionRow({
         <span className="min-w-0 break-words tabular-nums">{describeCondition(r)}</span>
       </p>
       <p className="text-xs text-muted-foreground tabular-nums">{asOfLabel(r.asOf)}</p>
-      {note !== null && <p className="text-xs text-muted-foreground">{note}</p>}
+      {notes.map((n) => (
+        <p key={n} className="text-xs break-words text-muted-foreground">
+          {n}
+        </p>
+      ))}
       {r.type === 'other' && <ManualCheckButtons result={r} />}
     </li>
   );
