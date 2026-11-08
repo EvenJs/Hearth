@@ -25,6 +25,7 @@ import {
 import { cleanMerchant } from '@/lib/rules/merchant';
 import { addDays, todayInMelbourne } from '@/lib/rules/periods';
 import {
+  addPaymentOnlyItem,
   checkReceipt,
   normalizeReceipt,
   rawReceiptSchema,
@@ -122,9 +123,10 @@ const candidatesInputSchema = z.object({
 
 export type ReceiptCandidatesInput = z.input<typeof candidatesInputSchema>;
 
+// R20.1：3 或 4 位（有的机器只打后 3 位）
 const cardLast4Schema = z
   .string()
-  .regex(/^\d{4}$/)
+  .regex(/^\d{3,4}$/)
   .nullable();
 
 async function findCandidates(
@@ -265,7 +267,8 @@ export async function scanReceipt(
       const normalized = normalizeReceipt(result.raw, categories, today);
       read = { status: 'ok' };
       readerId = result.reader;
-      receiptValue = normalized.receipt;
+      // R20.2 只有付款单时补一件，只在 reader 结果上补（saveReceipt 不补）
+      receiptValue = addPaymentOnlyItem(normalized.receipt);
       errors = normalized.errors;
     } else {
       read = { status: 'failed', reason: result.reason };

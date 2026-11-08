@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readReceiptFixture } from '../../../tests/helpers/fixtures';
 import { buildTestHousehold } from '../../../tests/helpers/household';
 import {
+  addPaymentOnlyItem,
   checkReceipt,
   normalizeReceipt,
   rawReceiptSchema,
@@ -21,6 +22,16 @@ const CATEGORIES: ReceiptCategoryOption[] = h.categories
   .filter((c) => c.parentId !== null && c.kind === 'expense')
   .map((c) => ({ id: c.id, label: c.id.slice('category:'.length) }));
 const cat = (path: string) => h.category(path).id;
+
+const ALL_FIXTURES = [
+  'coles-a.json',
+  'grocer-b.json',
+  'bad-total.json',
+  'coles-e.json',
+  'noisy.json',
+  'eftpos-f.json',
+  'kpay-g.json',
+] as const;
 
 function fixture(name: `${string}.json`): RawReceipt {
   return rawReceiptSchema.parse(readReceiptFixture(name));
@@ -77,19 +88,20 @@ describe('R20.1 rawReceiptSchema', () => {
   });
 
   it('R20.1: all fixtures pass the schema', () => {
-    for (const name of [
-      'coles-a.json',
-      'grocer-b.json',
-      'bad-total.json',
-      'coles-e.json',
-      'noisy.json',
-    ] as const) {
+    for (const name of ALL_FIXTURES) {
       expect(rawReceiptSchema.safeParse(readReceiptFixture(name)).success, name).toBe(true);
     }
   });
 
-  it('R20.1: cardLast4 that is not 4 digits becomes null instead of failing', () => {
-    for (const cardLast4 of ['866', '08 66', '12345', 'abcd', 1111, undefined]) {
+  it('R20.1: cardLast4 of 3 or 4 digits is kept (some terminals print only the last 3)', () => {
+    for (const cardLast4 of ['866', '2154', '222', '1111']) {
+      const parsed = rawReceiptSchema.parse({ ...raw(), payment: { method: 'card', cardLast4 } });
+      expect(parsed.payment.cardLast4, cardLast4).toBe(cardLast4);
+    }
+  });
+
+  it('R-I: cardLast4 that is not 3 or 4 digits becomes null instead of failing', () => {
+    for (const cardLast4 of ['462239', '12', 'A866', '08 66', '12345', 'abcd', 1111, undefined]) {
       const parsed = rawReceiptSchema.parse({
         ...raw(),
         payment: { method: 'card', cardLast4 },
@@ -174,14 +186,37 @@ describe('R20.2 normalizeReceipt: fixtures', () => {
     expect(checkReceipt(r)).toEqual({ ok: true });
   });
 
+  it('R-F eftpos-f: payment slip only → date 2026-09-28, total AUD $12.30, one item added, check passes', () => {
+    const { receipt: normalized, errors } = normalizeFixture('eftpos-f.json');
+    expect(errors).toEqual({ items: {}, discounts: {} });
+    expect(normalized).toMatchObject({
+      merchant: 'FRUIT STALL DEMO',
+      date: '2026-09-28',
+      totalCents: 1230,
+      items: [],
+      payment: { method: 'card', cardLast4: '222' },
+    });
+
+    const r = addPaymentOnlyItem(normalized);
+    expect(r.items).toEqual([{ name: 'FRUIT STALL DEMO', amountCents: 1230, categoryId: null }]);
+    expect(r.discounts).toEqual([]);
+    expect(checkReceipt(r)).toEqual({ ok: true });
+  });
+
+  it('R-G kpay-g: date with one-digit day and time, total AUD 5.00, one item of 500', () => {
+    const { receipt: normalized, errors } = normalizeFixture('kpay-g.json');
+    expect(errors).toEqual({ items: {}, discounts: {} });
+    expect(normalized.date).toBe('2026-09-08');
+    expect(normalized.totalCents).toBe(500);
+    expect(normalized.payment).toEqual({ method: 'card', cardLast4: '1111' });
+
+    const r = addPaymentOnlyItem(normalized);
+    expect(r.items).toEqual([{ name: 'GREEN STALL DEMO', amountCents: 500, categoryId: null }]);
+    expect(checkReceipt(r)).toEqual({ ok: true });
+  });
+
   it('R20.1/R2.3: normalized results have no 8+ digit runs and no card field except payment.cardLast4', () => {
-    for (const name of [
-      'coles-a.json',
-      'grocer-b.json',
-      'bad-total.json',
-      'coles-e.json',
-      'noisy.json',
-    ] as const) {
+    for (const name of ALL_FIXTURES) {
       const { receipt: r } = normalizeFixture(name);
       expect(JSON.stringify(r), name).not.toMatch(/\d{8,}/);
 
@@ -244,6 +279,29 @@ describe('R20.2 normalizeReceipt: amounts', () => {
     }
   });
 
+  it('R-J R20.2: AUD before or after the amount is dropped, case-insensitive', () => {
+    const cases: [string, number][] = [
+      ['AUD 5.00', 500],
+      ['AUD $20.60', 2060],
+      ['5.00 AUD', 500],
+      ['aud 5.00', 500],
+      ['AUD -$0.80', -80],
+    ];
+    for (const [total, cents] of cases) {
+      const { receipt: r, errors } = normalizeReceipt(raw({ total }), CATEGORIES, TODAY);
+      expect(r.totalCents, total).toBe(cents);
+      expect(errors.total, total).toBeUndefined();
+    }
+  });
+
+  it('R-J R20.2: AUD alone or AUDD is a bad amount', () => {
+    for (const total of ['AUD', 'AUDD 5.00']) {
+      const { receipt: r, errors } = normalizeReceipt(raw({ total }), CATEGORIES, TODAY);
+      expect(r.totalCents, total).toBeNull();
+      expect(errors.total, total).toMatch(/总额/);
+    }
+  });
+
   it('R20.2: bad total and bad discount are reported separately', () => {
     const { receipt: r, errors } = normalizeReceipt(
       raw({ total: 'TEN', discounts: [{ label: 'DISCOUNT', amount: 'x' }] }),
@@ -267,15 +325,93 @@ describe('R20.2 normalizeReceipt: dates', () => {
     expect(dateOf(' 01/02/26 ').receipt.date).toBe('2026-02-01');
     expect(dateOf('29/10/2026').receipt.date).toBe(TODAY); // 今天可以
     expect(dateOf('24/10/26').errors.date).toBeUndefined();
+    // 2026-11-08 放宽：一位数的日、月和 YYYY-MM-DD 也认
+    expect(dateOf('1/9/26').receipt.date).toBe('2026-09-01');
+    expect(dateOf('2026-10-24').receipt.date).toBe('2026-10-24');
   });
 
   it('R20.2: impossible, future or unreadable dates are left empty with an error', () => {
-    for (const date of ['31/02/2026', '30/10/2026', '30/10/26', '2026-10-24', '1/9/26', '', null]) {
+    for (const date of ['31/02/2026', '30/10/2026', '30/10/26', '', null]) {
       const { receipt: r, errors } = dateOf(date);
       expect(r.date, String(date)).toBeNull();
       expect(errors.date, String(date)).toBeTruthy();
     }
     expect(dateOf('30/10/2026').errors.date).toMatch(/今天/);
+  });
+});
+
+describe('R-J R20.2 normalizeReceipt: EFTPOS date formats (today 2026-11-08)', () => {
+  const TODAY_J = '2026-11-08';
+  const dateOf = (date: string) => normalizeReceipt(raw({ date }), CATEGORIES, TODAY_J);
+
+  it('R-J R20.2: each format becomes YYYY-MM-DD, time at the end is dropped', () => {
+    const cases: [string, string][] = [
+      ['NOV 08, 26', '2026-11-08'],
+      ['Nov 8 2026', '2026-11-08'],
+      ['November 8, 2026', '2026-11-08'],
+      ['8/11/2026 11:30:53', '2026-11-08'],
+      ['08 November 2026', '2026-11-08'],
+      ['8 Nov 26 12:03 PM', '2026-11-08'],
+      ['2026-11-08', '2026-11-08'],
+      ['11/8/2026', '2026-08-11'], // 日在前
+      ['8 Nov 2026', '2026-11-08'],
+      ['nov 8, 2026', '2026-11-08'], // 不区分大小写
+      ['SEP 28, 26', '2026-09-28'],
+      ['8/9/2026 11:30:53', '2026-09-08'],
+    ];
+    for (const [input, expected] of cases) {
+      const { receipt: r, errors } = dateOf(input);
+      expect(r.date, input).toBe(expected);
+      expect(errors.date, input).toBeUndefined();
+    }
+  });
+
+  it('R-J R20.2: day that does not exist or text that is not a date → unreadable', () => {
+    for (const input of ['31/11/2026', 'XX/XX', 'NOV 31, 26', 'Foo 8, 2026', '2026-11-31']) {
+      const { receipt: r, errors } = dateOf(input);
+      expect(r.date, input).toBeNull();
+      expect(errors.date, input).toMatch(/日期不对/);
+    }
+  });
+
+  it('R-J R20.2: date after today → error', () => {
+    const { receipt: r, errors } = dateOf('NOV 09, 26');
+    expect(r.date).toBeNull();
+    expect(errors.date).toMatch(/今天/);
+  });
+});
+
+describe('R20.2 addPaymentOnlyItem', () => {
+  const normalized = (over: Partial<RawReceipt>) =>
+    normalizeReceipt(raw(over), CATEGORIES, TODAY).receipt;
+
+  it('R20.2: items and discounts both empty, total > 0 → one item named after the merchant', () => {
+    const r = addPaymentOnlyItem(normalized({ merchant: ' NAB SHOP ', total: '7.50', items: [] }));
+    expect(r.items).toEqual([{ name: 'NAB SHOP', amountCents: 750, categoryId: null }]);
+    expect(checkReceipt(r)).toEqual({ ok: true });
+  });
+
+  it('R20.2: empty merchant → item named 付款单', () => {
+    const r = addPaymentOnlyItem(normalized({ merchant: '  ', items: [] }));
+    expect(r.items).toEqual([{ name: '付款单', amountCents: 1000, categoryId: null }]);
+  });
+
+  it('R20.2: nothing added when there are items, discounts, or no positive total', () => {
+    const cases: Partial<RawReceipt>[] = [
+      {}, // 已经有一件
+      { items: [], discounts: [{ label: 'DISCOUNT', amount: '-1.00' }] },
+      { items: [], total: 'TEN' },
+      { items: [], total: '0.00' },
+      { items: [], total: '-5.00' },
+    ];
+    for (const over of cases) {
+      const before = normalized(over);
+      expect(addPaymentOnlyItem(before), JSON.stringify(over)).toEqual(before);
+    }
+  });
+
+  it('R20.2: checkReceipt alone does not add an item (user removed all items → still no_items)', () => {
+    expect(codes(receipt({ items: [] }))).toContain('no_items');
   });
 });
 

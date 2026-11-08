@@ -3,9 +3,15 @@ import { processFile } from '@/lib/import/process';
 import { readFixture, readReceiptFixture } from '../../../tests/helpers/fixtures';
 import { buildTestHousehold } from '../../../tests/helpers/household';
 import type { ManualAccount, ManualContext } from './manual';
-import { normalizeReceipt, rawReceiptSchema, type NormalizedReceipt } from './receipt';
+import {
+  addPaymentOnlyItem,
+  normalizeReceipt,
+  rawReceiptSchema,
+  type NormalizedReceipt,
+} from './receipt';
 import {
   buildReceiptTransaction,
+  cardMatches,
   defaultReceiptAccount,
   findReceiptCandidates,
   needsOverwriteConfirm,
@@ -172,6 +178,108 @@ describe('R20.4 findReceiptCandidates', () => {
   });
 });
 
+// ---------- R20.4 卡号"对得上"（2026-11-08） ----------
+
+// eftpos-f：FRUIT STALL DEMO，2026-09-28，总额 12.30，卡 222（只有后 3 位）
+const EFTPOS_F = addPaymentOnlyItem(fixture('eftpos-f.json'));
+// R-H：本家庭再加一张卡 5222，在 ANZ Male 上
+const CARD_5222: Card = {
+  id: 'card:ANZ Male:5222',
+  accountId: male.id,
+  last4: '5222',
+  memberId: mem('Male'),
+};
+const CARDS_H: Card[] = [...h.cards, CARD_5222];
+
+// 默认是一笔能匹配 eftpos-f 的交易
+const txF = (over: Partial<ReceiptCandidateTx> = {}) =>
+  tx({ date: '2026-09-29', amountCents: -1230, ...over });
+
+describe('R20.4 cardMatches', () => {
+  it('R20.4: card last4 ends with the receipt cardLast4', () => {
+    expect(cardMatches('2222', '222')).toBe(true);
+    expect(cardMatches('5222', '222')).toBe(true);
+    expect(cardMatches('2222', '2222')).toBe(true);
+    expect(cardMatches('5222', '2222')).toBe(false);
+    expect(cardMatches('2221', '222')).toBe(false);
+    expect(cardMatches('1111', '866')).toBe(false);
+  });
+});
+
+describe('R20.4 findReceiptCandidates: 3-digit card', () => {
+  it('R-F: eftpos-f on an empty database → no candidates', () => {
+    expect(findReceiptCandidates(EFTPOS_F, '222', [], h.cards)).toEqual({
+      candidates: [],
+      defaultId: null,
+    });
+  });
+
+  it('R-F: 222 matches card 2222 → only ANZ Joint; transaction card_last4 2222 matches, 1111 does not', () => {
+    const r = findReceiptCandidates(
+      EFTPOS_F,
+      '222',
+      [
+        txF({ id: 'joint-2222', cardLast4: '2222' }),
+        txF({ id: 'joint-no-card' }),
+        txF({ id: 'joint-1111', cardLast4: '1111' }),
+        txF({ id: 'male-account', accountId: male.id }),
+      ],
+      h.cards,
+    );
+    expect(ids(r)).toEqual(['joint-2222', 'joint-no-card']);
+  });
+
+  it('R-H: 222 matches 2222 (ANZ Joint) and 5222 (ANZ Male) → candidates from both accounts', () => {
+    const r = findReceiptCandidates(
+      EFTPOS_F,
+      '222',
+      [
+        txF({ id: 'joint-2222', cardLast4: '2222' }),
+        txF({ id: 'male-5222', accountId: male.id, cardLast4: '5222' }),
+        txF({ id: 'male-no-card', accountId: male.id }),
+        txF({ id: 'male-3333', accountId: male.id, cardLast4: '3333' }),
+        txF({ id: 'cba', accountId: h.account('CBA Female').id }),
+      ],
+      CARDS_H,
+    );
+    expect(ids(r).sort()).toEqual(['joint-2222', 'male-5222', 'male-no-card']);
+    expect(r.defaultId).toBeNull();
+  });
+
+  it('R20.4: a 4-digit receipt card still has to be the same card (2222 does not match 5222)', () => {
+    const r = findReceiptCandidates(
+      fixture('coles-e.json'),
+      '2222',
+      [
+        tx({ id: 'joint', date: '2026-09-29', amountCents: -2345 }),
+        tx({ id: 'male-5222', accountId: male.id, date: '2026-09-29', amountCents: -2345 }),
+      ],
+      CARDS_H,
+    );
+    expect(ids(r)).toEqual(['joint']);
+  });
+
+  it('R20.4: sort puts transactions whose card_last4 matches the 3 digits first', () => {
+    const r = findReceiptCandidates(
+      EFTPOS_F,
+      '222',
+      [txF({ id: 'no-card', date: '2026-09-28' }), txF({ id: 'card', cardLast4: '2222' })],
+      h.cards,
+    );
+    expect(ids(r)).toEqual(['card', 'no-card']);
+  });
+
+  it('R-I: 866 matches no card → no card filter', () => {
+    const r = findReceiptCandidates(
+      EFTPOS_F,
+      '866',
+      [txF({ id: 'joint-2222', cardLast4: '2222' }), txF({ id: 'male', accountId: male.id })],
+      h.cards,
+    );
+    expect(ids(r).sort()).toEqual(['joint-2222', 'male']);
+  });
+});
+
 // ---------- R20.5 默认账户 ----------
 
 const cashA: ManualAccount = {
@@ -237,6 +345,41 @@ describe('R20.5 defaultReceiptAccount', () => {
     );
   });
 
+  it('R-F: 222 matches card 2222 → ANZ Joint', () => {
+    expect(defaultReceiptAccount('card', '222', h.cards, ACCOUNTS, male.id)).toEqual({
+      accountId: joint.id,
+      cardAccountIds: [joint.id],
+    });
+  });
+
+  it('R-G: kpay-g card 1111 → ANZ Joint', () => {
+    const g = fixture('kpay-g.json');
+    expect(
+      defaultReceiptAccount(g.payment.method, g.payment.cardLast4, h.cards, ACCOUNTS, male.id),
+    ).toEqual({ accountId: joint.id, cardAccountIds: [joint.id] });
+  });
+
+  it('R-H: 222 matches 2222 (ANZ Joint) and 5222 (ANZ Male) → no default, choose between the two', () => {
+    expect(defaultReceiptAccount('card', '222', CARDS_H, ACCOUNTS, male.id)).toEqual({
+      accountId: null,
+      cardAccountIds: [joint.id, male.id],
+    });
+  });
+
+  it('R-H: only card 5222 left → ANZ Male', () => {
+    expect(defaultReceiptAccount('card', '222', [CARD_5222], ACCOUNTS, joint.id)).toEqual({
+      accountId: male.id,
+      cardAccountIds: [male.id],
+    });
+  });
+
+  it('R-I: 866 matches no card → last account (R17.2)', () => {
+    expect(defaultReceiptAccount('card', '866', h.cards, ACCOUNTS, male.id)).toEqual({
+      accountId: male.id,
+      cardAccountIds: [],
+    });
+  });
+
   it('R20.5: unknown → last account; archived or missing last account → none', () => {
     expect(defaultReceiptAccount('unknown', null, h.cards, ACCOUNTS, male.id).accountId).toBe(
       male.id,
@@ -288,6 +431,21 @@ describe('R20.5 buildReceiptTransaction', () => {
       memberId: mem('Home'),
       memberSource: 'category',
     });
+  });
+
+  it('R-F: eftpos-f → new ANZ Joint pending, 2026-09-28, -12.30, card_last4 empty', () => {
+    const r = buildReceiptTransaction(EFTPOS_F, joint.id, ctx);
+    if (!r.ok) throw new Error(JSON.stringify(r.errors));
+    expect(r.transaction).toMatchObject({
+      accountId: joint.id,
+      date: '2026-09-28',
+      amountCents: -1230,
+      rawDescription: 'FRUIT STALL DEMO',
+      status: 'pending',
+      cardLast4: null,
+      source: 'receipt',
+    });
+    expect(r.split.amountCents).toBe(-1230);
   });
 
   it('R8.1: cash accounts are confirmed', () => {

@@ -17,7 +17,7 @@ JSON format (every amount and the date are strings copied exactly as printed):
   "total": "amount paid as printed, e.g. 46.12",
   "items": [{ "name": "item name as printed", "amount": "line price, e.g. 4.50 or -0.80", "category": null }],
   "discounts": [{ "label": "discount line text", "amount": "negative, e.g. -2.04" }],
-  "payment": { "method": "card" | "cash" | "unknown", "cardLast4": "last 4 card digits or null" }
+  "payment": { "method": "card" | "cash" | "unknown", "cardLast4": "last 3 or 4 card digits or null" }
 }
 
 Rules:
@@ -29,7 +29,11 @@ Rules:
 6. Do not return any person's name (customer, cashier, manager), terminal or register number, ABN or phone number.
 7. "category": use null for food and for anything that fits what this shop mainly sells. Only for items clearly outside that (household supplies, cosmetics, toiletries, medicine, alcohol and so on) pick exactly one category string from the list the user gives. Never invent a category.
 8. "total" is the amount actually paid after all discounts. The item amounts plus the discounts should add up to it.
-9. "payment.method": "card" if paid by card or EFTPOS, "cash" if paid in cash, otherwise "unknown". "cardLast4" is the last 4 digits of the card number if printed, otherwise null.`;
+9. "payment.method": "card" if paid by card or EFTPOS, "cash" if paid in cash, otherwise "unknown".
+10. "merchant" is the shop's name, not the payment provider or terminal brand. On EFTPOS slips the first line is often "NAB EFTPOS", "KPay", "Square" or "Tyro"; the shop name is printed below it.
+11. "date" is the transaction date. Copy only the date part as printed, without the time. "Expiry: XX/XX" is the card's expiry, not the date.
+12. If the receipt is only an EFTPOS payment slip (only amount lines like SALE, TOTAL or PURCHASE, no item lines), return "items" as [] and do not turn the total into an item.
+13. "cardLast4": the last 3 or 4 digits of the printed card number, without any leading "*", "X" or ".". "462239-866" is the first 6 digits and the last 3, so use "866", not the digits before the dash. "Mastercard 2154" gives "2154". If you cannot tell which digits are the last ones, use null.`;
 
 // 分类列表就是发出去的唯一文字数据
 export function buildCategoryText(categories: string[]): string {

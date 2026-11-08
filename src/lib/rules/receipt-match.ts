@@ -38,6 +38,13 @@ export type ReceiptCandidates = { candidates: ReceiptCandidateTx[]; defaultId: s
 // 银行入账不早于消费，最多晚 3 天（同 R8.2）
 const MAX_DAYS_LATER = 3;
 
+// R20.4"对得上"（2026-11-08 改，原来是"相同"）：卡的 4 位尾号以小票的 cardLast4 结尾
+// 小票 4 位时就是相同；3 位时（NAB 只打后 3 位）可能对上几张卡。交易的 card_last4 也这样比
+// R20.4 的过滤、排序和 R20.5 的默认账户都用这个
+export function cardMatches(last4: string, receiptCardLast4: string): boolean {
+  return last4.endsWith(receiptCardLast4);
+}
+
 // R20.4：receipt 是通过 checkReceipt 的（日期、总额有值）。cardLast4 是 reader 读到的，只在内存里用
 export function findReceiptCandidates(
   receipt: Pick<NormalizedReceipt, 'merchant' | 'date' | 'totalCents'>,
@@ -49,11 +56,13 @@ export function findReceiptCandidates(
   if (date === null || totalCents === null)
     throw new Error('小票没有日期或总额，先过 checkReceipt');
 
-  // 卡号：card 表里有这个尾号 → 只在这些卡所在的账户里找；没有就不按卡号过滤
+  // 卡号：card 表里有对得上的卡 → 只在这些卡所在的账户里找；没有就不按卡号过滤
   const cardAccountIds = cardLast4
-    ? new Set(cards.filter((c) => c.last4 === cardLast4).map((c) => c.accountId))
+    ? new Set(cards.filter((c) => cardMatches(c.last4, cardLast4)).map((c) => c.accountId))
     : new Set<string>();
   const filterByCard = cardAccountIds.size > 0;
+  const txCardMatches = (t: ReceiptCandidateTx) =>
+    cardLast4 !== null && t.cardLast4 !== null && cardMatches(t.cardLast4, cardLast4);
 
   const keyword = suggestKeyword(cleanMerchant(receipt.merchant)).toUpperCase();
 
@@ -66,19 +75,19 @@ export function findReceiptCandidates(
       if (t.hasReceipt) return false;
       if (filterByCard) {
         if (!cardAccountIds.has(t.accountId)) return false;
-        if (t.cardLast4 !== null && t.cardLast4 !== cardLast4) return false;
+        if (t.cardLast4 !== null && !txCardMatches(t)) return false;
       }
       return true;
     })
     .map((t, index) => ({
       t,
       index,
-      sameCard: cardLast4 !== null && t.cardLast4 === cardLast4,
+      sameCard: txCardMatches(t),
       hasKeyword: keyword !== '' && t.merchant.toUpperCase().includes(keyword),
       gap: daysBetween(date, t.date),
     }));
 
-  // 排序：同卡号在前 → 商家含关键词在前 → 日期差小的在前 → 原来的顺序
+  // 排序：卡号对得上的在前 → 商家含关键词在前 → 日期差小的在前 → 原来的顺序
   ranked.sort(
     (a, b) =>
       Number(b.sameCard) - Number(a.sameCard) ||
@@ -116,13 +125,13 @@ export function defaultReceiptAccount(
 
   if (method === 'card' && cardLast4) {
     const cardAccountIds = active
-      .filter((a) => cards.some((c) => c.accountId === a.id && c.last4 === cardLast4))
+      .filter((a) => cards.some((c) => c.accountId === a.id && cardMatches(c.last4, cardLast4)))
       .map((a) => a.id);
     if (cardAccountIds.length === 1) return { accountId: cardAccountIds[0], cardAccountIds };
     if (cardAccountIds.length > 1) return { accountId: null, cardAccountIds };
   }
 
-  // card 没有尾号或表里没有、unknown → 上次账户
+  // card 没有尾号或表里没有对得上的、unknown → 上次账户
   return { accountId: last, cardAccountIds: [] };
 }
 
