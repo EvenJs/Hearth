@@ -1,0 +1,11 @@
+{
+  "merchant": "FRUIT STALL DEMO",
+  "date": "SEP 28, 26",
+  "total": "AUD $12.30",
+  "items": [],
+  "discounts": [],
+  "payment": {
+    "method": "card",
+    "cardLast4": "222"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "merchant": "GREEN STALL DEMO",
+  "date": "8/9/2026 11:30:53",
+  "total": "AUD 5.00",
+  "items": [],
+  "discounts": [],
+  "payment": {
+    "method": "card",
+    "cardLast4": "1111"
+  }
+}
