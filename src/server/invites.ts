@@ -26,6 +26,12 @@ import { linkHouseholdUser, SHARED_MEMBER_NAME, seedNewHousehold } from './seed'
 
 // ---------- 发码（R26.2） ----------
 
+// 设置 → 邀请显示不显示"新建家庭"。真正拦的是 createInvite 里的判断
+export async function canIssueNewHousehold(ctx: HouseholdContext): Promise<boolean> {
+  const [me] = await db.select({ email: user.email }).from(user).where(eq(user.id, ctx.userId));
+  return !!me && canIssue('new_household', me.email, parseAdminEmails(process.env.ADMIN_EMAILS));
+}
+
 export type CreateInviteInput = { purpose: InvitePurpose; memberId?: string | null };
 export type CreateInviteResult =
   { ok: true; id: string; code: string } | { ok: false; message: string };
@@ -172,13 +178,16 @@ export type RegisterResult =
   | { ok: true; userId: string; email: string; emailSent: boolean; message: string }
   | { ok: false; field: RegisterField; message: string };
 
+// R26.4 名字整理。R26.8 改名字也用这个
+export const userNameSchema = z
+  .string()
+  .transform((v) => v.trim().replace(/\s+/g, ' '))
+  .pipe(z.string().min(1, '请填名字').max(30, '名字最多 30 个字'));
+
 // R26.4 字段整理
 const registerSchema = z.object({
   email: z.string().trim().toLowerCase().pipe(z.email('邮箱格式不对')),
-  name: z
-    .string()
-    .transform((v) => v.trim().replace(/\s+/g, ' '))
-    .pipe(z.string().min(1, '请填名字').max(30, '名字最多 30 个字')),
+  name: userNameSchema,
   password: z.string().min(8, '密码至少 8 位').max(128, '密码最多 128 位'),
   code: z.string(),
 });
