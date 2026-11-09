@@ -11,6 +11,7 @@ export type ReadResult =
 export interface ReceiptReader {
   id: 'llm' | 'text';
   input: 'image' | 'text'; // 核对界面据此显示"拍照"还是"粘贴文字"
+  metered: boolean; // R26.9 真的会调 LLM，调之前要过限额、记一次
   // categories：本家庭能选的支出二级分类，格式 `一级 / 二级`（R20.1a）
   // 不抛错，失败返回 { ok: false, reason }
   read(input: ReceiptInput, categories: string[]): Promise<ReadResult>;

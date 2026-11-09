@@ -18,6 +18,7 @@ const image = () => ({
 function fakeClient(result: LlmResult | (() => Promise<LlmResult>)) {
   const requests: LlmChatRequest[] = [];
   const client: LlmClient = {
+    configured: true,
     async chat(request) {
       requests.push(request);
       return typeof result === 'function' ? result() : result;
