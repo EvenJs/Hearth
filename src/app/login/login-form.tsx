@@ -26,7 +26,9 @@ const loginSchema = z.object({
 type LoginValues = z.infer<typeof loginSchema>;
 
 // 不区分邮箱错还是密码错，统一一句提示
-function toErrorMessage(status: number) {
+function toErrorMessage({ status, code }: { status: number; code?: string }) {
+  // R26.7 密码对但邮箱没验证。"重发验证邮件"按钮 M12-5 加
+  if (code === 'EMAIL_NOT_VERIFIED') return '邮箱还没验证，去邮箱点验证链接';
   if (status === 429) return '尝试次数太多，请稍后再试';
   if (status === 400 || status === 401 || status === 403) return '邮箱或密码不正确';
   return '登录失败，请稍后再试';
@@ -46,7 +48,7 @@ export function LoginForm() {
     setFormError(null);
     const { error } = await authClient.signIn.email(values);
     if (error) {
-      setFormError(toErrorMessage(error.status));
+      setFormError(toErrorMessage(error));
       return;
     }
     // 先清空表单，避免密码留在保留下来的页面状态里

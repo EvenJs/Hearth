@@ -20,6 +20,7 @@ import {
   type InvitePurpose,
   type InviteStatus,
 } from '@/lib/rules/invite';
+import { sendVerificationAfterSignup } from './auth-email';
 import type { HouseholdContext } from './context';
 import { linkHouseholdUser, SHARED_MEMBER_NAME, seedNewHousehold } from './seed';
 
@@ -168,7 +169,7 @@ export async function revokeInvite(ctx: HouseholdContext, id: string): Promise<R
 export type RegisterInput = { email: string; name: string; password: string; code: string };
 export type RegisterField = 'email' | 'name' | 'password' | 'code' | 'form';
 export type RegisterResult =
-  | { ok: true; userId: string; email: string }
+  | { ok: true; userId: string; email: string; emailSent: boolean; message: string }
   | { ok: false; field: RegisterField; message: string };
 
 // R26.4 字段整理
@@ -230,7 +231,7 @@ function isEmailUniqueViolation(err: unknown): boolean {
   return code === '23505' && constraint === 'user_email_unique';
 }
 
-// 登录前调用，不拿 HouseholdContext。不发邮件（M12-4 接），注册完不自动登录
+// 登录前调用，不拿 HouseholdContext。提交以后发验证邮件，注册完不自动登录
 // 方案 a（M12-0）：不走 Better Auth 注册接口，user、account 直接用我们的事务插，和码一起回滚
 // 只从 auth.$context 拿密码 hash 和 id 生成（半内部 API，升级 better-auth 后要重测，同 scripts/create-user.ts）
 export async function registerWithInvite(input: RegisterInput): Promise<RegisterResult> {
@@ -325,5 +326,15 @@ export async function registerWithInvite(input: RegisterInput): Promise<Register
     return TRY_AGAIN;
   }
 
-  return { ok: true, userId, email };
+  // R26.5 提交以后：邮件发不出去账号也不回滚
+  const emailSent = await sendVerificationAfterSignup(email);
+  return {
+    ok: true,
+    userId,
+    email,
+    emailSent,
+    message: emailSent
+      ? `验证邮件已经发到 ${email}，点邮件里的链接再登录`
+      : '注册成功了，但验证邮件没发出去，请联系站长',
+  };
 }

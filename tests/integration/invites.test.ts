@@ -1,6 +1,7 @@
 // M12-3 邀请码的数据层：发码、撤销、列表、用码注册（docs/rules/R26-invite.md R26.1 到 R26.6）
 // 期望值来自 fixtures/cases/17-invite.md，现在 = 2026-12-10T10:00:00+11:00。家庭、用户、码按用例直接插表
-// 只假 Date（数据库连接不受影响）。发邮件（D-12）、登录验证（E）在 M12-4 测
+// 只假 Date（数据库连接不受影响）。登录验证（E）、忘记密码（F）在 auth-email.test.ts
+import { inspect } from 'node:util';
 import { eq, inArray, like } from 'drizzle-orm';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { db } from '@/db';
@@ -49,6 +50,22 @@ vi.mock('@/server/seed', async (importOriginal) => {
     linkHouseholdUser: async (...args: Parameters<typeof real.linkHouseholdUser>) => {
       if (fault.failLink) throw new Error('故意抛错');
       return real.linkHouseholdUser(...args);
+    },
+  };
+});
+// 不真的发邮件：记下发给谁、正文。D-12：failMail 时 sendEmail 抛错
+const mail = vi.hoisted(() => ({
+  sent: [] as { to: string; subject: string; html: string }[],
+  failMail: false,
+}));
+vi.mock('@/server/email', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/server/email')>();
+  return {
+    ...real,
+    sendEmail: async (to: string, subject: string, html: string) => {
+      if (mail.failMail) throw new Error('SMTP 故意抛错');
+      mail.sent.push({ to, subject, html });
+      return { ok: true } as const;
     },
   };
 });
@@ -271,6 +288,8 @@ describeDb('邀请码数据层（R26）', () => {
     fault.codes = [];
     fault.failSeed = false;
     fault.failLink = false;
+    mail.sent = [];
+    mail.failMail = false;
     await resetBusinessTables();
     await deleteExampleUsers();
     await seedBase();
@@ -457,6 +476,11 @@ describeDb('邀请码数据层（R26）', () => {
   it('R26.5: registered password works with Better Auth sign-in', async () => {
     vi.useRealTimers(); // session 过期时间按真的现在算
     await register({ email: 'kid@example.com', code: 'HX7K-29QD' });
+    // R26.7 没验证不能登录（E-1 在 auth-email.test.ts 测），这里只看密码 hash 能用
+    await db
+      .update(schema.user)
+      .set({ emailVerified: true })
+      .where(eq(schema.user.email, 'kid@example.com'));
     const res = await auth.api.signInEmail({
       body: { email: 'kid@example.com', password: PASSWORD },
     });
@@ -718,5 +742,44 @@ describeDb('邀请码数据层（R26）', () => {
     expect(used.filter((i) => i.usedBy !== null)).toEqual([
       expect.objectContaining({ usedBy: u.id }),
     ]);
+  });
+
+  // ---------- 场景 D-12 ----------
+
+  it('R26.5: after commit a verification email goes to the new user', async () => {
+    const r = await register({ email: 'kid@example.com', code: 'HX7K-29QD' });
+    expect(r).toMatchObject({
+      ok: true,
+      emailSent: true,
+      message: '验证邮件已经发到 kid@example.com，点邮件里的链接再登录',
+    });
+    expect(mail.sent).toHaveLength(1);
+    expect(mail.sent[0].to).toBe('kid@example.com');
+    expect(mail.sent[0].html).toContain('/api/auth/verify-email?token=');
+  });
+
+  it('R26.5: verification email failure keeps the account and the used invite, logs no secrets', async () => {
+    mail.failMail = true;
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const r = await register({ email: 'kid@example.com', code: 'HX7K-29QD' });
+    const logged = errors.mock.calls
+      .flat()
+      .map((arg) => inspect(arg, { depth: 5 }))
+      .join('\n');
+    errors.mockRestore();
+
+    expect(r).toMatchObject({
+      ok: true,
+      emailSent: false,
+      message: '注册成功了，但验证邮件没发出去，请联系站长',
+    });
+    const u = await findUser('kid@example.com');
+    expect(u).toBeDefined();
+    expect(await linkOf(u.id)).toBeDefined();
+    expect(await getInvite('I1')).toMatchObject({ usedBy: u.id, usedAt: NOW });
+
+    expect(logged).not.toMatch(/HX7K|29QD/i);
+    expect(logged).not.toContain(PASSWORD);
+    expect(logged).not.toContain('token=');
   });
 });
