@@ -60,6 +60,7 @@ export function createLlmReader(client: LlmClient): ReceiptReader {
   return {
     id: 'llm',
     input: 'image',
+    metered: client.configured, // R26.9 没配 LLM_* 不发请求，不算次数
     async read(input: ReceiptInput, categories: string[]): Promise<ReadResult> {
       if (input.kind !== 'image') return { ok: false, reason: 'llm reader 只收图片' };
       try {

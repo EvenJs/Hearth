@@ -5,6 +5,7 @@
 // - 入口按当前 reader 显示：image → 选图；没有 reader（none）→ 直接打开空的核对界面，不调 LLM
 //   text reader 不做（R20.1b），所以只有这两种
 // - 取消识别：丢掉结果，什么都不存（识别本来就不写库）
+// - 识别限额（R26.9）：打开时查本月还能识别几次；用完了选图按钮变灰，能手动填。服务端调用前会再查一次
 // 图片只在这次请求的内存里，不保存
 import { Camera, ImageUp, Loader2 } from 'lucide-react';
 import { useRef, useState } from 'react';
@@ -19,8 +20,8 @@ import {
 } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
-import type { ReceiptDraft } from '@/server/receipts';
-import { scanReceiptAction } from './actions';
+import type { ReceiptDraft, ReceiptQuota } from '@/server/receipts';
+import { receiptQuotaAction, scanReceiptAction } from './actions';
 import { compressReceiptImage, UnreadableImageError } from './compress-image';
 import { ReceiptReview, type ReceiptReviewVariant } from './receipt-review';
 
@@ -41,6 +42,8 @@ export function useReceiptFlow(opts: {
   const [variant, setVariant] = useState<ReceiptReviewVariant>('dialog');
   const [phase, setPhase] = useState<Phase>({ kind: 'pick' });
   const [session, setSession] = useState(0);
+  // 没查回来、或者不是 llm reader 时是 null：不显示次数，按钮能点
+  const [quota, setQuota] = useState<ReceiptQuota | null>(null);
   const latest = useRef(0); // 关掉或重新开始后，旧的识别结果丢掉
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -67,6 +70,11 @@ export function useReceiptFlow(opts: {
     if (inputMode === 'image') {
       // 先停在"选图"这一步，用户点按钮才打开文件选择（不自动弹）
       setPhase({ kind: 'pick' });
+      // 每次打开都重新查：上次识别过、或者家里别人用过，次数都会变
+      setQuota(null);
+      void receiptQuotaAction().then((q) => {
+        if (latest.current === id) setQuota(q);
+      });
     } else {
       setPhase({ kind: 'reading', message: '打开中…' });
       void scan(id, null);
@@ -98,7 +106,13 @@ export function useReceiptFlow(opts: {
     await scan(id, image);
   }
 
+  function manualFill() {
+    setPhase({ kind: 'reading', message: '打开中…' });
+    void scan(latest.current, null);
+  }
+
   const sheet = variant === 'sheet';
+  const quotaUsedUp = quota !== null && !quota.canRead;
 
   const body =
     phase.kind === 'review' ? (
@@ -127,11 +141,30 @@ export function useReceiptFlow(opts: {
         <Button
           size="lg"
           className="h-12 w-full max-w-xs text-base"
+          disabled={quotaUsedUp}
           onClick={() => fileInput.current?.click()}
         >
           {sheet ? <Camera className="size-5" /> : <ImageUp className="size-5" />}
           {sheet ? '拍照或选图' : '选一张小票照片'}
         </Button>
+        {quota && (
+          <p
+            className={cn('text-sm', quotaUsedUp ? 'text-destructive' : 'text-muted-foreground')}
+            aria-live="polite"
+          >
+            {quota.text}
+          </p>
+        )}
+        {quotaUsedUp && (
+          <Button
+            variant="outline"
+            size={sheet ? 'lg' : 'default'}
+            className="w-full max-w-xs"
+            onClick={manualFill}
+          >
+            手动填
+          </Button>
+        )}
         <Button variant="ghost" onClick={close}>
           取消
         </Button>

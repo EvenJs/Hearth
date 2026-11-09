@@ -1,35 +1,43 @@
 import type { Metadata } from 'next';
-import { HearthLogo } from '@/components/hearth-logo';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { LoginForm } from './login-form';
+import Link from 'next/link';
+import { Suspense } from 'react';
+import { AuthShell } from '@/components/auth-shell';
+import { LoginForm, type LoginNotice } from './login-form';
 
 export const metadata: Metadata = {
   title: '登录 · Hearth',
 };
 
-// 设计图 01-login。不开放注册，所以没有注册入口
-export default function LoginPage() {
+// 设计图 01-login。M12 起有邀请码才能注册（R26），这里放注册、忘记密码入口
+export default function LoginPage(props: PageProps<'/login'>) {
   return (
-    <main className="flex min-h-dvh items-center justify-center px-4 py-10">
-      <div className="flex w-full max-w-md flex-col gap-8">
-        <div className="flex flex-col items-center gap-2 text-center">
-          <HearthLogo className="size-11 text-primary" />
-          <p className="mt-2 text-lg">Hearth</p>
-          <p className="text-muted-foreground">家庭财务管理</p>
-        </div>
-
-        <Card className="gap-6 py-8">
-          <CardHeader className="px-6 sm:px-10">
-            <CardTitle className="text-lg">登录</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-6 px-6 sm:px-10">
-            <LoginForm />
-            <p className="text-center text-sm text-muted-foreground">
-              仅限家庭成员使用，不开放注册
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-    </main>
+    <AuthShell title="登录">
+      {/* 读 searchParams 的部分放在 Suspense 里（cacheComponents） */}
+      <Suspense fallback={<LoginForm notice={null} />}>
+        <LoginSection searchParams={props.searchParams} />
+      </Suspense>
+      <p className="text-center text-sm text-muted-foreground">
+        有邀请码？
+        <Link href="/signup" className="text-foreground underline-offset-4 hover:underline">
+          去注册
+        </Link>
+      </p>
+    </AuthShell>
   );
+}
+
+async function LoginSection({
+  searchParams,
+}: {
+  searchParams: PageProps<'/login'>['searchParams'];
+}) {
+  const params = await searchParams;
+  // R26.8 重置成功跳回来带 ?reset=1；R26.7 验证链接过期，Better Auth 带 ?error=（proxy 转过来）
+  const notice: LoginNotice =
+    params.reset === '1'
+      ? { kind: 'info', message: '密码改好了，请登录' }
+      : params.error
+        ? { kind: 'error', message: '链接过期了，回登录页重发验证邮件' }
+        : null;
+  return <LoginForm notice={notice} />;
 }

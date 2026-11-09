@@ -48,6 +48,7 @@ function fakeReader(name: `${string}.json`) {
   const reader: ReceiptReader = {
     id: 'llm',
     input: 'image',
+    metered: false, // 限额在 receipt-quota.test.ts 测，这里不写 llm_usage
     async read(_input, categories) {
       calls.push(categories);
       return {
@@ -63,6 +64,7 @@ function fakeReader(name: `${string}.json`) {
 const failingReader: ReceiptReader = {
   id: 'llm',
   input: 'image',
+  metered: false,
   read: async () => ({ ok: false, reason: 'HTTP 429' }),
 };
 
@@ -1113,6 +1115,7 @@ function rawReader(r: SaveReceiptInput['receipt']): ReceiptReader {
   return {
     id: 'llm',
     input: 'image',
+    metered: false, // 限额在 receipt-quota.test.ts 测，这里不写 llm_usage
     read: async () => ({ ok: true, raw: rawReceiptSchema.parse(r), reader: FAKE_READER_ID }),
   };
 }

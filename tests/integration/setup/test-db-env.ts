@@ -11,6 +11,9 @@ export function prepareTestDbEnv(): { enabled: boolean } {
   if (existsSync('.env.local')) process.loadEnvFile('.env.local');
 
   const env = process.env;
+  // 集成测试不真的发邮件（M12-4）：sendEmail 没配 SMTP 时返回失败
+  delete env.SMTP_USER;
+  delete env.SMTP_PASS;
   // 第一次调用时记下原始的 dev 串。之后 DATABASE_URL 已经被换掉，比较时用这个
   if (env.HEARTH_DEV_DATABASE_URL === undefined) {
     env.HEARTH_DEV_DATABASE_URL = env.DATABASE_URL ?? '';

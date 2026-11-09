@@ -39,4 +39,23 @@ describe('getReceiptReader（R20.1）', () => {
     );
     expect(result.ok).toBe(false);
   });
+
+  it('R26.9: llm reader is metered only when LLM_* is configured', () => {
+    expect(getReceiptReader({ RECEIPT_READER: 'llm' })?.metered).toBe(false);
+    expect(
+      getReceiptReader({
+        RECEIPT_READER: 'llm',
+        LLM_BASE_URL: 'https://llm.example.com/v1',
+        LLM_API_KEY: 'test-key',
+      })?.metered,
+    ).toBe(false);
+    expect(
+      getReceiptReader({
+        RECEIPT_READER: 'llm',
+        LLM_BASE_URL: 'https://llm.example.com/v1',
+        LLM_API_KEY: 'test-key',
+        LLM_VISION_MODEL: 'fake/model-1',
+      })?.metered,
+    ).toBe(true);
+  });
 });
