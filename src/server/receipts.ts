@@ -22,9 +22,11 @@ import {
   type ItemType,
   type ItemTypeMatch,
 } from '@/lib/rules/item-type';
+import { parseMonthlyLimit, quotaLeft, quotaText } from '@/lib/rules/llm-quota';
 import { cleanMerchant } from '@/lib/rules/merchant';
 import { addDays, todayInMelbourne } from '@/lib/rules/periods';
 import {
+  addPaymentOnlyItem,
   checkReceipt,
   normalizeReceipt,
   rawReceiptSchema,
@@ -53,6 +55,7 @@ import { isSelectableCategory } from '@/lib/rules/split-edit';
 import type { Card, TransferStatus } from '@/lib/rules/types';
 import type { HouseholdContext } from './context';
 import { getLearnedItemTypes, learnItemTypes } from './item-types';
+import { countLlmUsage, recordLlmUsage } from './llm-usage';
 import { lastManualAccountId, loadManualContext, type QuickAddCategory } from './manual';
 import { getReceiptReader, type ReceiptInput, type ReceiptReader } from './receipt-readers';
 import { lockTransaction, writeSplits, type LoadedTx } from './splits';
@@ -70,8 +73,12 @@ export type ReceiptCandidatesResult = {
 };
 
 // ok：读出来了；none：RECEIPT_READER = none，直接手动填；failed：识别失败，显示"暂时识别不了"
+// quota：本月识别次数用完了（R26.9），没调 LLM，直接手动填，不当作识别失败
 export type ReceiptReadStatus =
-  { status: 'ok' } | { status: 'none' } | { status: 'failed'; reason: string };
+  | { status: 'ok' }
+  | { status: 'none' }
+  | { status: 'failed'; reason: string }
+  | { status: 'quota'; message: string };
 
 export type ReceiptDraft = {
   read: ReceiptReadStatus;
@@ -122,9 +129,10 @@ const candidatesInputSchema = z.object({
 
 export type ReceiptCandidatesInput = z.input<typeof candidatesInputSchema>;
 
+// R20.1：3 或 4 位（有的机器只打后 3 位）
 const cardLast4Schema = z
   .string()
-  .regex(/^\d{4}$/)
+  .regex(/^\d{3,4}$/)
   .nullable();
 
 async function findCandidates(
@@ -235,12 +243,34 @@ function emptyReceipt(): NormalizedReceipt {
   };
 }
 
+// ---------- 识别限额（R26.9） ----------
+
+export type ReceiptQuota = { canRead: boolean; text: string };
+
+function monthlyLimit(): number {
+  return parseMonthlyLimit(process.env.RECEIPT_LLM_MONTHLY_LIMIT);
+}
+
+// R26.9 小票页上显示的次数。RECEIPT_READER 不是 llm 时返回 null，不显示
+export async function getReceiptQuota(
+  ctx: HouseholdContext,
+  reader: ReceiptReader | null = getReceiptReader(),
+  limit: number = monthlyLimit(),
+): Promise<ReceiptQuota | null> {
+  if (reader?.id !== 'llm') return null;
+  const today = todayInMelbourne();
+  const used = await countLlmUsage(ctx, 'receipt', today.slice(0, 7));
+  return { canRead: quotaLeft(used, limit) > 0, text: quotaText(used, limit, today) };
+}
+
 // R20.1、R20.2、R20.4、R20.5：拍小票进来。reader 是 null（none）或失败时返回空的草稿，让用户手动填
+// R26.9：会真的调 LLM 的 reader，调之前再查一次限额（按钮是页面打开时的状态），没用完就先记一次再调
 // 测试传假的 reader，不碰网络。不抛错（reader 自己不抛；万一抛了也当作识别失败）
 export async function scanReceipt(
   ctx: HouseholdContext,
   input: ReceiptInput,
   reader: ReceiptReader | null = getReceiptReader(),
+  limit: number = monthlyLimit(),
 ): Promise<ReceiptDraft> {
   const today = todayInMelbourne();
   const m = await loadManualContext(db, ctx, today);
@@ -250,6 +280,17 @@ export async function scanReceipt(
   let readerId = MANUAL_READER;
   let receiptValue = emptyReceipt();
   let errors: ReceiptFieldErrors = { items: {}, discounts: {} };
+
+  if (reader?.metered) {
+    const used = await countLlmUsage(ctx, 'receipt', today.slice(0, 7));
+    if (quotaLeft(used, limit) === 0) {
+      read = { status: 'quota', message: quotaText(used, limit, today) };
+      reader = null;
+    } else {
+      // 发请求之前写，之后成功失败都算这一次
+      await recordLlmUsage(ctx, 'receipt');
+    }
+  }
 
   if (reader !== null) {
     let result: Awaited<ReturnType<ReceiptReader['read']>>;
@@ -265,7 +306,8 @@ export async function scanReceipt(
       const normalized = normalizeReceipt(result.raw, categories, today);
       read = { status: 'ok' };
       readerId = result.reader;
-      receiptValue = normalized.receipt;
+      // R20.2 只有付款单时补一件，只在 reader 结果上补（saveReceipt 不补）
+      receiptValue = addPaymentOnlyItem(normalized.receipt);
       errors = normalized.errors;
     } else {
       read = { status: 'failed', reason: result.reason };

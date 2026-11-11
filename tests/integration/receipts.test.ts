@@ -48,6 +48,7 @@ function fakeReader(name: `${string}.json`) {
   const reader: ReceiptReader = {
     id: 'llm',
     input: 'image',
+    metered: false, // 限额在 receipt-quota.test.ts 测，这里不写 llm_usage
     async read(_input, categories) {
       calls.push(categories);
       return {
@@ -63,6 +64,7 @@ function fakeReader(name: `${string}.json`) {
 const failingReader: ReceiptReader = {
   id: 'llm',
   input: 'image',
+  metered: false,
   read: async () => ({ ok: false, reason: 'HTTP 429' }),
 };
 
@@ -1113,6 +1115,7 @@ function rawReader(r: SaveReceiptInput['receipt']): ReceiptReader {
   return {
     id: 'llm',
     input: 'image',
+    metered: false, // 限额在 receipt-quota.test.ts 测，这里不写 llm_usage
     read: async () => ({ ok: true, raw: rawReceiptSchema.parse(r), reader: FAKE_READER_ID }),
   };
 }
@@ -1577,5 +1580,165 @@ describeDb('商品类型：详情页改类型（R21.6）', () => {
     });
     expect(await storedJson(receiptId)).toEqual(before.json);
     expect(await db.$count(schema.itemTypeRule)).toBe(0);
+  });
+});
+
+describeDb('EFTPOS 付款单（R-F、R-H，M10-10）', () => {
+  beforeEach(async () => {
+    await resetBusinessTables();
+    t = await createTestHousehold();
+  });
+
+  // 核对界面拿到 scanReceipt 补好的那一件，原样传回来保存
+  const EFTPOS_F_REVIEWED = {
+    ...raw('eftpos-f.json'),
+    items: [{ name: 'FRUIT STALL DEMO', amount: '12.30', category: null }],
+  } as SaveReceiptInput['receipt'];
+
+  // R-H：本家庭再加一张卡 5222，在 ANZ Male 上
+  async function addCard5222() {
+    await db.insert(schema.card).values({
+      householdId: t.ctx.householdId,
+      accountId: t.h.account('ANZ Male').id,
+      last4: '5222',
+      memberId: t.h.member('Male').id,
+    });
+  }
+
+  it('R-F: eftpos-f on an empty database → one item added, check passes, no candidates; 222 → ANZ Joint', async () => {
+    const draft = await scanReceipt(t.ctx, IMAGE, fakeReader('eftpos-f.json').reader);
+
+    expect(draft.read).toEqual({ status: 'ok' });
+    expect(draft.receipt).toMatchObject({
+      merchant: 'FRUIT STALL DEMO',
+      date: '2026-09-28',
+      totalCents: 1230,
+      items: [{ name: 'FRUIT STALL DEMO', amountCents: 1230, categoryId: null }],
+      discounts: [],
+      payment: { method: 'card', cardLast4: '222' },
+    });
+    expect(draft.check).toEqual({ ok: true });
+    expect(draft.itemTypes).toHaveLength(1);
+    expect(draft.candidates).toEqual({ candidates: [], defaultId: null, possibleDuplicate: false });
+    expect(draft.account).toEqual({
+      accountId: t.h.account('ANZ Joint').id,
+      cardAccountIds: [t.h.account('ANZ Joint').id],
+    });
+  });
+
+  it('R-F: save as new → ANZ Joint pending -12.30 with card_last4 empty; importing the bank row confirms it; parsed_json has no 222', async () => {
+    const r = await saveOk({
+      receipt: EFTPOS_F_REVIEWED,
+      target: { kind: 'new', accountId: t.h.account('ANZ Joint').id },
+    });
+
+    expect(await getTransaction(r.transactionId)).toMatchObject({
+      accountId: t.h.account('ANZ Joint').id,
+      status: 'pending',
+      source: 'receipt',
+      date: '2026-09-28',
+      amountCents: -1230,
+      cardLast4: null,
+      merchant: 'FRUIT STALL DEMO',
+    });
+
+    const imported = await importCsv(t.ctx, {
+      accountId: t.h.account('ANZ Joint').id,
+      fileName: 'eftpos-f.csv',
+      text: '29/09/2026,"-12.30",VISA DEBIT PURCHASE CARD 2222 FRUIT STALL DEMO MELBOURNE\n',
+    });
+    if (!imported.ok) throw new Error(imported.message);
+
+    expect(await getTransaction(r.transactionId)).toMatchObject({
+      status: 'confirmed',
+      source: 'receipt',
+      cardLast4: '2222',
+    });
+    expect(await db.$count(schema.transaction)).toBe(1);
+
+    const rows = await receiptRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].transactionId).toBe(r.transactionId);
+    const text = JSON.stringify(rows[0].parsedJson);
+    expect(text).not.toContain('222');
+    expect(text).not.toMatch(/cardLast4/i);
+  });
+
+  it('R20.2: payment slip saved with all items removed → check_failed, nothing is added on save', async () => {
+    const r = await save({
+      receipt: raw('eftpos-f.json'),
+      target: { kind: 'new', accountId: t.h.account('ANZ Joint').id },
+    });
+    expect(r).toMatchObject({ ok: false, code: 'check_failed' });
+    expect(await db.$count(schema.transaction)).toBe(0);
+  });
+
+  it('R-H: extra card 5222 on ANZ Male → candidates from both accounts, account not preselected', async () => {
+    await addCard5222();
+    const jointId = await insertPending(t, {
+      account: 'ANZ Joint',
+      date: '2026-09-28',
+      amountCents: -1230,
+      category: 'Groceries / Supermarket',
+      member: 'Home',
+    });
+    const maleId = await insertPending(t, {
+      account: 'ANZ Male',
+      date: '2026-09-29',
+      amountCents: -1230,
+      category: 'Groceries / Supermarket',
+      member: 'Male',
+    });
+    await insertPending(t, {
+      account: 'CBA Female',
+      date: '2026-09-28',
+      amountCents: -1230,
+      category: 'Groceries / Supermarket',
+      member: 'Female',
+    });
+
+    const draft = await scanReceipt(t.ctx, IMAGE, fakeReader('eftpos-f.json').reader);
+    expect(draft.candidates!.candidates.map((c) => c.id).sort()).toEqual(
+      [jointId, maleId].sort(),
+    );
+    expect(draft.candidates!.defaultId).toBeNull();
+    expect(draft.account).toEqual({
+      accountId: null,
+      cardAccountIds: [t.h.account('ANZ Joint').id, t.h.account('ANZ Male').id],
+    });
+
+    // getReceiptCandidates（用户改了日期再找）也收 3 位卡号
+    const again = await getReceiptCandidates(
+      t.ctx,
+      { merchant: 'FRUIT STALL DEMO', date: '2026-09-28', totalCents: 1230 },
+      '222',
+    );
+    expect(again.candidates.map((c) => c.id).sort()).toEqual([jointId, maleId].sort());
+  });
+
+  it('R-H: only card 5222 left → default ANZ Male, candidates only on ANZ Male', async () => {
+    await addCard5222();
+    await db.delete(schema.card).where(eq(schema.card.last4, '2222'));
+    await insertPending(t, {
+      account: 'ANZ Joint',
+      date: '2026-09-28',
+      amountCents: -1230,
+      category: 'Groceries / Supermarket',
+      member: 'Home',
+    });
+    const maleId = await insertPending(t, {
+      account: 'ANZ Male',
+      date: '2026-09-28',
+      amountCents: -1230,
+      category: 'Groceries / Supermarket',
+      member: 'Male',
+    });
+
+    const draft = await scanReceipt(t.ctx, IMAGE, fakeReader('eftpos-f.json').reader);
+    expect(draft.candidates!.candidates.map((c) => c.id)).toEqual([maleId]);
+    expect(draft.account).toEqual({
+      accountId: t.h.account('ANZ Male').id,
+      cardAccountIds: [t.h.account('ANZ Male').id],
+    });
   });
 });

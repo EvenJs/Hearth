@@ -64,6 +64,13 @@
       "when": 1793761879715,
       "tag": "0008_m11_4_goal",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794135597904,
+      "tag": "0009_m12_3_invite",
+      "breakpoints": true
     }
   ]
 }

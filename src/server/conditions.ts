@@ -1,6 +1,7 @@
 // R24 每月条件的数据访问（M10-4）：配置、"其他"的手动勾、本月和最近 12 个月的结果
 // 判断都用 src/lib/rules/conditions.ts 的纯函数，结果每次实时算，不存
 // 交易一次查完最近 12 个月（balance_growth 的账户往前查到上月末之前最近的锚点），按账户分好再喂纯函数
+// pending 也查出来（R24.2a），"可能重复"的 pending id 用 getPossibleDuplicates 算
 // 每个查询都带 household_id
 import { and, eq, gt, inArray, isNull, max, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
@@ -44,6 +45,7 @@ import { addDays, endOfMonth, lastTwelveMonths, startOfMonth } from '@/lib/rules
 import type { Account as RuleAccount } from '@/lib/rules/types';
 import { findInterestCategoryId, loadAnchors, type StoredAnchor } from './balances';
 import type { HouseholdContext } from './context';
+import { getPossibleDuplicates } from './duplicates';
 import type { DbTx } from './transactions';
 
 // ---------- 返回的形状 ----------
@@ -260,7 +262,7 @@ export async function getConditionProgress(
   }
   const watched = [...watchedIds];
 
-  const [anchors, latest, bankFeeId, interestId, checks] = await Promise.all([
+  const [anchors, latest, bankFeeId, interestId, checks, duplicates] = await Promise.all([
     loadAnchors(db, ctx, watched),
     loadLatestConfirmed(ctx, watched),
     findBankFeeCategoryId(ctx),
@@ -281,6 +283,7 @@ export async function getConditionProgress(
           ),
         ),
       ),
+    getPossibleDuplicates(ctx),
   ]);
 
   // 交易从最近 12 个月的第一天查起；balance_growth 的账户往前到上月末之前最近的锚点（R24.4）
@@ -355,6 +358,7 @@ export async function getConditionProgress(
           transactions: allTxs,
           anchors: ownAnchors,
           manualCheck: manualChecks.get(`${c.id}|${month}`) ?? null,
+          possibleDuplicatePendingIds: duplicates.pendingIds,
         }),
       );
       const summary = summarizeAccountMonth(judged, results);

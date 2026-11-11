@@ -39,6 +39,9 @@ export const NAV_ITEMS: NavItem[] = [
       { label: '分类', href: '/settings/categories' },
       { label: '预算', href: '/settings/budgets' },
       { label: '税务', href: '/settings/tax' },
+      // M12-6 邀请、账号（R26.2、R26.3、R26.8）
+      { label: '邀请', href: '/settings/invites' },
+      { label: '账号', href: '/settings/profile' },
     ],
   },
 ];

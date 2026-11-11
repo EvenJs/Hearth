@@ -21,6 +21,7 @@
 | CSV 解析   | Papa Parse                                                  |                                                     |
 | PDF 读文字 | `unpdf`（包装 Mozilla PDF.js，serverless 能用）             | ANZ 对账单（R1C，M6.6 加）、ANZ Plus 对账单（R1D，M7.5）、CBA 对账单（R1E，M8.5）。要求 Node ≥ 22；装时定死版本 |
 | 测试       | Vitest                                                      | 核心逻辑单元测试                                    |
+| 发邮件     | `nodemailer` + Gmail SMTP                                   | 邮箱验证、忘记密码（F15，M12 加），见第 4 节        |
 | 代码规范   | ESLint + Prettier                                           |                                                     |
 | 包管理     | pnpm                                                        |                                                     |
 | 部署       | Vercel Hobby（免费）                                        | 个人非商业使用，符合条款                            |
@@ -91,10 +92,13 @@
 
 配置：
 
-- 登录方式：邮箱 + 密码（只有 1 到 2 个用户，不需要第三方登录）
+- 登录方式：邮箱 + 密码（用户很少，不需要第三方登录）
 - 用 Drizzle adapter，用户和 session 表跟业务表在同一个数据库
-- **关闭公开注册**：账号手动创建，网站上线后别人不能自己注册
-- 以后加老婆的账号：手动创建，关联到同一个 household
+- ~~关闭公开注册：账号手动创建~~（到 M11 为止）
+- **邀请码注册**（F15，2026-11-05 改）：注册一直开着，没有有效邀请码就拒绝。码的校验和建 `household_user` 在同一个事务里
+- 要验证邮箱，没验证不能登录；忘记密码用 Better Auth 自带流程，存 `verification` 表
+- 发邮件：`nodemailer` 走 Gmail SMTP，用一个专门的 Gmail 账号 + 应用专用密码。没有自己的域名，所以不用 Resend（不验证域名只能发给自己）。换服务只改一个 `sendEmail(to, subject, html)`
+- `pnpm user:create` 留着，邮件发不出去时当后门
 
 ---
 
@@ -167,6 +171,10 @@ LLM_BASE_URL           # OpenAI 兼容接口地址，如 https://api.groq.com/op
 LLM_API_KEY            # 服务商的 key
 LLM_VISION_MODEL       # 看图的模型，如 qwen/qwen3.8-27b（小票识别，R20.1a）
 RECEIPT_READER         # 小票用哪个 reader：llm | none，不填或不认识的值当作 none（R20.1）
+RECEIPT_LLM_MONTHLY_LIMIT  # 每个家庭每月 LLM 识别次数，默认 50（F15，M12）
+ADMIN_EMAILS           # 站长邮箱，逗号分隔，只有他们能发"新建家庭"的邀请码（F15，M12）
+SMTP_USER              # 发邮件的 Gmail 地址（F15，M12）
+SMTP_PASS              # Gmail 应用专用密码，不是登录密码
 ```
 
 - `RECEIPT_READER=llm` 但没配 `LLM_*`：启动不报错，识别时显示"暂时识别不了"，可以手动填商品，其他功能照常
@@ -193,7 +201,8 @@ VERCEL_DEPLOY_HOOK_URL   # Vercel Deploy Hook（分支 main）
 | Vercel Hobby               | 限个人非商业使用；超额后要等 30 天 | 家庭自用没问题                     |
 | Neon Free | 0.5 GB 存储；闲置 5 分钟后计算归零，下次查询自动唤醒 | 冷启动：隔一段时间第一次打开慢 1 到 2 秒（Neon 唤醒 + Vercel 函数启动），之后正常 |
 | Neon Free | 即时恢复只能回到 **6 小时以内** | 6 小时后才发现的误删、坏迁移救不回来，所以要自己备份（第 10 节） |
-| LLM API（小票识别，M6.7） | 用免费额度，见第 11 节 | 一周几张小票，远低于限额；额度用完只影响识别 |
+| LLM API（小票识别，M6.7） | 用免费额度，见第 11 节 | 一周几张小票，远低于限额；额度用完只影响识别。M12 起每个家庭每月 50 次 |
+| Gmail SMTP（M12） | 每天大约 500 封 | 只发验证和重置密码邮件，用不完 |
 
 ---
 

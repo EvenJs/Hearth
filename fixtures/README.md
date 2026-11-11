@@ -85,3 +85,4 @@
 | 账户余额和用途用例（R23，M9） | [`cases/14-balance.md`](cases/14-balance.md) | 不用 CSV、PDF，锚点和交易写在用例里；另加 6 个账户；今天固定 2026-12-10 |
 | 每月条件用例（R24，M10） | [`cases/15-monthly-conditions.md`](cases/15-monthly-conditions.md) | 不用 CSV、PDF，条件、锚点、交易写在用例里，所有场景共用一份；账户沿用 14 号；今天固定 2026-12-28 |
 | 目标和应急金用例（R25，M11） | [`cases/16-goals.md`](cases/16-goals.md) | 不用 CSV、PDF，目标、锚点、交易、月均、收支写在用例里，所有场景共用一份；账户沿用 14 号；今天固定 2026-12-15 |
+| 邀请码注册用例（R26，M12） | [`cases/17-invite.md`](cases/17-invite.md) | 不用 CSV、PDF，家庭、用户、邀请码、识别记录写在用例里，所有场景共用一份；另加一个别人的家庭 H2；现在固定 2026-12-10T10:00+11:00 |

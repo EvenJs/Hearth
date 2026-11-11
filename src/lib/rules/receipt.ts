@@ -10,7 +10,8 @@ import { formatAud, parseBalanceToCents } from './money';
 
 // R20.1：所有 reader 共用。z.object 默认丢掉多的字段（人名、终端号、ABN、电话、完整卡号）
 // 金额、日期都是原样字符串，由 normalizeReceipt 转换
-// cardLast4 不是 4 位数字时当作 null，不让整张小票识别失败（2026-10-29 定）
+// cardLast4 不是 3、4 位数字时当作 null，不让整张小票识别失败（2026-10-29 定）
+// 3 位：NAB 的机器只打后 3 位（2026-11-08 改，R20.4 按"以它结尾"比）
 export const rawReceiptSchema = z.object({
   merchant: z.string(),
   date: z.string().nullable(), // 读不出来时 reader 可以给 null，R20.2 让用户填
@@ -33,7 +34,7 @@ export const rawReceiptSchema = z.object({
     // 只在内存里给 R20.4、R20.5 用，不入库
     cardLast4: z
       .string()
-      .regex(/^\d{4}$/)
+      .regex(/^\d{3,4}$/)
       .nullable()
       .catch(null),
   }),
@@ -86,12 +87,17 @@ function cleanName(input: string): string {
 }
 
 // R20.2：`$4.50`、`-$0.80`、`$-0.80`、`-0.80` → 整数分
-// 去掉空格和一个 `$`，正负号在 `$` 前后都行，但只能有一个；剩下的按 money.ts 的字符串口径
+// 去掉空格、前后各一个 `AUD`（不区分大小写）和一个 `$`，正负号在 `$` 前后都行，但只能有一个；
+// 剩下的按 money.ts 的字符串口径
 // 用 parseBalanceToCents 是因为它允许 0：0 不是格式问题，交给 checkReceipt 报
 const RECEIPT_AMOUNT = /^([+-]?)\$?([+-]?)(\d.*)$/;
 
 function parseReceiptAmount(input: string): number | null {
-  const m = RECEIPT_AMOUNT.exec(input.replace(/\s+/g, ''));
+  const compact = input
+    .replace(/\s+/g, '')
+    .replace(/^AUD/i, '')
+    .replace(/AUD$/i, '');
+  const m = RECEIPT_AMOUNT.exec(compact);
   if (!m) return null;
   const [, signBefore, signAfter, number] = m;
   if (signBefore && signAfter) return null;
@@ -102,21 +108,75 @@ function parseReceiptAmount(input: string): number | null {
   }
 }
 
-const SHORT_YEAR_DATE = /^(\d{2})\/(\d{2})\/(\d{2})$/;
+// R20.2 日期写法（2026-11-08 放宽，EFTPOS 机器格式各不一样）
+// 末尾的时间：`11:30:53`、`12:03 PM`
+const TRAILING_TIME = /\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AP]M)?$/i;
+const NUMERIC_DATE = /^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/; // D/M/YYYY、D/M/YY，日在前
+const MONTH_FIRST_DATE = /^([a-z]+)\s+(\d{1,2}),?\s+(\d{2}|\d{4})$/i; // NOV 08, 26、November 8, 2026
+const DAY_FIRST_DATE = /^(\d{1,2})\s+([a-z]+)\s+(\d{2}|\d{4})$/i; // 8 Nov 2026、08 November 2026
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-// R20.2：DD/MM/YYYY、DD/MM/YY（两位年份当 20YY）→ YYYY-MM-DD，不能晚于今天
+const MONTHS = [
+  'january',
+  'february',
+  'march',
+  'april',
+  'may',
+  'june',
+  'july',
+  'august',
+  'september',
+  'october',
+  'november',
+  'december',
+];
+
+// 英文缩写（前 3 个字母）或全称，不区分大小写 → 1 到 12；认不出是 null
+function monthNumber(name: string): number | null {
+  const lower = name.toLowerCase();
+  const index = MONTHS.findIndex((m) => m === lower || m.slice(0, 3) === lower);
+  return index === -1 ? null : index + 1;
+}
+
+// 认出的写法 → 补零的 DD/MM/YYYY，交给 parseAuDate 判断日期存不存在；认不出是 null
+function toAuDate(input: string): string | null {
+  const pad = (n: string | number) => String(n).padStart(2, '0');
+  const year = (y: string) => (y.length === 2 ? `20${y}` : y); // 两位年份当 20YY
+
+  let m = NUMERIC_DATE.exec(input);
+  if (m) return `${pad(m[1])}/${pad(m[2])}/${year(m[3])}`;
+
+  m = MONTH_FIRST_DATE.exec(input);
+  if (m) {
+    const month = monthNumber(m[1]);
+    return month === null ? null : `${pad(m[2])}/${pad(month)}/${year(m[3])}`;
+  }
+
+  m = DAY_FIRST_DATE.exec(input);
+  if (m) {
+    const month = monthNumber(m[2]);
+    return month === null ? null : `${pad(m[1])}/${pad(month)}/${year(m[3])}`;
+  }
+
+  m = ISO_DATE.exec(input);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+
+  return null;
+}
+
+// R20.2：先去掉末尾的时间，再按上面几种写法转成 YYYY-MM-DD，不能晚于今天
+// 不改 date.ts 的 parseAuDate：CSV 还要严格的 DD/MM/YYYY
 type DateResult = { date: string; error?: undefined } | { date: null; error: string };
 
 function parseReceiptDate(input: string | null, today: string): DateResult {
   const trimmed = input?.trim() ?? '';
   if (trimmed === '') return { date: null, error: '读不出日期，请填写' };
 
-  const short = SHORT_YEAR_DATE.exec(trimmed);
-  const full = short ? `${short[1]}/${short[2]}/20${short[3]}` : trimmed;
-
+  const auDate = toAuDate(trimmed.replace(TRAILING_TIME, ''));
   let date: string;
   try {
-    date = parseAuDate(full);
+    if (auDate === null) throw new Error('认不出');
+    date = parseAuDate(auDate);
   } catch {
     return { date: null, error: `日期不对: "${trimmed}"` };
   }
@@ -168,6 +228,19 @@ export function normalizeReceipt(
       payment: { method: raw.payment.method, cardLast4: raw.payment.cardLast4 },
     },
     errors,
+  };
+}
+
+// R20.2 只有付款单：items、discounts 都空，总额 > 0 → 补一件（名字 = 店名，空的用"付款单"，跟主分类）
+// 只在 reader 的结果上调一次（scanReceipt）。saveReceipt 不调，用户删光商品照旧"至少一件商品"
+export function addPaymentOnlyItem(receipt: NormalizedReceipt): NormalizedReceipt {
+  const { items, discounts, totalCents } = receipt;
+  if (items.length > 0 || discounts.length > 0 || totalCents === null || totalCents <= 0) {
+    return receipt;
+  }
+  return {
+    ...receipt,
+    items: [{ name: receipt.merchant || '付款单', amountCents: totalCents, categoryId: null }],
   };
 }
 

@@ -18,6 +18,7 @@ const image = () => ({
 function fakeClient(result: LlmResult | (() => Promise<LlmResult>)) {
   const requests: LlmChatRequest[] = [];
   const client: LlmClient = {
+    configured: true,
     async chat(request) {
       requests.push(request);
       return typeof result === 'function' ? result() : result;
@@ -154,8 +155,29 @@ describe('llm reader（R20.1a）', () => {
       'ABN',
       'phone',
       'use null for food', // 食品给 null
+      // 2026-11-08 补的四条
+      'not the payment provider or terminal brand', // 店名不是支付机构
+      'NAB EFTPOS',
+      'KPay',
+      'Expiry', // 卡有效期不是日期
+      'without the time',
+      'return "items" as []', // 只有付款单
+      'do not turn the total into an item',
+      '462239-866', // 前 6 后 3，取 866
+      'Mastercard 2154',
+      'last 3 or 4 card digits', // JSON 格式说明
     ]) {
       expect(RECEIPT_SYSTEM_PROMPT).toContain(phrase);
     }
+  });
+
+  it('R-F: payment-slip-only JSON with a 3-digit card comes back as is', async () => {
+    const raw = readReceiptFixture('eftpos-f.json');
+    const { client } = fakeClient(ok(raw));
+    const result = await createLlmReader(client).read(image(), CATEGORIES);
+    expect(result).toEqual({ ok: true, raw, reader: 'llm:fake/model-1' });
+    if (!result.ok) return;
+    expect(result.raw.items).toEqual([]);
+    expect(result.raw.payment.cardLast4).toBe('222');
   });
 });

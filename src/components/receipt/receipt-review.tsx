@@ -261,6 +261,12 @@ export function ReceiptReview({ variant, draft, fixedTransactionId, onClose }: P
           暂时识别不了，可以手动填
         </Banner>
       )}
+      {/* R26.9 打开以后才用完的（别人刚用掉最后一次），服务端挡下来，没调 LLM */}
+      {draft.read.status === 'quota' && (
+        <Banner tone="warn" icon={CircleAlert}>
+          {draft.read.message}，可以手动填
+        </Banner>
+      )}
       {showDuplicate && (
         <Banner tone="warn" icon={AlertTriangle} onDismiss={() => setDupDismissed(true)}>
           可能已经上传过：{merchant || '这家店'} {date ? formatTxDate(date, today) : ''}{' '}

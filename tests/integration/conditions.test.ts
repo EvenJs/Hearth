@@ -4,7 +4,12 @@ import { and, eq } from 'drizzle-orm';
 import { beforeEach, expect, it } from 'vitest';
 import { db } from '@/db';
 import * as schema from '@/db/schema';
-import { describeCondition, unknownDepositNote, type ConditionType } from '@/lib/rules/conditions';
+import {
+  describeCondition,
+  unknownDepositNote,
+  unmatchedPendingNote,
+  type ConditionType,
+} from '@/lib/rules/conditions';
 import {
   createCondition,
   deactivateCondition,
@@ -468,11 +473,12 @@ describeDb('M10-4 getConditionProgress / createCondition / setManualCheck（R24�
     const k2 = resultOf(p, 'ANZ Joint', dec, 'K2');
     expect(k2).toMatchObject({
       status: 'in_progress',
-      currentValue: 191999,
-      remaining: 8001,
+      currentValue: 199999,
+      remaining: 1,
+      pendingCount: 1,
       asOf: '2026-12-20',
     });
-    expect(describeCondition(k2)).toBe('存入 $1,919.99 / $2,000.00，还差 $80.01');
+    expect(describeCondition(k2)).toBe('存入 $1,999.99 / $2,000.00，还差 $0.01（含 1 笔待入账）');
     expect(unknownDepositNote(k2)).toBeNull();
 
     const k3 = resultOf(p, 'ANZ Male', dec, 'K3');
@@ -510,12 +516,13 @@ describeDb('M10-4 getConditionProgress / createCondition / setManualCheck（R24�
 
     const k8 = resultOf(p, 'CBA Female Saver', dec, 'K8');
     expect(k8).toMatchObject({
-      status: 'in_progress',
-      currentValue: 4,
-      remaining: 1,
+      status: 'met',
+      currentValue: 5,
+      remaining: 0,
+      pendingCount: 1,
       asOf: '2026-12-22',
     });
-    expect(describeCondition(k8)).toBe('CBA Female：刷卡 4 / 5 笔，还差 1 笔');
+    expect(describeCondition(k8)).toBe('CBA Female：刷卡 5 / 5 笔（含 1 笔待入账）');
 
     const k10 = resultOf(p, 'Westpac 中转', dec, 'K10');
     expect(k10).toMatchObject({ status: 'unknown', unknownReason: 'no_linked_account' });
@@ -582,12 +589,12 @@ describeDb('M10-4 getConditionProgress / createCondition / setManualCheck（R24�
 
   it('R24.9 I-1 / I-2: one home reminder line, only in the last 5 days', async () => {
     expect((await getConditionProgress(t.ctx, TODAY)).reminder).toEqual({
-      count: 5,
+      count: 4,
       asOf: '2026-11-30',
-      text: '5 个账户条件本月还没满足（数据截至 11-30）',
+      text: '4 个账户条件本月还没满足（数据截至 11-30）',
     });
     expect((await getConditionProgress(t.ctx, '2026-12-26')).reminder).toBeNull();
-    expect((await getConditionProgress(t.ctx, '2026-12-27')).reminder?.count).toBe(5);
+    expect((await getConditionProgress(t.ctx, '2026-12-27')).reminder?.count).toBe(4);
     expect((await getConditionProgress(t.ctx, '2027-01-01')).reminder).toBeNull();
   });
 
@@ -813,7 +820,9 @@ describeDb('M10-4 getConditionProgress / createCondition / setManualCheck（R24�
 
     const p = await getConditionProgress(t.ctx, TODAY);
     const k2new = resultOf(p, 'ANZ Joint', '2026-12-01', "K2'");
-    expect(describeCondition(k2new)).toBe('存入 $1,919.99 / $2,500.00，还差 $580.01');
+    expect(describeCondition(k2new)).toBe(
+      '存入 $1,999.99 / $2,500.00，还差 $500.01（含 1 笔待入账）',
+    );
     expect(resultOf(p, 'ANZ Joint', '2026-10-01', 'K2').status).toBe('met');
     expect(resultOf(p, 'ANZ Joint', '2026-11-01', 'K2')).toMatchObject({
       status: 'failed',
@@ -827,7 +836,7 @@ describeDb('M10-4 getConditionProgress / createCondition / setManualCheck（R24�
       ['2026-12-01', 0],
     ]);
     expect(monthOf(p, 'ANZ Male', '2026-11-01').feeMismatchCents).toBe(500);
-    expect(p.reminder?.count).toBe(4);
+    expect(p.reminder?.count).toBe(3);
   });
 
   it('R24.1: other household cannot update, deactivate or check conditions', async () => {
@@ -924,5 +933,61 @@ describeDb('M10-4 getConditionProgress / createCondition / setManualCheck（R24�
     // m2 没了配对，照样从描述认出是 ANZ Plus Male 转回来的
     expect(resultOf(p, 'ANZ Male', '2026-12-01', 'K3').currentValue).toBe(80000);
     expect(monthOf(p, 'ANZ Plus Male', '2026-12-01').interestCents).toBe(0);
+  });
+
+  it('R24.2a L-2 / L-5: possible-duplicate and stale pending are not counted', async () => {
+    // L-2：f9 记在一个导入批次的 possibleDuplicates 里（R17.6）
+    const [f9] = await db
+      .select({ id: schema.transaction.id })
+      .from(schema.transaction)
+      .where(
+        and(
+          eq(schema.transaction.accountId, acc('CBA Female')),
+          eq(schema.transaction.status, 'pending'),
+        ),
+      );
+    const bankRow = await tx('CBA Female', { date: '2026-12-21', amountCents: -800 });
+    await db.insert(schema.importBatch).values({
+      householdId: t.ctx.householdId,
+      accountId: acc('CBA Female'),
+      fileName: 'CBA Female 2026-12-21.csv',
+      source: 'csv',
+      dateFrom: '2026-12-21',
+      dateTo: '2026-12-21',
+      rowCount: 1,
+      insertedCount: 1,
+      duplicateCount: 0,
+      matchedPendingCount: 0,
+      warnings: { possibleDuplicates: [{ transactionId: bankRow, pendingIds: [f9.id] }] },
+      createdBy: t.ctx.userId,
+    });
+    // L-5 的过期版：s8 12-10 ≤ 截至 12-16 − 3 天
+    await tx('CBA Female Saver', {
+      date: '2026-12-10',
+      amountCents: -1000,
+      pending: true,
+      merchant: 'CBA ATM',
+    });
+
+    const p = await getConditionProgress(t.ctx, TODAY);
+    const dec = '2026-12-01';
+    // 银行那笔 12-21 本身是 confirmed 的刷卡，替掉了 f9：f1、f2、f6、银行那笔、f10
+    const k8 = resultOf(p, 'CBA Female Saver', dec, 'K8');
+    expect(k8).toMatchObject({
+      status: 'met',
+      currentValue: 5,
+      pendingCount: 0,
+      unmatchedPendingCount: 1,
+    });
+    expect(describeCondition(k8)).toBe('CBA Female：刷卡 5 / 5 笔');
+    expect(unmatchedPendingNote(k8)).toBe('1 笔待入账可能没配上，没算进去，去流水看看');
+
+    const k6 = resultOf(p, 'CBA Female Saver', dec, 'K6');
+    expect(k6).toMatchObject({ status: 'in_progress', unmatchedPendingCount: 1 });
+    expect(describeCondition(k6)).toBe('到目前没有取款');
+
+    // 余额、月费校验不看 pending
+    expect(resultOf(p, 'CBA Female Saver', dec, 'K7')).toMatchObject({ currentValue: 1549500 });
+    expect(monthOf(p, 'CBA Female Saver', dec).feeMismatchCents).toBeNull();
   });
 });

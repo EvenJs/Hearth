@@ -6,15 +6,19 @@ import { NextResponse, type NextRequest } from 'next/server';
 
 export function proxy(request: NextRequest) {
   if (!getSessionCookie(request)) {
-    return NextResponse.redirect(new URL('/login', request.url));
+    const login = new URL('/login', request.url);
+    // R26.7 验证链接过期时 Better Auth 跳 /?error=TOKEN_EXPIRED，没登录会被带到这里。只带 error，登录页据此提示
+    const error = request.nextUrl.searchParams.get('error');
+    if (error) login.searchParams.set('error', error);
+    return NextResponse.redirect(login);
   }
   return NextResponse.next();
 }
 
 export const config = {
-  // 除了 /login、/api/auth/* 和静态资源，其他路径都要登录
+  // 除了登录前的页面（登录、注册、忘记密码、重置密码，M12-5）、/api/auth/* 和静态资源，其他路径都要登录
   // manifest 和图标没登录也要能拿到，否则"添加到主屏幕"拿不到图标（M7.8-1）。只放行这几个，不放宽到所有带扩展名的文件
   matcher: [
-    '/((?!login|api/auth|_next/static|_next/image|favicon.ico|manifest.webmanifest|icon.png|apple-icon.png|icons/).*)',
+    '/((?!login|signup|forgot-password|reset-password|api/auth|_next/static|_next/image|favicon.ico|manifest.webmanifest|icon.png|apple-icon.png|icons/).*)',
   ],
 };

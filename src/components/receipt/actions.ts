@@ -12,6 +12,7 @@ import {
   deleteReceipt,
   getReceiptAttachOptions,
   getReceiptCandidates,
+  getReceiptQuota,
   previewAttachReceipt,
   previewReceipt,
   saveReceipt,
@@ -25,6 +26,7 @@ import {
   type ReceiptCandidatesResult,
   type ReceiptDraft,
   type ReceiptPreview,
+  type ReceiptQuota,
   type ReceiptTarget,
   type SaveReceiptInput,
   type SaveReceiptResult,
@@ -68,6 +70,18 @@ export async function scanReceiptAction(
   } catch (err) {
     logError('识别', err);
     return { ok: false, message: '加载失败，请关掉再试' };
+  }
+}
+
+// R26.9 打开拍小票时显示本月还能识别几次。RECEIPT_READER 不是 llm、或者查不出来时返回 null，不显示
+// 查不出来时按钮照样能点，scanReceipt 调用前会再查一次
+export async function receiptQuotaAction(): Promise<ReceiptQuota | null> {
+  const ctx = await getHouseholdContext();
+  try {
+    return await getReceiptQuota(ctx);
+  } catch (err) {
+    logError('查识别次数', err);
+    return null;
   }
 }
 

@@ -21,6 +21,8 @@ export type LlmResult =
   { ok: true; content: string; model: string } | { ok: false; reason: string };
 
 export interface LlmClient {
+  // 真的会发请求：配了地址、key 和这个用途的模型。没配时 chat 直接返回失败（R26.9 不算次数）
+  configured: boolean;
   // 不抛错，失败返回 { ok: false, reason }
   chat(request: LlmChatRequest): Promise<LlmResult>;
 }
@@ -44,6 +46,7 @@ export function createOpenAiCompatibleClient(
   const timeoutMs = config.timeoutMs ?? LLM_TIMEOUT_MS;
 
   return {
+    configured: Boolean(config.models.vision),
     async chat(request) {
       const model = config.models[request.model];
       if (!model) return { ok: false, reason: `没配 ${request.model} 模型` };
@@ -100,7 +103,10 @@ export function getLlmClient(env: Record<string, string | undefined> = process.e
   const baseUrl = env.LLM_BASE_URL?.trim();
   const apiKey = env.LLM_API_KEY?.trim();
   if (!baseUrl || !apiKey) {
-    return { chat: async () => ({ ok: false, reason: '没配 LLM_BASE_URL 或 LLM_API_KEY' }) };
+    return {
+      configured: false,
+      chat: async () => ({ ok: false, reason: '没配 LLM_BASE_URL 或 LLM_API_KEY' }),
+    };
   }
   return createOpenAiCompatibleClient({
     baseUrl,

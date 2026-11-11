@@ -39,8 +39,8 @@ export type PendingMatch =
   | { kind: 'match'; pendingId: string } // 1 个：确认这笔 pending，不插入新交易
   | { kind: 'ambiguous'; pendingIds: string[] }; // ≥ 2 个：正常插入，两边提示"可能重复"
 
-// R8.2 银行入账不会早于消费，最多晚 3 天
-const MAX_DAYS_LATER = 3;
+// R8.2 银行入账不会早于消费，最多晚 3 天。R24.2a 判断 pending 过期也用它
+export const MAX_DAYS_LATER = 3;
 
 // R8.2：rows 是通过去重检查（R4）的 CSV 行，按文件顺序处理，结果和 rows 一一对应
 // 一笔 pending 被前面的行匹配走后，后面的行不再看到它；ambiguous 不占用候选
