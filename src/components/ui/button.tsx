@@ -67,9 +67,15 @@ function Button({
       aria-busy={loading || undefined}
       {...props}
     >
-      {/* asChild 时 Slot 只能有一个子元素，不加转圈 */}
-      {loading && !asChild && <Loader2 className="animate-spin" />}
-      {children}
+      {/* asChild 时 Slot 只能有一个子元素，原样传下去，不加转圈 */}
+      {asChild ? (
+        children
+      ) : (
+        <>
+          {loading && <Loader2 className="animate-spin" />}
+          {children}
+        </>
+      )}
     </Comp>
   );
 }
