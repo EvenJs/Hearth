@@ -1,7 +1,7 @@
 'use client';
 
 // 设置 → 规则的列表（设计图 12，R18.1）。电脑上表格，手机上卡片（12-settings-rules-mobile）
-// 搜索和一级筛选写在 URL 上（?q=、?category=），服务端用 filterRules 筛好传进来
+// 搜索、一级筛选、只看自定义写在 URL 上（?q=、?category=、?custom=1），服务端筛好传进来
 // 新建、修改、删除之后问"要对 N 笔应用吗"（R18.4、R7.2），N = 0 只给 toast
 import { MoreHorizontal, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import Link from 'next/link';
@@ -10,6 +10,7 @@ import { useEffect, useLayoutEffect, useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,6 +18,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -49,6 +51,7 @@ type Props = {
   totalCount: number; // 不筛选时的总数
   q: string;
   category: string; // 一级 id，'' = 全部
+  customOnly: boolean; // 只看自己建的（is_system = false）
   tops: TopOption[];
   refs: CategoryRefMap;
   sections: PickerSections; // 分类下拉（R16.3）
@@ -64,15 +67,25 @@ const ALL = '__all';
 const SEARCH_DELAY_MS = 300;
 const HITS_NOTE = 'F8 按商家搜索，笔数可能更多';
 
-function rulesHref(q: string, category: string): string {
+function rulesHref(q: string, category: string, customOnly: boolean): string {
   const p = new URLSearchParams();
   if (q.trim()) p.set('q', q.trim());
   if (category) p.set('category', category);
+  if (customOnly) p.set('custom', '1');
   const qs = p.toString();
   return qs ? `/settings/rules?${qs}` : '/settings/rules';
 }
 
-export function RulesView({ rules, totalCount, q, category, tops, refs, sections }: Props) {
+export function RulesView({
+  rules,
+  totalCount,
+  q,
+  category,
+  customOnly,
+  tops,
+  refs,
+  sections,
+}: Props) {
   const router = useRouter();
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [, startTransition] = useTransition();
@@ -90,14 +103,20 @@ export function RulesView({ rules, totalCount, q, category, tops, refs, sections
   useEffect(() => {
     if (text.trim() === q) return;
     const timer = setTimeout(() => {
-      startTransition(() => router.replace(rulesHref(text, category), { scroll: false }));
+      startTransition(() =>
+        router.replace(rulesHref(text, category, customOnly), { scroll: false }),
+      );
     }, SEARCH_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [text, q, category, router]);
+  }, [text, q, category, customOnly, router]);
 
   function setCategory(value: string) {
     const next = value === ALL ? '' : value;
-    startTransition(() => router.replace(rulesHref(text, next), { scroll: false }));
+    startTransition(() => router.replace(rulesHref(text, next, customOnly), { scroll: false }));
+  }
+
+  function setCustomOnly(next: boolean) {
+    startTransition(() => router.replace(rulesHref(text, category, next), { scroll: false }));
   }
 
   // 新建、修改、删除成功后：R7.2 预览，N = 0 只给 toast，否则问要不要应用。
@@ -121,7 +140,7 @@ export function RulesView({ rules, totalCount, q, category, tops, refs, sections
     });
   }
 
-  const filtered = q !== '' || category !== '';
+  const filtered = q !== '' || category !== '' || customOnly;
   // URL 里的一级不在选项里（归档了或者不存在）时，下拉里也显示出来，免得看起来没筛选
   const unknownTop = category !== '' && !tops.some((t) => t.id === category);
 
@@ -153,6 +172,16 @@ export function RulesView({ rules, totalCount, q, category, tops, refs, sections
             ))}
           </SelectContent>
         </Select>
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="custom-only"
+            checked={customOnly}
+            onCheckedChange={(v) => setCustomOnly(v === true)}
+          />
+          <Label htmlFor="custom-only" className="font-normal">
+            只看自定义
+          </Label>
+        </div>
         <Button className="md:ml-auto" onClick={() => setDialog({ name: 'create' })}>
           <Plus />
           新建规则
@@ -273,9 +302,10 @@ function Keyword({ rule }: { rule: RuleListItem }) {
       <span title={rule.keyword} className="truncate font-mono font-medium">
         {rule.keyword}
       </span>
-      {rule.isSystem && (
+      {/* R18.1：预置的占大多数，只给自己建的打标签 */}
+      {!rule.isSystem && (
         <Badge variant="secondary" className="shrink-0 font-normal">
-          预置
+          自定义
         </Badge>
       )}
     </span>

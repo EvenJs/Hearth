@@ -271,7 +271,7 @@ export type RuleListItem = {
   categoryLabel: string; // "Groceries / Supermarket"
   topCategoryId: string; // 一级 id，一级本身就是自己。R18.1 按一级筛选、分类 tag 颜色用
   hits: number; // R18.1
-  isSystem: boolean; // R18.1 "预置"标签
+  isSystem: boolean; // R18.1 false 时显示"自定义"标签
 };
 
 export type RuleWriteInput = {
@@ -388,7 +388,7 @@ export async function createRuleFromSettings(
 }
 
 // R18.2 修改：只改关键词、匹配方式、分类。priority、is_system、created_at 不动
-// （created_at 是 R7 第 3 步的最后一个排序条件；改过的预置规则还显示"预置"）
+// （created_at 是 R7 第 3 步的最后一个排序条件；改过的预置规则还是预置，不显示"自定义"）
 export async function updateRule(
   ctx: HouseholdContext,
   ruleId: string,
