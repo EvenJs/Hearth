@@ -107,6 +107,8 @@ describeDb('M4-2 listTransactions / getTransaction', () => {
     const r = await list({ period: 'this_year', merchant: 'COLES' });
     expect(r.count).toBe(1);
     expect(r.totalCents).toBe(-5840);
+    // M13-6 第 9 条：收入、支出分开
+    expect([r.incomeCents, r.expenseCents]).toEqual([0, 5840]);
     expect(merchants(r)).toEqual(['COLES 0559 MELBOURNE']);
   });
 
@@ -121,6 +123,8 @@ describeDb('M4-2 listTransactions / getTransaction', () => {
       'TRANSFER FROM ****9999', // #18 09-02
     ]);
     expect(r.totalCents).toBe(8000 - 1200 - 2715 + 30000);
+    // M13-6：未分类既不算收入也不算支出（R16.5 类型口径）
+    expect([r.incomeCents, r.expenseCents]).toEqual([0, 0]);
   });
 
   it('joint + me: suggested transfer quick filter → 2 rows', async () => {
@@ -144,6 +148,7 @@ describeDb('M4-2 listTransactions / getTransaction', () => {
     const coles = await list({ categoryId: supermarket, merchant: 'COLES' });
     expect(coles.count).toBe(1);
     expect(coles.totalCents).toBe(-3540);
+    expect([coles.incomeCents, coles.expenseCents]).toEqual([0, 3540]);
     // 列表里仍是整笔交易，带所有拆分
     expect(coles.items[0].id).toBe(colesId);
     expect(coles.items[0].amountCents).toBe(-5840);
@@ -157,6 +162,16 @@ describeDb('M4-2 listTransactions / getTransaction', () => {
     const all = await list({ categoryId: supermarket });
     expect(all.count).toBe(4); // #9、#13、#14、#19
     expect(all.totalCents).toBe(-13495);
+    expect([all.incomeCents, all.expenseCents]).toEqual([0, 13495]);
+  });
+
+  // 期望值来自 docs/tasks/m5.md：auto 转账两边都不在收入和支出里
+  it('M13-6: joint + me September → income 520000 (SALARY only), expense 48575, transfers excluded', async () => {
+    await importFixture('ANZ Joint', 'anz/joint-2026-09.csv');
+    await importFixture('ANZ Male', 'anz/me-2026-09.csv');
+    const r = await list({ period: { start: '2026-09-01', end: '2026-09-30' } });
+    expect(r.incomeCents).toBe(520000);
+    expect(r.expenseCents).toBe(45575 + 3000);
   });
 
   it('every query is scoped to household_id: another household sees nothing', async () => {

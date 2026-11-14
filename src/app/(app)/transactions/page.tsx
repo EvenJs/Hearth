@@ -92,10 +92,17 @@ async function TransactionsSection({
         <span className="text-sm text-muted-foreground">
           共 <strong className="text-foreground tabular-nums">{list.count}</strong> 笔
         </span>
+        {/* M13-6 第 9 条：收入、支出分开，内部转账不算 */}
         <span className="text-sm text-muted-foreground">
-          合计{' '}
+          收入{' '}
+          <strong className="text-lg text-green-700 tabular-nums">
+            {formatAud(list.incomeCents)}
+          </strong>
+        </span>
+        <span className="text-sm text-muted-foreground">
+          支出{' '}
           <strong className="text-lg text-foreground tabular-nums">
-            {formatAud(list.totalCents)}
+            {formatAud(list.expenseCents)}
           </strong>
         </span>
         {/* R16.5 */}

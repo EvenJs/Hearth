@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/table';
 import { formatAud } from '@/lib/rules/money';
 import { selectionState } from '@/lib/transactions/bulk-edit';
+import { rawDescriptionTitle } from '@/lib/transactions/raw-description';
 import { cn } from '@/lib/utils';
 import type { TransactionListItem } from '@/server/transactions';
 import { BulkBar } from './bulk-bar';
@@ -227,8 +228,17 @@ function useRowClick(href: string) {
 }
 
 // 商家名是普通文字，点它和点行的其他地方一样进详情（design/README 第 3 节，2026-10-25）
-function Merchant({ merchant }: { merchant: string }) {
-  return <span className="font-medium break-words">{merchant}</span>;
+// M13-6 第 11 条：只显示商家名一行，超长的截断；脱敏后的原始描述（R2.3）放悬停
+// 两者一样时悬停显示商家名本身，被截断的长名字（没清洗的，如 ANZ MOBILE BANKING PAYMENT …）也能看全
+function Merchant({ tx }: { tx: TransactionListItem }) {
+  return (
+    <span
+      title={rawDescriptionTitle(tx.rawDescription, tx.merchant) ?? tx.merchant}
+      className="max-w-full truncate font-medium"
+    >
+      {tx.merchant}
+    </span>
+  );
 }
 
 function Amount({ cents, className }: { cents: number; className?: string }) {
@@ -325,17 +335,10 @@ function TableRows({
         </TableCell>
         <TableCell className="pr-4 align-top whitespace-normal">
           <div className="flex max-w-96 flex-wrap items-center gap-1.5">
-            <Merchant merchant={tx.merchant} />
+            <Merchant tx={tx} />
             <TxBadges tx={tx} />
             <DuplicateBadge partners={tx.duplicatePartners} today={today} listHref={listHref} />
             {tx.transferStatus === 'suggested' && <SuggestionButtons transactionId={tx.id} />}
-          </div>
-          {/* 脱敏后的原始描述（R2.3）。只占一行，悬停看完整的 */}
-          <div
-            title={tx.rawDescription}
-            className="mt-0.5 max-w-96 truncate font-mono text-xs text-muted-foreground"
-          >
-            {tx.rawDescription}
           </div>
         </TableCell>
       </TableRow>
@@ -409,7 +412,7 @@ function TxCard({
             onSelect={onSelect}
             className="mr-0.5"
           />
-          <Merchant merchant={tx.merchant} />
+          <Merchant tx={tx} />
           <TxBadges tx={tx} />
           <DuplicateBadge partners={tx.duplicatePartners} today={today} listHref={listHref} />
         </div>
@@ -427,9 +430,6 @@ function TxCard({
           <MemberSelect tx={tx} split={primary} options={options} followUp={followUp} />
         </div>
       )}
-      <div title={tx.rawDescription} className="truncate font-mono text-xs text-muted-foreground">
-        {tx.rawDescription}
-      </div>
       {isSplit && (
         <div className="text-xs">
           <SplitToggle count={tx.splits.length} expanded={expanded} onToggle={onToggle} />
