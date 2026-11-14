@@ -5,7 +5,7 @@
 
 // ---------- 类型 ----------
 
-export type SeedMemberName = 'Male' | 'Female' | 'Home';
+export type SeedMemberName = 'Johnson' | 'Iris' | '共同';
 
 export type SeedMember = {
   name: SeedMemberName;
@@ -42,9 +42,9 @@ export type SeedRule = {
 
 // Kid（child）先不建，有孩子时再加
 export const SEED_MEMBERS: SeedMember[] = [
-  { name: 'Male', kind: 'person' }, // 我
-  { name: 'Female', kind: 'person' }, // 老婆
-  { name: 'Home', kind: 'shared' }, // 家庭共同部分
+  { name: 'Johnson', kind: 'person' }, // 我
+  { name: 'Iris', kind: 'person' }, // 老婆
+  { name: '共同', kind: 'shared' }, // 家庭共同部分，和新家庭的 SHARED_MEMBER_NAME 一致
 ];
 
 // ---------- §2、§3 支出和收入分类 ----------
@@ -63,7 +63,7 @@ const CATEGORY_DEFS: CategoryDef[] = [
   {
     nameEn: 'Home & utilities',
     kind: 'expense',
-    defaultMember: 'Home',
+    defaultMember: '共同',
     children: [
       'Mortgage',
       'Rent',
@@ -81,13 +81,13 @@ const CATEGORY_DEFS: CategoryDef[] = [
   {
     nameEn: 'Insurance & financial',
     kind: 'expense',
-    defaultMember: 'Home',
+    defaultMember: '共同',
     children: ['Car insurance', 'Home insurance', 'Personal & life insurance'],
   },
   {
     nameEn: 'Groceries',
     kind: 'expense',
-    defaultMember: 'Home',
+    defaultMember: '共同',
     // 二级是"店的类型"：在超市买的水果算 Supermarket
     children: ['Supermarket', 'Butcher', 'Fruit', 'Vegetable', 'Pet'],
   },

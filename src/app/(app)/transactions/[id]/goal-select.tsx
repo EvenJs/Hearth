@@ -53,8 +53,13 @@ export function GoalSelect({
           <span className="ml-1 text-muted-foreground">（已完成）</span>
         </span>
       ) : (
-        <Select value={goalId ?? NONE} onValueChange={change} disabled={pending}>
-          <SelectTrigger size="sm" className="w-full bg-background" aria-label="挂到目标">
+        <Select value={goalId ?? NONE} onValueChange={change}>
+          <SelectTrigger
+            size="sm"
+            loading={pending}
+            className="w-full bg-background"
+            aria-label="挂到目标"
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

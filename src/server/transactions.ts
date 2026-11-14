@@ -47,6 +47,7 @@ import {
 import { resolveSuggestion, type SuggestionTx } from '@/lib/rules/transfer';
 import type {
   Account,
+  Bank,
   Card,
   Category,
   CategoryKind,
@@ -103,7 +104,7 @@ export type TransactionListItem = {
   source: 'csv' | 'manual' | 'receipt';
   transferStatus: TransferStatus;
   transferPairId: string | null; // R16.7：有配对但 transfer_status = none 时显示小标签
-  account: { id: string; name: string };
+  account: { id: string; name: string; bank: Bank }; // bank：M13-12 银行方块
   splits: SplitView[]; // 主拆分在前，其他按金额绝对值从大到小
   possibleDuplicate: boolean; // R17.6：现在还要显示"可能重复"
   duplicatePartners: DuplicatePartner[]; // R17.6：和哪几笔可能重复（M6-6 标签上展开）
@@ -113,7 +114,10 @@ export type TransactionListItem = {
 export type TransactionList = {
   items: TransactionListItem[];
   count: number; // 命中的交易笔数（全部页）
-  totalCents: number; // R16.5 合计（全部页）
+  // R16.5 合计（全部页）。M13-6 起页面只显示收入、支出（支出是正数），净合计留给测试和以后用
+  totalCents: number;
+  incomeCents: number;
+  expenseCents: number;
   page: number;
   pageSize: number;
   // R17.6 F8 提示条的 N：还是 pending 的可能重复手动录入。全部数据，不跟着当前筛选变
@@ -264,30 +268,34 @@ function listWhere(
   return and(...c)!;
 }
 
-// R16.5 合计：有拆分条件时只加命中的拆分，否则是交易金额之和
-async function totalCents(
+// R16.5 合计：有拆分条件时只加命中的拆分，否则加命中交易的全部拆分
+// M13-6 第 9 条：收入、支出分开算，口径同 R16.5 的类型（按拆分的分类）；内部转账、未分类都不算
+// 支出取反成正数，退款会让它变小（R10 口径）。totalCents 是以前的净合计，页面不再显示
+async function totals(
   ctx: HouseholdContext,
   f: TransactionFilters,
   today: string,
   extra: ListExtra = {},
-): Promise<number> {
-  const sumOf = (column: typeof transaction.amountCents | typeof transactionSplit.amountCents) =>
-    sql<number>`coalesce(sum(${column}), 0)`.mapWith(Number);
-
-  if (!hasSplitFilter(f)) {
-    const [row] = await db
-      .select({ sum: sumOf(transaction.amountCents) })
-      .from(transaction)
-      .where(and(...transactionConditions(ctx, f, today, extra)));
-    return row.sum;
-  }
+): Promise<{ totalCents: number; incomeCents: number; expenseCents: number }> {
+  const sumWhere = (cond: SQL) =>
+    sql<number>`coalesce(sum(case when ${cond} then ${transactionSplit.amountCents} else 0 end), 0)`.mapWith(
+      Number,
+    );
+  const splitWhere = hasSplitFilter(f)
+    ? splitConditions(ctx, f)
+    : [eq(transactionSplit.householdId, ctx.householdId)];
   const [row] = await db
-    .select({ sum: sumOf(transactionSplit.amountCents) })
+    .select({
+      total: sumWhere(sql`true`),
+      income: sumWhere(typeCondition('income')),
+      expense: sumWhere(typeCondition('expense')),
+    })
     .from(transaction)
     .innerJoin(transactionSplit, eq(transactionSplit.transactionId, transaction.id))
     .innerJoin(category, splitCategoryJoin(ctx))
-    .where(and(...transactionConditions(ctx, f, today, extra), ...splitConditions(ctx, f)));
-  return row.sum;
+    .where(and(...transactionConditions(ctx, f, today, extra), ...splitWhere));
+  // 0 - x 而不是 -x：没有支出时 -0 会显示成 "-$0.00"
+  return { totalCents: row.total, incomeCents: row.income, expenseCents: 0 - row.expense };
 }
 
 // ---------- 拆分 ----------
@@ -424,6 +432,7 @@ const listColumns = {
   transferPairId: transaction.transferPairId,
   accountId: financialAccount.id,
   accountName: financialAccount.name,
+  accountBank: financialAccount.bank,
 };
 
 type ListRow = Omit<
@@ -432,6 +441,7 @@ type ListRow = Omit<
 > & {
   accountId: string;
   accountName: string;
+  accountBank: Bank;
 };
 
 function toItem(
@@ -450,7 +460,7 @@ function toItem(
     source: r.source,
     transferStatus: r.transferStatus,
     transferPairId: r.transferPairId,
-    account: { id: r.accountId, name: r.accountName },
+    account: { id: r.accountId, name: r.accountName, bank: r.accountBank },
     splits,
     possibleDuplicate: duplicatePartners.length > 0,
     duplicatePartners,
@@ -494,7 +504,7 @@ export async function listTransactions(
       .select({ count: sql<number>`count(*)`.mapWith(Number) })
       .from(transaction)
       .where(where),
-    totalCents(ctx, filters, options.today, extra),
+    totals(ctx, filters, options.today, extra),
   ]);
 
   // 这一页带标签的行，对方一次查出来
@@ -513,7 +523,7 @@ export async function listTransactions(
   return {
     items: rows.map((r) => toItem(r, splits.get(r.id) ?? [], partnersOf(r.id))),
     count,
-    totalCents: total,
+    ...total,
     page,
     pageSize,
     duplicatePendingCount: duplicates.pendingIds.size,

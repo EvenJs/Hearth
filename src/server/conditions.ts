@@ -210,6 +210,31 @@ async function loadLatestConfirmed(
   return result;
 }
 
+// R10.1a 看板默认时间段：没归档、不是现金的账户里最晚的"数据截至"（R24.6）。都没有 → null
+export async function getLatestDataAsOf(ctx: HouseholdContext): Promise<string | null> {
+  const accounts = await db
+    .select({ id: financialAccount.id, bank: financialAccount.bank })
+    .from(financialAccount)
+    .where(
+      and(eq(financialAccount.householdId, ctx.householdId), eq(financialAccount.isArchived, false)),
+    );
+  const ids = accounts.filter((a) => a.bank !== 'cash').map((a) => a.id);
+  const [anchors, latest] = await Promise.all([
+    loadAnchors(db, ctx, ids),
+    loadLatestConfirmed(ctx, ids),
+  ]);
+  let result: string | null = null;
+  for (const id of ids) {
+    const latestDate = latest.get(id);
+    const asOf = dataAsOf(
+      pickAnchor(anchors.get(id) ?? [])?.date ?? null,
+      latestDate ? [{ date: latestDate, status: 'confirmed' }] : [],
+    );
+    if (asOf !== null && (result === null || asOf > result)) result = asOf;
+  }
+  return result;
+}
+
 async function findBankFeeCategoryId(ctx: HouseholdContext): Promise<string | null> {
   const [row] = await db
     .select({ id: category.id })

@@ -25,7 +25,7 @@ export const NAV_ITEMS: NavItem[] = [
     href: null,
     icon: FileUp,
     children: [
-      { label: '上传 CSV', href: '/import' },
+      { label: '导入', href: '/import' },
       { label: '导入历史', href: '/import/history' },
     ],
   },
@@ -34,14 +34,13 @@ export const NAV_ITEMS: NavItem[] = [
     href: null,
     icon: Settings,
     children: [
-      { label: '账户', href: '/settings/accounts' },
+      { label: '银行账户', href: '/settings/accounts' },
       { label: '规则', href: '/settings/rules' },
       { label: '分类', href: '/settings/categories' },
       { label: '预算', href: '/settings/budgets' },
       { label: '税务', href: '/settings/tax' },
-      // M12-6 邀请、账号（R26.2、R26.3、R26.8）
+      // M12-6 邀请（R26.2、R26.3）。账号页还没做，做好后入口放右上角名字的下拉菜单（M13-9）
       { label: '邀请', href: '/settings/invites' },
-      { label: '账号', href: '/settings/profile' },
     ],
   },
 ];
@@ -54,7 +53,7 @@ export function isActive(href: string | null, pathname: string): boolean {
 }
 
 // 分组里只高亮一项：匹配的 href 里最长的那个。
-// /import/history 只亮"导入历史"；/import/[batchId] 亮"上传 CSV"
+// /import/history 只亮"导入历史"；/import/[batchId] 亮"导入"
 export function activeChildHref(children: NavLeaf[], pathname: string): string | null {
   let best: string | null = null;
   for (const c of children) {

@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { cva, type VariantProps } from 'class-variance-authority';
+import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Slot } from 'radix-ui';
 
@@ -40,10 +41,15 @@ function Button({
   variant = 'default',
   size = 'default',
   asChild = false,
+  loading = false,
+  disabled,
+  children,
   ...props
 }: React.ComponentProps<'button'> &
   VariantProps<typeof buttonVariants> & {
     asChild?: boolean;
+    // 提交中：禁用并在左边转圈，文字不变（M13-1）
+    loading?: boolean;
   }) {
   const Comp = asChild ? Slot.Root : 'button';
 
@@ -52,9 +58,25 @@ function Button({
       data-slot="button"
       data-variant={variant}
       data-size={size}
-      className={cn(buttonVariants({ variant, size, className }))}
+      // 转圈顶替开头的图标（纯图标按钮、图标 + 文字都是），文字不变
+      className={cn(
+        buttonVariants({ variant, size, className }),
+        loading && !asChild && '[&>svg:nth-child(2)]:hidden',
+      )}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
       {...props}
-    />
+    >
+      {/* asChild 时 Slot 只能有一个子元素，原样传下去，不加转圈 */}
+      {asChild ? (
+        children
+      ) : (
+        <>
+          {loading && <Loader2 className="animate-spin" />}
+          {children}
+        </>
+      )}
+    </Comp>
   );
 }
 

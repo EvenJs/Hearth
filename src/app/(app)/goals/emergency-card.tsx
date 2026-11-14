@@ -7,7 +7,14 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { formatAud } from '@/lib/rules/money';
 import type { EmergencyGoal } from '@/server/goals';
-import { GoalMenu, PinSwitch, ProgressBlock, type GoalAction } from './goal-card';
+import {
+  AttachAccountButton,
+  GoalMenu,
+  PinSwitch,
+  ProgressBlock,
+  type GoalAction,
+} from './goal-card';
+import type { AccountOption } from './goals-view';
 
 // 能撑几个月 × 10 → "3.4"，整数算
 function formatTenths(tenths: number): string {
@@ -16,11 +23,12 @@ function formatTenths(tenths: number): string {
 
 type Props = {
   goal: EmergencyGoal | null;
+  accounts: AccountOption[]; // 挂账户下拉
   onCreate: () => void;
   onAction: (a: GoalAction) => void;
 };
 
-export function EmergencyCard({ goal: g, onCreate, onAction }: Props) {
+export function EmergencyCard({ goal: g, accounts, onCreate, onAction }: Props) {
   if (g === null) {
     return (
       <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
@@ -53,7 +61,10 @@ export function EmergencyCard({ goal: g, onCreate, onAction }: Props) {
       </div>
 
       <div className="grid gap-4 md:grid-cols-[minmax(0,2fr)_repeat(3,minmax(0,1fr))] md:items-start">
-        <ProgressBlock progress={p} />
+        <ProgressBlock
+          progress={p}
+          attach={<AttachAccountButton goal={g} accounts={accounts} />}
+        />
         <Stat label="目标金额">
           {p.targetCents === null || g.average === null ? (
             <span className="text-muted-foreground">还没有月均</span>

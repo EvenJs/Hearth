@@ -4,12 +4,15 @@ import {
   anchorFromBatch,
   balanceAt,
   calibrationDiff,
+  anchorAsOfLabel,
+  afterAnchorLabel,
   currentBalance,
   groupByPurpose,
   lastCalibrationDiff,
   openingAnchorDate,
   pickAnchor,
   previousAnchor,
+  selectablePurposes,
   validateLink,
   type BalanceAnchor,
   type BalanceTx,
@@ -205,6 +208,8 @@ describe('currentBalance（R23.2）', () => {
       pendingCount: 2,
       pendingCents: -5849,
       asOf: '2026-12-09',
+      anchorDate: '2026-11-04',
+      afterCount: 6,
     });
   });
 
@@ -216,6 +221,8 @@ describe('currentBalance（R23.2）', () => {
       pendingCount: 1,
       pendingCents: -1250,
       asOf: '2026-12-10',
+      anchorDate: '2026-11-04',
+      afterCount: 6,
     });
   });
 
@@ -227,6 +234,8 @@ describe('currentBalance（R23.2）', () => {
       pendingCount: 2,
       pendingCents: -5849,
       asOf: '2026-12-10',
+      anchorDate: '2026-11-04',
+      afterCount: 6,
     });
   });
 
@@ -237,6 +246,8 @@ describe('currentBalance（R23.2）', () => {
       pendingCount: 0,
       pendingCents: 0,
       asOf: '2026-11-30',
+      anchorDate: '2026-11-30',
+      afterCount: 0,
     });
   });
 
@@ -247,6 +258,8 @@ describe('currentBalance（R23.2）', () => {
       pendingCount: 0,
       pendingCents: 0,
       asOf: '2026-10-31',
+      anchorDate: '2026-10-31',
+      afterCount: 0,
     });
   });
 
@@ -266,6 +279,8 @@ describe('currentBalance（R23.2）', () => {
       pendingCount: 1,
       pendingCents: -1800,
       asOf: '2026-12-10',
+      anchorDate: '2026-12-09',
+      afterCount: 1,
     });
   });
 
@@ -283,6 +298,8 @@ describe('currentBalance（R23.2）', () => {
       pendingCount: 1,
       pendingCents: -1800,
       asOf: '2026-12-10',
+      anchorDate: '2026-12-06',
+      afterCount: 3,
     });
   });
 
@@ -317,7 +334,38 @@ describe('currentBalance（R23.2）', () => {
       pendingCount: 1,
       pendingCents: 120,
       asOf: '2026-12-10',
+      anchorDate: '2026-11-30',
+      afterCount: 1,
     });
+  });
+});
+
+describe('anchorAsOfLabel / afterAnchorLabel（R23.2 显示）', () => {
+  const TODAY = '2026-12-10';
+
+  it('R23.2: PDF anchor → "对账单截至 MM-DD" with the anchor date, not the later max (A-1)', () => {
+    expect(anchorAsOfLabel('pdf', '2026-11-04', TODAY)).toBe('对账单截至 11-04');
+  });
+
+  it('R23.2: manual anchor → "手动填写 MM-DD" (E-3)', () => {
+    expect(anchorAsOfLabel('manual', '2026-12-09', TODAY)).toBe('手动填写 12-09');
+  });
+
+  it('R23.2: anchor not in this year → YYYY-MM-DD', () => {
+    expect(anchorAsOfLabel('pdf', '2025-12-31', '2026-01-05')).toBe('对账单截至 2025-12-31');
+  });
+
+  it('R23.2: transactions after the anchor → "之后 N 笔，最晚 MM-DD", pending counted (A-1)', () => {
+    expect(afterAnchorLabel(currentBalance(A_PDF1, A_TXS)!, TODAY)).toBe('之后 6 笔，最晚 12-09');
+  });
+
+  it('R23.2: nothing after the anchor → null, no "之后 0 笔" (B-1)', () => {
+    expect(afterAnchorLabel(currentBalance(B_PDF2, B_TXS)!, TODAY)).toBeNull();
+  });
+
+  it('R23.2: latest date not in this year → YYYY-MM-DD', () => {
+    const b = currentBalance(manual('2025-12-20', 0, '2025-12-21'), [c('2025-12-28', -500)])!;
+    expect(afterAnchorLabel(b, '2026-01-05')).toBe('之后 1 笔，最晚 2025-12-28');
   });
 });
 
@@ -456,6 +504,20 @@ describe('groupByPurpose（R23.5）', () => {
     expect(o.hasPending).toBe(false);
     expect(o.availableCents).toBe(1079700);
     expect(o.postedCents).toBe(1079700);
+  });
+});
+
+describe('selectablePurposes（R23.4）', () => {
+  it('R23.4: new account cannot pick bills', () => {
+    expect(selectablePurposes(null)).toEqual(['everyday', 'emergency', 'savings', 'goal']);
+  });
+
+  it('R23.4: account that is not bills cannot pick bills', () => {
+    expect(selectablePurposes('savings')).toEqual(['everyday', 'emergency', 'savings', 'goal']);
+  });
+
+  it('R23.4: account already on bills keeps bills as an option, in group order', () => {
+    expect(selectablePurposes('bills')).toEqual(['everyday', 'bills', 'emergency', 'savings', 'goal']);
   });
 });
 

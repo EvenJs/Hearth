@@ -8,7 +8,7 @@
 //   主拆分不能改金额；auto / confirmed 转账的分类只读（R16.2）
 // 金额的提示（主拆分剩余、上限）只是界面上的，真正的校验在服务端
 import { zodResolver } from '@hookform/resolvers/zod';
-import { ChevronDown, Loader2 } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import { useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
@@ -390,8 +390,7 @@ export function SplitDialog({ tx, primary, target, options, onClose, onSaved }: 
               <Button type="button" variant="outline" disabled={submitting} onClick={onClose}>
                 取消
               </Button>
-              <Button type="submit" disabled={submitting}>
-                {submitting && <Loader2 className="animate-spin" />}
+              <Button type="submit" loading={submitting}>
                 {isAdd ? '拆分' : '保存'}
               </Button>
             </DialogFooter>

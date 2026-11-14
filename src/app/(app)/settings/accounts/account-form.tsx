@@ -43,7 +43,7 @@ import {
   type Bank,
 } from '@/lib/accounts/account-input';
 import { canImportStatement } from '@/lib/import/banks';
-import { ACCOUNT_PURPOSES, ACCOUNT_PURPOSE_LABELS } from '@/lib/rules/balance';
+import { ACCOUNT_PURPOSE_LABELS, selectablePurposes } from '@/lib/rules/balance';
 import { parseBalanceToCents } from '@/lib/rules/money';
 import type { Account } from '@/server/accounts';
 import type { Member } from '@/server/members';
@@ -77,7 +77,9 @@ export function AccountForm({ account, accounts, members, onDone }: Props) {
   const [openingBalance, setOpeningBalance] = useState('0');
   const [openingBalanceError, setOpeningBalanceError] = useState<string | null>(null);
   const [prompt, setPrompt] = useState<RedetectPrompt | null>(null);
-  const [saving, setSaving] = useState(false);
+  // 保存中时记下弹窗里点的是哪个（redetect），那个按钮转圈
+  const [savingRedetect, setSavingRedetect] = useState<boolean | null>(null);
+  const saving = savingRedetect !== null;
 
   const form = useForm<AccountInput, unknown, AccountValues>({
     resolver: zodResolver(accountInputSchema),
@@ -123,7 +125,7 @@ export function AccountForm({ account, accounts, members, onDone }: Props) {
 
   // redetect：R6.4 弹窗里选了"改"
   async function save(input: AccountInput, redetect: boolean) {
-    setSaving(true);
+    setSavingRedetect(redetect);
     try {
       const result = await saveAccountAction(account?.id ?? null, input, redetect);
       setPrompt(null);
@@ -139,7 +141,7 @@ export function AccountForm({ account, accounts, members, onDone }: Props) {
       );
       onDone();
     } finally {
-      setSaving(false);
+      setSavingRedetect(null);
     }
   }
 
@@ -335,7 +337,8 @@ export function AccountForm({ account, accounts, members, onDone }: Props) {
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
-                  {ACCOUNT_PURPOSES.map((p) => (
+                  {/* R23.4：按保存过的用途算，改成别的保存以后"账单"就选不回来 */}
+                  {selectablePurposes(account?.purpose ?? null).map((p) => (
                     <SelectItem key={p} value={p}>
                       {ACCOUNT_PURPOSE_LABELS[p]}
                     </SelectItem>
@@ -411,8 +414,8 @@ export function AccountForm({ account, accounts, members, onDone }: Props) {
           <Button type="button" variant="outline" onClick={onDone} disabled={submitting}>
             取消
           </Button>
-          <Button type="submit" disabled={submitting || prompt !== null}>
-            {submitting ? '保存中…' : '保存'}
+          <Button type="submit" loading={submitting} disabled={prompt !== null}>
+            保存
           </Button>
         </div>
       </form>
@@ -436,11 +439,20 @@ export function AccountForm({ account, accounts, members, onDone }: Props) {
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel disabled={saving}>取消</AlertDialogCancel>
-              <Button variant="outline" onClick={() => save(prompt.input, false)} disabled={saving}>
+              <Button
+                variant="outline"
+                onClick={() => save(prompt.input, false)}
+                loading={savingRedetect === false}
+                disabled={saving}
+              >
                 不改，只保存账户
               </Button>
-              <Button onClick={() => save(prompt.input, true)} disabled={saving}>
-                {saving ? '保存中…' : '改'}
+              <Button
+                onClick={() => save(prompt.input, true)}
+                loading={savingRedetect === true}
+                disabled={saving}
+              >
+                改
               </Button>
             </AlertDialogFooter>
           </AlertDialogContent>

@@ -47,6 +47,7 @@ export function GoalsView({ overview, accounts }: Props) {
 
       <EmergencyCard
         goal={emergency}
+        accounts={accounts}
         onCreate={() => setDialog({ name: 'create', emergency: true })}
         onAction={setDialog}
       />
@@ -72,6 +73,7 @@ export function GoalsView({ overview, accounts }: Props) {
                 goal={g}
                 isFirst={i === 0}
                 isLast={i === active.length - 1}
+                accounts={accounts}
                 onAction={setDialog}
               />
             ))}
@@ -256,7 +258,7 @@ function DoneActions({ goal, onDelete }: { goal: DoneGoal; onDelete: (g: DoneGoa
       <Button
         variant="outline"
         size="sm"
-        disabled={pending}
+        loading={pending}
         onClick={() =>
           startTransition(async () => {
             const r = await reopenGoalAction(goal.id);

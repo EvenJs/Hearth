@@ -1,8 +1,10 @@
 import { History } from 'lucide-react';
 import Link from 'next/link';
 import { Suspense } from 'react';
+import { TableSkeleton } from '@/components/skeletons';
 import { Button } from '@/components/ui/button';
 import { canImportCsv, canImportStatement } from '@/lib/import/banks';
+import { todayInMelbourne } from '@/lib/rules/periods';
 import { listAccounts } from '@/server/accounts';
 import { getHouseholdContext } from '@/server/context';
 import { getImportCoverage } from '@/server/imports';
@@ -16,7 +18,7 @@ export default function ImportPage() {
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold">导入银行流水</h1>
           <p className="text-sm text-muted-foreground">
-            上传 ANZ 或 CBA 网银导出的 CSV，或者 ANZ、ANZ Plus、CBA 的 PDF 对账单（ANZ Plus 只能导 PDF 对账单）。自动去重、分类、配对内部转账。
+            上传网银导出的 CSV 或 PDF 对账单，自动去重、分类、配对内部转账。文件本身不保存。
           </p>
         </div>
         <Button asChild variant="outline" size="sm" className="w-fit shrink-0">
@@ -28,7 +30,7 @@ export default function ImportPage() {
       </header>
 
       {/* 读 session 的部分放在 Suspense 里（cacheComponents） */}
-      <Suspense fallback={<p className="text-sm text-muted-foreground">加载中…</p>}>
+      <Suspense fallback={<TableSkeleton />}>
         <ImportSection />
       </Suspense>
     </>
@@ -64,5 +66,5 @@ async function ImportSection() {
       </p>
     );
   }
-  return <ImportForm accounts={accounts} />;
+  return <ImportForm accounts={accounts} today={todayInMelbourne()} />;
 }

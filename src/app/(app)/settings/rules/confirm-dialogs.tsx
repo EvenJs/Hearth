@@ -1,7 +1,6 @@
 'use client';
 
 // 删除确认（R18.3）和"要对 N 笔应用吗"（R18.4、R7.2）
-import { Loader2 } from 'lucide-react';
 import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import {
@@ -28,7 +27,7 @@ export function DeleteRuleDialog({
 }: {
   rule: RuleListItem;
   onClose: () => void;
-  onDeleted: () => void;
+  onDeleted: () => Promise<void>;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -41,7 +40,7 @@ export function DeleteRuleDialog({
         setError(r.message);
         return;
       }
-      onDeleted();
+      await onDeleted();
     });
   }
 
@@ -65,8 +64,7 @@ export function DeleteRuleDialog({
           <AlertDialogCancel type="button" disabled={pending}>
             取消
           </AlertDialogCancel>
-          <Button type="button" variant="destructive" disabled={pending} onClick={remove}>
-            {pending && <Loader2 className="animate-spin" />}
+          <Button type="button" variant="destructive" loading={pending} onClick={remove}>
             删除
           </Button>
         </AlertDialogFooter>
@@ -115,8 +113,7 @@ export function ApplyRulesDialog({
           <AlertDialogCancel type="button" disabled={pending}>
             先不用
           </AlertDialogCancel>
-          <Button type="button" disabled={pending} onClick={apply}>
-            {pending && <Loader2 className="animate-spin" />}
+          <Button type="button" loading={pending} onClick={apply}>
             应用到 {preview.changeCount} 笔
           </Button>
         </AlertDialogFooter>

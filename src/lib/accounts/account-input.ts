@@ -17,11 +17,12 @@ export const BANK_LABELS: Record<Bank, string> = {
   other: '其他',
 };
 
+// M13-12 改成账户卡片第二行的叫法，设置页的下拉和表格同一套
 export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
-  everyday: '日常',
-  savings: '储蓄',
+  everyday: '日常卡',
+  savings: '储蓄账户',
   credit_card: '信用卡',
-  joint: 'Joint',
+  joint: '联名',
   cash: '现金',
 };
 

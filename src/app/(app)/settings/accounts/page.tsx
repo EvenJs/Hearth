@@ -1,4 +1,5 @@
 import { Suspense } from 'react';
+import { TableSkeleton } from '@/components/skeletons';
 import { todayInMelbourne } from '@/lib/rules/periods';
 import { listAccounts } from '@/server/accounts';
 import { listCards } from '@/server/cards';
@@ -21,7 +22,7 @@ export default function AccountsPage(props: PageProps<'/settings/accounts'>) {
       </header>
 
       {/* 读 session 和 searchParams 的部分放在 Suspense 里（cacheComponents） */}
-      <Suspense fallback={<p className="text-sm text-muted-foreground">加载中…</p>}>
+      <Suspense fallback={<TableSkeleton />}>
         <AccountsSection searchParams={props.searchParams} />
       </Suspense>
     </>

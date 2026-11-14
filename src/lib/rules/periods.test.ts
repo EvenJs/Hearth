@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   addDays,
+  defaultDashboardPeriod,
   lastTwelveMonths,
   periodRange,
   previousPeriod,
@@ -175,5 +176,44 @@ describe('lastTwelveMonths（R10.5）', () => {
     expect(months[10]).toEqual({ start: '2028-02-01', end: '2028-02-29' });
     expect(months[11]).toEqual({ start: '2028-03-01', end: '2028-03-01' });
     for (let i = 1; i < 12; i++) expect(months[i].start).toBe(addDays(months[i - 1].end, 1));
+  });
+});
+
+describe('defaultDashboardPeriod（R10.1a）', () => {
+  it('R10.1a: latest as-of 10-30, today 11-14 → last month (October)', () => {
+    expect(defaultDashboardPeriod('2026-10-30', '2026-11-14')).toBe('last_month');
+  });
+
+  it('R10.1a: as-of in the current month → month not over → one month back', () => {
+    expect(defaultDashboardPeriod('2026-11-05', '2026-11-14')).toBe('last_month');
+  });
+
+  it('R10.1a: as-of on the last day of a month that is already over', () => {
+    expect(defaultDashboardPeriod('2026-10-31', '2026-11-01')).toBe('last_month');
+  });
+
+  it('R10.1a: today is the last day of the as-of month → still not over → one month back', () => {
+    expect(defaultDashboardPeriod('2026-10-31', '2026-10-31')).toBe('last_month');
+  });
+
+  it('R10.1a: as-of older than last month → that whole month as custom', () => {
+    expect(defaultDashboardPeriod('2026-09-15', '2026-11-14')).toEqual(
+      range('2026-09-01', '2026-09-30'),
+    );
+  });
+
+  it('R10.1a: across the year end', () => {
+    expect(defaultDashboardPeriod('2026-12-31', '2027-01-10')).toBe('last_month');
+    expect(defaultDashboardPeriod('2026-11-20', '2027-01-10')).toEqual(
+      range('2026-11-01', '2026-11-30'),
+    );
+  });
+
+  it('R10.1a: as-of later than today counts as today', () => {
+    expect(defaultDashboardPeriod('2026-12-02', '2026-11-14')).toBe('last_month');
+  });
+
+  it('R10.1a: no account has an as-of date → this month', () => {
+    expect(defaultDashboardPeriod(null, '2026-11-14')).toBe('this_month');
   });
 });

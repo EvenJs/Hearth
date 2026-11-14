@@ -2,7 +2,7 @@
 
 // 归档确认（R19.4）。有规则指向它（一级包括二级）时不能归档：
 // 提示"有 N 条规则指向这个分类，先去规则页改掉或删掉"，链接到规则页带 ?category=<一级 id>
-import { AlertTriangle, ArrowRight, Loader2 } from 'lucide-react';
+import { AlertTriangle, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 import { useState, useTransition } from 'react';
 import {
@@ -108,8 +108,7 @@ export function ArchiveCategoryDialog({
           <AlertDialogCancel type="button" disabled={pending}>
             取消
           </AlertDialogCancel>
-          <Button type="button" disabled={pending} onClick={archive}>
-            {pending && <Loader2 className="animate-spin" />}
+          <Button type="button" loading={pending} onClick={archive}>
             归档
           </Button>
         </AlertDialogFooter>

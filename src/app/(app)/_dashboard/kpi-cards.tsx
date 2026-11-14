@@ -7,6 +7,7 @@ import {
   formatPointsChange,
   formatRange,
   formatSavingsRate,
+  ongoingLabel,
 } from '@/lib/dashboard/format';
 import { kpiLink, type DashboardScope, type KpiKind } from '@/lib/dashboard/links';
 import { formatAud } from '@/lib/rules/money';
@@ -16,7 +17,7 @@ import type { Dashboard } from '@/server/dashboard';
 
 // F6 看板的 4 张 KPI（R10）和"含 N 笔待确认交易"（R10.6）
 // 每个数字都能点进 F8（src/lib/dashboard/links.ts）；储蓄率是比率不是合计，不跳
-// 对比上期（R10.4）涨跌都用灰色；未分类不对比
+// 对比上期（R10.4）涨跌都用灰色；未分类不对比；时间段没过完时只写"本月 / 本期还没过完"
 
 type Props = { dashboard: Dashboard; scope: DashboardScope; today: string };
 
@@ -24,6 +25,7 @@ export function KpiCards({ dashboard, scope, today }: Props) {
   const { current, comparison, previous } = dashboard;
   const href = (kind: KpiKind) => transactionsHref(kpiLink(scope, kind));
   const prevTitle = `上期：${formatRange(previous, today)}`;
+  const ongoing = ongoingLabel(dashboard.period, today);
 
   return (
     <section aria-label="收支概览" className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
@@ -35,7 +37,9 @@ export function KpiCards({ dashboard, scope, today }: Props) {
             {formatAud(current.preTaxIncomeCents)}
           </Link>
         </Sub>
-        <Change title={prevTitle}>{formatPercentChange(comparison.incomePercent)}</Change>
+        <Change title={prevTitle} ongoing={ongoing}>
+          {formatPercentChange(comparison.incomePercent)}
+        </Change>
       </Kpi>
 
       <Kpi label="支出">
@@ -51,7 +55,9 @@ export function KpiCards({ dashboard, scope, today }: Props) {
             </>
           )}
         </Sub>
-        <Change title={prevTitle}>{formatPercentChange(comparison.expensePercent)}</Change>
+        <Change title={prevTitle} ongoing={ongoing}>
+          {formatPercentChange(comparison.expensePercent)}
+        </Change>
       </Kpi>
 
       <Kpi label="储蓄率">
@@ -59,7 +65,9 @@ export function KpiCards({ dashboard, scope, today }: Props) {
           {formatSavingsRate(current.savingsRate)}
         </p>
         <Sub>(收入 − 支出) ÷ 收入</Sub>
-        <Change title={prevTitle}>{formatPointsChange(comparison.savingsRatePoints)}</Change>
+        <Change title={prevTitle} ongoing={ongoing}>
+          {formatPointsChange(comparison.savingsRatePoints)}
+        </Change>
       </Kpi>
 
       <Kpi label="未分类">
@@ -145,8 +153,19 @@ function Sub({ children }: { children: React.ReactNode }) {
   return <p className="truncate text-xs text-muted-foreground">{children}</p>;
 }
 
-// R10.4 对比上期，灰色；hover 显示上期的起止日期
-function Change({ title, children }: { title: string; children: React.ReactNode }) {
+// R10.4 对比上期，灰色；hover 显示上期的起止日期。没过完时只写 ongoing，不比
+function Change({
+  title,
+  ongoing,
+  children,
+}: {
+  title: string;
+  ongoing: string | null;
+  children: React.ReactNode;
+}) {
+  if (ongoing !== null) {
+    return <p className="mt-auto pt-2 text-xs text-muted-foreground">{ongoing}</p>;
+  }
   return (
     <p className="mt-auto pt-2 text-xs text-muted-foreground" title={title}>
       <span className="font-medium tabular-nums">{children}</span> 对比上期

@@ -3,7 +3,7 @@
 // 设置 → 税务（设计图 11，R14.3、R14.6、R14.7）。只按人，不做家庭合计
 // 上面每人一张表单（全年工资税前总额、雇主已代扣的税），下面只读的估算表
 // 已预缴只从 Tax (ATO) 拆分算，不能手填（R14.6）；填过的可以清除（R14.8）
-import { Info, Loader2, TriangleAlert } from 'lucide-react';
+import { Info, TriangleAlert } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
@@ -70,7 +70,7 @@ export function TaxView({ years, missingRates, tax }: Props) {
           onValueChange={(v) => startSwitching(() => router.push(`/settings/tax?fy=${v}`))}
           disabled={years.length === 0}
         >
-          <SelectTrigger className="w-40" aria-label="财年">
+          <SelectTrigger className="w-40" loading={switching} aria-label="财年">
             <SelectValue placeholder="没有税率表" />
           </SelectTrigger>
           <SelectContent>
@@ -81,7 +81,6 @@ export function TaxView({ years, missingRates, tax }: Props) {
             ))}
           </SelectContent>
         </Select>
-        {switching && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
       </div>
 
       {missingRates && (
@@ -233,8 +232,7 @@ function ProfileForm({
                 清除
               </Button>
             )}
-            <Button type="submit" disabled={pending}>
-              {pending && <Loader2 className="animate-spin" />}
+            <Button type="submit" loading={pending}>
               保存
             </Button>
           </div>
@@ -299,8 +297,7 @@ function ClearDialog(props: {
           <AlertDialogCancel type="button" disabled={pending}>
             取消
           </AlertDialogCancel>
-          <Button type="button" variant="destructive" disabled={pending} onClick={clear}>
-            {pending && <Loader2 className="animate-spin" />}
+          <Button type="button" variant="destructive" loading={pending} onClick={clear}>
             清除
           </Button>
         </AlertDialogFooter>

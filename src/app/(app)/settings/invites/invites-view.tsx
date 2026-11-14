@@ -3,7 +3,7 @@
 // 设置 → 邀请（M12-6）。上面"发邀请码"对话框（R26.2），下面自己发过的码（R26.3）
 // 电脑上表格，手机上卡片，照规则设置页
 // 码和链接复制出来都带横杠（R26.1），注册页会自己整理
-import { Copy, Loader2, Plus } from 'lucide-react';
+import { Copy, Plus } from 'lucide-react';
 import { useLayoutEffect, useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import {
@@ -342,8 +342,7 @@ function CreateInviteDialog({
               <Button type="button" variant="outline" disabled={pending} onClick={onClose}>
                 取消
               </Button>
-              <Button type="submit" disabled={pending}>
-                {pending && <Loader2 className="animate-spin" />}
+              <Button type="submit" loading={pending}>
                 生成
               </Button>
             </DialogFooter>
@@ -436,8 +435,7 @@ function RevokeInviteDialog({ invite, onClose }: { invite: InviteListItem; onClo
           <AlertDialogCancel type="button" disabled={pending}>
             取消
           </AlertDialogCancel>
-          <Button type="button" variant="destructive" disabled={pending} onClick={revoke}>
-            {pending && <Loader2 className="animate-spin" />}
+          <Button type="button" variant="destructive" loading={pending} onClick={revoke}>
             撤销
           </Button>
         </AlertDialogFooter>

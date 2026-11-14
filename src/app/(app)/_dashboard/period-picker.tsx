@@ -18,7 +18,7 @@ import { cn } from '@/lib/utils';
 
 // R10.1 看板时间段：8 个选项，选了就写进 URL（和 F8 同样的参数）
 // 自定义要两个日期都填了点"应用"才跳；填到一半离开再回来保留（tech-stack 2，筛选条件要留）
-// 合不合法由服务端的 filtersFromSearchParams 判断，不合法的丢掉 → 回到默认的本月
+// 合不合法由服务端的 filtersFromSearchParams 判断，不合法的丢掉 → 回到默认时间段（R10.1a）
 
 // view：汇总表当前的切换，换时间段时带上不丢（M5-5）
 type Props = { period: Period; memberId?: string; view?: PivotView; today: string };

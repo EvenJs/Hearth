@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import { connection } from 'next/server';
 import { Suspense } from 'react';
 import { z } from 'zod';
+import { TransactionDetailSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatAud } from '@/lib/rules/money';
@@ -33,7 +34,7 @@ import { UploadReceiptButton } from './upload-receipt-button';
 // ?back= 是列表页的查询参数（筛选和页码），"返回流水"时带回去
 export default function TransactionDetailPage(props: PageProps<'/transactions/[id]'>) {
   return (
-    <Suspense fallback={<p className="text-sm text-muted-foreground">加载中…</p>}>
+    <Suspense fallback={<TransactionDetailSkeleton />}>
       <DetailSection params={props.params} searchParams={props.searchParams} />
     </Suspense>
   );

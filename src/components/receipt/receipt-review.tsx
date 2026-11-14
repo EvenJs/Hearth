@@ -250,8 +250,6 @@ export function ReceiptReview({ variant, draft, fixedTransactionId, onClose }: P
   const showDuplicate = !dupDismissed && !fixedTransactionId && candidates?.possibleDuplicate;
   const readFailed = draft.read.status === 'failed';
 
-  const saveLabel = saving ? '保存中…' : '保存';
-
   // ---------- 各块 ----------
 
   const banners = (
@@ -737,8 +735,7 @@ export function ReceiptReview({ variant, draft, fixedTransactionId, onClose }: P
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={saving}>取消</AlertDialogCancel>
-          <Button onClick={() => save(true)} disabled={saving}>
-            {saving && <Loader2 className="size-4 animate-spin" />}
+          <Button onClick={() => save(true)} loading={saving}>
             覆盖并保存
           </Button>
         </AlertDialogFooter>
@@ -769,10 +766,11 @@ export function ReceiptReview({ variant, draft, fixedTransactionId, onClose }: P
           <Button
             variant="ghost"
             className="h-11 text-primary"
+            loading={saving}
             disabled={!canSave}
             onClick={() => save(false)}
           >
-            {saveLabel}
+            保存
           </Button>
         </header>
         <div className="flex-1 overflow-y-auto px-4 py-3">
@@ -788,11 +786,12 @@ export function ReceiptReview({ variant, draft, fixedTransactionId, onClose }: P
           <Button
             size="lg"
             className="h-12 w-full text-base"
+            loading={saving}
             disabled={!canSave}
             onClick={() => save(false)}
           >
-            {saving ? <Loader2 className="size-5 animate-spin" /> : <Save className="size-5" />}
-            {saving ? '保存中…' : '保存并挂到交易'}
+            <Save className="size-5" />
+            保存并挂到交易
           </Button>
         </footer>
         {confirmDialog}
@@ -817,9 +816,9 @@ export function ReceiptReview({ variant, draft, fixedTransactionId, onClose }: P
         <Button variant="ghost" onClick={onClose}>
           取消
         </Button>
-        <Button disabled={!canSave} onClick={() => save(false)}>
-          {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-          {saveLabel}
+        <Button loading={saving} disabled={!canSave} onClick={() => save(false)}>
+          <Save className="size-4" />
+          保存
         </Button>
       </footer>
       {confirmDialog}

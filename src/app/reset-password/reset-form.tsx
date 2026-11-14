@@ -3,7 +3,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useLayoutEffect, useState, useTransition } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { PasswordInput } from '@/components/password-input';
@@ -54,11 +54,22 @@ function NewPasswordForm({ token }: { token: string }) {
   const router = useRouter();
   const [expired, setExpired] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  // 改成功后等登录页出来，这段时间表单保持填好的样子（M13-2）
+  const [navigating, startTransition] = useTransition();
 
   const form = useForm<ResetValues>({
     resolver: zodResolver(resetSchema),
     defaultValues: { password: '', confirmPassword: '' },
   });
+
+  // 离开页面时清掉密码和提示（cacheComponents 会保留 state，tech-stack 2）
+  useLayoutEffect(
+    () => () => {
+      setFormError(null);
+      form.reset();
+    },
+    [form],
+  );
 
   if (expired) return <Expired />;
 
@@ -71,41 +82,44 @@ function NewPasswordForm({ token }: { token: string }) {
       else setFormError('没改成功，请稍后再试');
       return;
     }
-    form.reset();
-    router.replace('/login?reset=1');
+    // 不在这里清表单，否则跳转完成前会露出空表单。密码在离开页面时清（上面的 cleanup）
+    startTransition(() => router.replace('/login?reset=1'));
   }
 
-  const submitting = form.formState.isSubmitting;
+  const busy = form.formState.isSubmitting || navigating;
 
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-5" noValidate>
-        <FormField
-          control={form.control}
-          name="password"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>新密码</FormLabel>
-              <FormControl>
-                <PasswordInput autoComplete="new-password" {...field} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="confirmPassword"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>确认新密码</FormLabel>
-              <FormControl>
-                <PasswordInput autoComplete="new-password" {...field} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
+        {/* 提交和跳转期间整组禁用 */}
+        <fieldset disabled={busy} className="contents">
+          <FormField
+            control={form.control}
+            name="password"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>新密码</FormLabel>
+                <FormControl>
+                  <PasswordInput autoComplete="new-password" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="confirmPassword"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>确认新密码</FormLabel>
+                <FormControl>
+                  <PasswordInput autoComplete="new-password" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </fieldset>
 
         {formError && (
           <p role="alert" className="text-sm text-destructive">
@@ -113,8 +127,8 @@ function NewPasswordForm({ token }: { token: string }) {
           </p>
         )}
 
-        <Button type="submit" className="h-11 w-full text-base" disabled={submitting}>
-          {submitting ? '保存中…' : '改密码'}
+        <Button type="submit" className="h-11 w-full text-base" loading={busy}>
+          改密码
         </Button>
       </form>
     </Form>

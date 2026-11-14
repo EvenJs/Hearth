@@ -3,8 +3,8 @@
 // R23.3 手动校准：填某天结束时的余额，保存后提示和算出来的差多少；下面是手动填过的余额，填错了删掉
 // 没锚点的账户"填一次余额"也走这里。差额每次实时算，不存，所以列表里不显示历史差额
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { MoreHorizontal, Trash2 } from 'lucide-react';
+import { useLayoutEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
@@ -26,6 +26,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   Form,
   FormControl,
@@ -73,17 +79,49 @@ type Props = {
   today: string; // Melbourne 今天，服务端传进来
 };
 
+// 没锚点的账户：按钮是主要操作，直接放卡片上
 export function CalibrateButton({ account, today }: Props) {
-  const [open, setOpen] = useState(false);
-  const label = account.balance === null ? '填一次余额' : '校准';
+  const [open, setOpen] = useDialogOpen();
   return (
     <>
       <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
-        {label}
+        填一次余额
       </Button>
       {open && <CalibrateDialog account={account} today={today} onClose={() => setOpen(false)} />}
     </>
   );
+}
+
+// 有锚点的账户：校准收在卡片右上角 ⋯ 里。弹窗 state 放在菜单外面，菜单关了弹窗不跟着关
+export function CalibrateMenu({ account, today }: Props) {
+  const [open, setOpen] = useDialogOpen();
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="-mt-1 -mr-2 size-8 shrink-0"
+            aria-label={`${account.name} 的操作`}
+          >
+            <MoreHorizontal />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onSelect={() => setOpen(true)}>校准</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {open && <CalibrateDialog account={account} today={today} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+// 离开页面时关掉弹窗（cacheComponents 的 Activity 会保留 state，tech-stack 2）
+function useDialogOpen() {
+  const [open, setOpen] = useState(false);
+  useLayoutEffect(() => () => setOpen(false), []);
+  return [open, setOpen] as const;
 }
 
 function CalibrateDialog({ account, today, onClose }: Props & { onClose: () => void }) {
@@ -201,8 +239,8 @@ function CalibrateDialog({ account, today, onClose }: Props & { onClose: () => v
                 <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
                   取消
                 </Button>
-                <Button type="submit" disabled={submitting}>
-                  {submitting ? '保存中…' : '保存'}
+                <Button type="submit" loading={submitting}>
+                  保存
                 </Button>
               </DialogFooter>
             </form>
@@ -251,8 +289,8 @@ function CalibrateDialog({ account, today, onClose }: Props & { onClose: () => v
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel disabled={deleteBusy}>取消</AlertDialogCancel>
-              <Button variant="destructive" onClick={confirmDelete} disabled={deleteBusy}>
-                {deleteBusy ? '删除中…' : '删除'}
+              <Button variant="destructive" onClick={confirmDelete} loading={deleteBusy}>
+                删除
               </Button>
             </AlertDialogFooter>
           </AlertDialogContent>

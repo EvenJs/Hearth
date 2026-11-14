@@ -10,6 +10,7 @@ import {
   formatRange,
   formatSavingsRate,
   formatShare,
+  ongoingLabel,
 } from './format';
 
 // 看板的显示格式和 URL（prd.md F6、business-rules.md R10、R10.4；docs/tasks/m5.md M5-3）
@@ -30,6 +31,34 @@ describe('R10.4 comparison text', () => {
     expect(formatPointsChange(-2)).toBe('-2 pp');
     expect(formatPointsChange(0)).toBe('0 pp');
     expect(formatPointsChange(null)).toBe('—');
+  });
+});
+
+// R10.4 最后一条（2026-11-14）：时间段没过完不算百分比
+describe('R10.4 period not over yet', () => {
+  it('R10.4: this month → "本月还没过完"', () => {
+    expect(ongoingLabel(periodRange('this_month', TODAY), TODAY)).toBe('本月还没过完');
+  });
+
+  it.each(['this_week', 'this_quarter', 'this_year', 'this_fy'] as const)(
+    'R10.4: %s → "本期还没过完"',
+    (option) => {
+      expect(ongoingLabel(periodRange(option, TODAY), TODAY)).toBe('本期还没过完');
+    },
+  );
+
+  it('R10.4: custom range ending today or later is not over', () => {
+    const toToday = periodRange({ start: '2026-10-01', end: TODAY }, TODAY);
+    const later = periodRange({ start: '2026-10-01', end: '2026-10-31' }, TODAY);
+    expect(ongoingLabel(toToday, TODAY)).toBe('本期还没过完');
+    expect(ongoingLabel(later, TODAY)).toBe('本期还没过完');
+  });
+
+  it('R10.4: finished periods are compared as usual', () => {
+    expect(ongoingLabel(periodRange('last_month', TODAY), TODAY)).toBeNull();
+    expect(ongoingLabel(periodRange('last_week', TODAY), TODAY)).toBeNull();
+    const sept = periodRange({ start: '2026-09-01', end: '2026-09-30' }, TODAY);
+    expect(ongoingLabel(sept, TODAY)).toBeNull();
   });
 });
 
@@ -59,8 +88,9 @@ describe('formatRange', () => {
 });
 
 describe('dashboardHref', () => {
-  it('this_month is the default and stays out of the URL', () => {
-    expect(dashboardHref({ period: periodRange('this_month', TODAY) })).toBe('/');
+  // R10.1a：默认时间段跟着数据走，不再固定，选了的时间段都写进 URL
+  it('R10.1a: this_month is written to the URL too', () => {
+    expect(dashboardHref({ period: periodRange('this_month', TODAY) })).toBe('/?period=this_month');
   });
 
   it('other presets and member go in the same params as F8', () => {

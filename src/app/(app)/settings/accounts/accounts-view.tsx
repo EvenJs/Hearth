@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
+import { AccountLabel } from '@/components/account-badge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -94,10 +95,14 @@ export function AccountsView({
     }
   }
   const [pending, startTransition] = useTransition();
+  // 正在归档/恢复的那一行转圈，其他行一起禁用
+  const [archivingId, setArchivingId] = useState<string | null>(null);
 
   function setArchived(account: Account, archived: boolean) {
+    setArchivingId(account.id);
     startTransition(async () => {
       const result = await setAccountArchivedAction(account.id, archived);
+      setArchivingId(null);
       if (!result.ok) {
         toast.error(result.message);
         return;
@@ -151,12 +156,12 @@ export function AccountsView({
                 <TableRow key={a.id} className={a.isArchived ? 'text-muted-foreground' : undefined}>
                   <TableCell className="whitespace-normal">
                     <div className="flex flex-wrap items-center gap-2 font-medium">
-                      {a.name}
+                      <AccountLabel bank={a.bank} name={a.name} />
                       {a.isArchived && <Badge variant="outline">已归档</Badge>}
                     </div>
-                    {/* 手机上隐藏了银行、类型、用途、关联、尾号列，放在名称下面 */}
+                    {/* 手机上隐藏了类型、用途、关联、尾号列，放在名称下面；银行看名字前的方块 */}
                     <div className="text-xs text-muted-foreground md:hidden">
-                      {BANK_LABELS[a.bank]} · {ACCOUNT_TYPE_LABELS[a.type]} ·{' '}
+                      {ACCOUNT_TYPE_LABELS[a.type]} ·{' '}
                       {ACCOUNT_PURPOSE_LABELS[a.purpose]}
                       {a.numberSuffix && ` · ••${a.numberSuffix}`}
                       {linkLabel(a) && ` · 关联 ${linkLabel(a)}`}
@@ -208,6 +213,7 @@ export function AccountsView({
                         size="icon-sm"
                         aria-label={a.isArchived ? `恢复 ${a.name}` : `归档 ${a.name}`}
                         title={a.isArchived ? '恢复' : '归档'}
+                        loading={archivingId === a.id}
                         disabled={pending}
                         onClick={() => setArchived(a, !a.isArchived)}
                       >
