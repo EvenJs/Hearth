@@ -1,10 +1,12 @@
 import { Suspense } from 'react';
+import { BankLogosProvider } from '@/components/account-badge';
 import { Brand } from '@/components/app-shell/brand';
 import { MobileNav } from '@/components/app-shell/mobile-nav';
 import { SidebarNav, SidebarNavFallback } from '@/components/app-shell/sidebar-nav';
 import { UserMenu } from '@/components/app-shell/user-menu';
 import { QuickAddButton } from '@/components/quick-add/quick-add-button';
 import { getCurrentUser } from '@/server/auth';
+import { getBankLogos } from '@/server/bank-marks';
 import { getReceiptReader } from '@/server/receipt-readers';
 
 // 登录后的页面共用：左侧边栏 + 顶栏（docs/design/README.md 第 3 节、02-dashboard.png）
@@ -41,7 +43,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
         {/* 手机上底部留出悬浮 + 按钮的位置（M6-4），最底下的内容能滚到按钮上面 */}
         <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 p-4 pb-24 sm:p-8">
-          {children}
+          {/* M13-12：BankMark 按这里查到的 logo 显示，没有的画字母方块 */}
+          <BankLogosProvider logos={getBankLogos()}>{children}</BankLogosProvider>
         </main>
       </div>
     </div>

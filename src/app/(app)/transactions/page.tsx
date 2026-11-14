@@ -65,7 +65,7 @@ async function TransactionsSection({
       listUnattachedReceipts(ctx), // R20.7 顶部提示条
     ]);
   const options: FilterOptions = {
-    accounts: accounts.map(({ id, name, isArchived }) => ({ id, name, isArchived })),
+    accounts: accounts.map(({ id, name, bank, isArchived }) => ({ id, name, bank, isArchived })),
     members: members.map(({ id, name }) => ({ id, name })),
     // 筛选时都能选，包括内部转账和归档的（R19.4）
     categorySections: pickerSections(allCategories, {

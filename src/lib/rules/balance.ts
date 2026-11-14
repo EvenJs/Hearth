@@ -18,6 +18,11 @@ export const ACCOUNT_PURPOSE_LABELS: Record<AccountPurpose, string> = {
   goal: '目标',
 };
 
+// R23.4：下拉里不给"账单"；已经是 bills 的账户保留这个当前值，选走以后就选不回来
+export function selectablePurposes(current: AccountPurpose | null): AccountPurpose[] {
+  return ACCOUNT_PURPOSES.filter((p) => p !== 'bills' || current === 'bills');
+}
+
 // ---------- 锚点（R23.1） ----------
 
 // 锚点 = 这个账户 date 这一天结束时的余额

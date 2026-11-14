@@ -18,6 +18,7 @@ import { notFound } from 'next/navigation';
 import { Suspense } from 'react';
 import { z } from 'zod';
 import { TableSkeleton } from '@/components/skeletons';
+import { AccountLabel } from '@/components/account-badge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -28,7 +29,6 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { BANK_LABELS } from '@/lib/accounts/account-input';
 import { statementPeriod } from '@/lib/import/index';
 import { formatAud } from '@/lib/rules/money';
 import { cn } from '@/lib/utils';
@@ -101,8 +101,14 @@ function ImportResult({ r }: { r: ImportResultView }) {
           <h1 className="text-2xl font-semibold">导入完成</h1>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
             <Badge variant="secondary">
-              {BANK_LABELS[r.account.bank]} · {r.account.name}
-              {r.account.numberSuffix && ` ••${r.account.numberSuffix}`}
+              <AccountLabel
+                bank={r.account.bank}
+                name={
+                  r.account.numberSuffix
+                    ? `${r.account.name} ••${r.account.numberSuffix}`
+                    : r.account.name
+                }
+              />
             </Badge>
             <Badge variant="outline">{isPdf ? '对账单' : 'CSV'}</Badge>
             <span className="break-all">{r.fileName}</span>

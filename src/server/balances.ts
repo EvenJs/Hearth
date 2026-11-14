@@ -10,6 +10,7 @@ import {
   category,
   financialAccount,
   importBatch,
+  member,
   transaction,
   transactionSplit,
 } from '@/db/schema';
@@ -39,6 +40,7 @@ export type AccountBalance = {
   type: AccountType;
   numberSuffix: string | null;
   purpose: AccountPurpose;
+  defaultMemberName: string; // M13-12 卡片第二行的头像
   isArchived: false; // 只返回没归档的（R23.2）
   linkedAccount: { id: string; name: string; isArchived: boolean } | null;
   balance: CurrentBalance | null; // null = 没有锚点，"还没有余额，填一次"
@@ -253,11 +255,13 @@ export async function getAccountBalances(
       type: financialAccount.type,
       numberSuffix: financialAccount.numberSuffix,
       purpose: financialAccount.purpose,
+      defaultMemberName: member.name,
       linkedId: linked.id,
       linkedName: linked.name,
       linkedIsArchived: linked.isArchived,
     })
     .from(financialAccount)
+    .innerJoin(member, eq(member.id, financialAccount.defaultMemberId))
     .leftJoin(
       linked,
       and(eq(linked.id, financialAccount.linkedAccountId), eq(linked.householdId, hh)),
@@ -304,6 +308,7 @@ export async function getAccountBalances(
       type: a.type,
       numberSuffix: a.numberSuffix,
       purpose: a.purpose,
+      defaultMemberName: a.defaultMemberName,
       isArchived: false,
       linkedAccount:
         a.linkedId === null

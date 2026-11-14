@@ -43,7 +43,7 @@ import {
   type Bank,
 } from '@/lib/accounts/account-input';
 import { canImportStatement } from '@/lib/import/banks';
-import { ACCOUNT_PURPOSES, ACCOUNT_PURPOSE_LABELS } from '@/lib/rules/balance';
+import { ACCOUNT_PURPOSE_LABELS, selectablePurposes } from '@/lib/rules/balance';
 import { parseBalanceToCents } from '@/lib/rules/money';
 import type { Account } from '@/server/accounts';
 import type { Member } from '@/server/members';
@@ -337,7 +337,8 @@ export function AccountForm({ account, accounts, members, onDone }: Props) {
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
-                  {ACCOUNT_PURPOSES.map((p) => (
+                  {/* R23.4：按保存过的用途算，改成别的保存以后"账单"就选不回来 */}
+                  {selectablePurposes(account?.purpose ?? null).map((p) => (
                     <SelectItem key={p} value={p}>
                       {ACCOUNT_PURPOSE_LABELS[p]}
                     </SelectItem>

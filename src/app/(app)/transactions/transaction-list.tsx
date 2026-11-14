@@ -3,6 +3,7 @@
 import { ChevronDown, CornerDownRight } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useLayoutEffect, useState } from 'react';
+import { AccountLabel } from '@/components/account-badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -323,7 +324,7 @@ function TableRows({
           )}
         </TableCell>
         <TableCell className="align-top">
-          {tx.account.name}
+          <AccountLabel bank={tx.account.bank} name={tx.account.name} className="align-middle" />
           {tx.cardLast4 && (
             <span className="ml-1 text-xs text-muted-foreground">卡 {tx.cardLast4}</span>
           )}
@@ -421,7 +422,7 @@ function TxCard({
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
         <span>{formatTxDate(tx.date, today)}</span>
         <span>·</span>
-        <span>{tx.account.name}</span>
+        <AccountLabel bank={tx.account.bank} name={tx.account.name} />
       </div>
       {tx.transferStatus === 'suggested' && <SuggestionButtons transactionId={tx.id} />}
       {!isSplit && primary && (

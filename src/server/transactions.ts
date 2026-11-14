@@ -47,6 +47,7 @@ import {
 import { resolveSuggestion, type SuggestionTx } from '@/lib/rules/transfer';
 import type {
   Account,
+  Bank,
   Card,
   Category,
   CategoryKind,
@@ -103,7 +104,7 @@ export type TransactionListItem = {
   source: 'csv' | 'manual' | 'receipt';
   transferStatus: TransferStatus;
   transferPairId: string | null; // R16.7：有配对但 transfer_status = none 时显示小标签
-  account: { id: string; name: string };
+  account: { id: string; name: string; bank: Bank }; // bank：M13-12 银行方块
   splits: SplitView[]; // 主拆分在前，其他按金额绝对值从大到小
   possibleDuplicate: boolean; // R17.6：现在还要显示"可能重复"
   duplicatePartners: DuplicatePartner[]; // R17.6：和哪几笔可能重复（M6-6 标签上展开）
@@ -431,6 +432,7 @@ const listColumns = {
   transferPairId: transaction.transferPairId,
   accountId: financialAccount.id,
   accountName: financialAccount.name,
+  accountBank: financialAccount.bank,
 };
 
 type ListRow = Omit<
@@ -439,6 +441,7 @@ type ListRow = Omit<
 > & {
   accountId: string;
   accountName: string;
+  accountBank: Bank;
 };
 
 function toItem(
@@ -457,7 +460,7 @@ function toItem(
     source: r.source,
     transferStatus: r.transferStatus,
     transferPairId: r.transferPairId,
-    account: { id: r.accountId, name: r.accountName },
+    account: { id: r.accountId, name: r.accountName, bank: r.accountBank },
     splits,
     possibleDuplicate: duplicatePartners.length > 0,
     duplicatePartners,

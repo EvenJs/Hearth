@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
+import { AccountLabel } from '@/components/account-badge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -155,12 +156,12 @@ export function AccountsView({
                 <TableRow key={a.id} className={a.isArchived ? 'text-muted-foreground' : undefined}>
                   <TableCell className="whitespace-normal">
                     <div className="flex flex-wrap items-center gap-2 font-medium">
-                      {a.name}
+                      <AccountLabel bank={a.bank} name={a.name} />
                       {a.isArchived && <Badge variant="outline">已归档</Badge>}
                     </div>
-                    {/* 手机上隐藏了银行、类型、用途、关联、尾号列，放在名称下面 */}
+                    {/* 手机上隐藏了类型、用途、关联、尾号列，放在名称下面；银行看名字前的方块 */}
                     <div className="text-xs text-muted-foreground md:hidden">
-                      {BANK_LABELS[a.bank]} · {ACCOUNT_TYPE_LABELS[a.type]} ·{' '}
+                      {ACCOUNT_TYPE_LABELS[a.type]} ·{' '}
                       {ACCOUNT_PURPOSE_LABELS[a.purpose]}
                       {a.numberSuffix && ` · ••${a.numberSuffix}`}
                       {linkLabel(a) && ` · 关联 ${linkLabel(a)}`}

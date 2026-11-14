@@ -1,6 +1,6 @@
 import { Clock } from 'lucide-react';
+import { AccountMeta, BankMark, PurposeTag } from '@/components/account-badge';
 import { Card } from '@/components/ui/card';
-import { BANK_LABELS } from '@/lib/accounts/account-input';
 import {
   ACCOUNT_PURPOSE_LABELS,
   afterAnchorLabel,
@@ -93,14 +93,20 @@ function AccountCard({
   return (
     <Card className="row-span-2 grid min-w-0 grid-rows-subgrid gap-3 p-4 lg:p-5">
       <div className="flex min-w-0 flex-col gap-1">
+        {/* M13-12：银行方块 + 名字 + 用途标签；第二行尾号 · 类型 · 归属人 */}
         <div className="flex min-w-0 items-start justify-between gap-2">
-          <h3 className="truncate font-medium">{a.name}</h3>
+          <div className="flex min-w-0 items-center gap-2">
+            <BankMark bank={a.bank} size="md" />
+            <h3 className="truncate font-medium">{a.name}</h3>
+            <PurposeTag purpose={a.purpose} />
+          </div>
           {b !== null && <CalibrateMenu account={a} today={today} />}
         </div>
-        <Sub>
-          {BANK_LABELS[a.bank]}
-          {a.numberSuffix && ` · ••${a.numberSuffix}`}
-        </Sub>
+        <AccountMeta
+          numberSuffix={a.numberSuffix}
+          type={a.type}
+          memberName={a.defaultMemberName}
+        />
         {a.linkedAccount !== null && (
           <Sub>
             关联 {a.linkedAccount.name}

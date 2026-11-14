@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
+import { AccountLabel } from '@/components/account-badge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -33,7 +34,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { BANK_LABELS, type Bank } from '@/lib/accounts/account-input';
+import type { Bank } from '@/lib/accounts/account-input';
 import { canImportCsv, canImportStatement } from '@/lib/import/banks';
 import type { ImportCoverage } from '@/lib/import/coverage';
 import {
@@ -412,10 +413,7 @@ function CoverageTable({ accounts, today }: { accounts: ImportAccount[]; today: 
             <TableRow key={a.id}>
               <TableCell className="max-w-0 px-4">
                 <span className="flex min-w-0 items-center gap-2">
-                  <Badge variant="secondary" className="shrink-0">
-                    {BANK_LABELS[a.bank]}
-                  </Badge>
-                  <span className="truncate">{a.name}</span>
+                  <AccountLabel bank={a.bank} name={a.name} />
                   {a.numberSuffix && (
                     <span className="hidden shrink-0 text-muted-foreground sm:inline">
                       •••• {a.numberSuffix}
@@ -553,8 +551,7 @@ function AccountOption({
       )}
     >
       <span className="flex items-center gap-2">
-        <Badge variant="secondary">{BANK_LABELS[a.bank]}</Badge>
-        <span className="truncate font-medium">{a.name}</span>
+        <AccountLabel bank={a.bank} name={a.name} className="font-medium" />
       </span>
       <span className="flex items-center justify-between gap-2 text-sm text-muted-foreground">
         <span>{a.numberSuffix ? `•••• ${a.numberSuffix}` : '没填尾号'}</span>
@@ -599,8 +596,11 @@ function IdentityCard({ identity }: { identity: Identity }) {
             <p className="flex flex-wrap items-center gap-2 text-sm">
               <CheckCircle2 className="size-4 shrink-0 text-green-600" />
               识别为
-              <Badge variant="secondary">{BANK_LABELS[identity.account.bank]}</Badge>
-              <span className="font-medium">{identity.account.name}</span>
+              <AccountLabel
+                bank={identity.account.bank}
+                name={identity.account.name}
+                className="font-medium"
+              />
               {identity.account.numberSuffix && (
                 <span className="text-muted-foreground">•••• {identity.account.numberSuffix}</span>
               )}

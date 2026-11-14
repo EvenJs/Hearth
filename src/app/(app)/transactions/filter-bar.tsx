@@ -3,6 +3,7 @@
 import { ChevronDown, RotateCcw, Search, SlidersHorizontal, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useLayoutEffect, useState, useTransition } from 'react';
+import { AccountLabel } from '@/components/account-badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -14,6 +15,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import type { Bank } from '@/lib/accounts/account-input';
 import { PERIOD_LABELS } from '@/lib/dashboard/format';
 import type { TransactionType } from '@/lib/rules/split-edit';
 import {
@@ -32,7 +34,7 @@ import { CategoryPicker, pickerLabel } from './category-picker';
 // 这里只拼 URL 参数，合不合法由服务端的 filtersFromSearchParams 判断（不合法的丢掉）
 
 export type FilterOptions = {
-  accounts: { id: string; name: string; isArchived: boolean }[];
+  accounts: { id: string; name: string; bank: Bank; isArchived: boolean }[];
   members: { id: string; name: string }[];
   categorySections: PickerSections; // 一级包含它所有的二级
 };
@@ -224,8 +226,7 @@ function FilterForm(props: FormProps) {
           <SelectItem value={ALL}>全部账户</SelectItem>
           {options.accounts.map((a) => (
             <SelectItem key={a.id} value={a.id}>
-              {a.name}
-              {a.isArchived && '（已归档）'}
+              <AccountLabel bank={a.bank} name={a.isArchived ? `${a.name}（已归档）` : a.name} />
             </SelectItem>
           ))}
         </SelectContent>

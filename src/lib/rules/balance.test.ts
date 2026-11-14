@@ -12,6 +12,7 @@ import {
   openingAnchorDate,
   pickAnchor,
   previousAnchor,
+  selectablePurposes,
   validateLink,
   type BalanceAnchor,
   type BalanceTx,
@@ -503,6 +504,20 @@ describe('groupByPurpose（R23.5）', () => {
     expect(o.hasPending).toBe(false);
     expect(o.availableCents).toBe(1079700);
     expect(o.postedCents).toBe(1079700);
+  });
+});
+
+describe('selectablePurposes（R23.4）', () => {
+  it('R23.4: new account cannot pick bills', () => {
+    expect(selectablePurposes(null)).toEqual(['everyday', 'emergency', 'savings', 'goal']);
+  });
+
+  it('R23.4: account that is not bills cannot pick bills', () => {
+    expect(selectablePurposes('savings')).toEqual(['everyday', 'emergency', 'savings', 'goal']);
+  });
+
+  it('R23.4: account already on bills keeps bills as an option, in group order', () => {
+    expect(selectablePurposes('bills')).toEqual(['everyday', 'bills', 'emergency', 'savings', 'goal']);
   });
 });
 
