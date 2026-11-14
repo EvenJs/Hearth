@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { connection } from 'next/server';
 import { Suspense } from 'react';
+import { TransactionsSkeleton } from '@/components/skeletons';
 import { formatAud } from '@/lib/rules/money';
 import { pickerSections } from '@/lib/transactions/category-picker';
 import { categoryOptionGroups } from '@/lib/transactions/inline-edit';
@@ -34,7 +35,7 @@ export default function TransactionsPage(props: PageProps<'/transactions'>) {
         <h1 className="text-2xl font-semibold">流水</h1>
       </header>
       {/* 读 session 和 searchParams 的部分放在 Suspense 里（cacheComponents） */}
-      <Suspense fallback={<p className="text-sm text-muted-foreground">加载中…</p>}>
+      <Suspense fallback={<TransactionsSkeleton />}>
         <TransactionsSection searchParams={props.searchParams} />
       </Suspense>
     </>

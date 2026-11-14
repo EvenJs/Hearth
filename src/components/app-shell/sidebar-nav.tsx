@@ -1,7 +1,7 @@
 'use client';
 
-import { ChevronDown } from 'lucide-react';
-import Link from 'next/link';
+import { ChevronDown, Loader2, type LucideIcon } from 'lucide-react';
+import Link, { useLinkStatus } from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
@@ -12,7 +12,9 @@ const activeClass = 'bg-primary font-medium text-primary-foreground';
 const idleClass = 'text-foreground/80 hover:bg-primary/10 hover:text-foreground';
 const disabledClass = 'cursor-not-allowed text-muted-foreground/60';
 
-type NavProps = { onNavigate?: () => void }; // 手机 Sheet 里点了链接后关掉 Sheet
+// 手机 Sheet：点当前页的链接时关掉 Sheet。去别的页面不在这里关，等路径变了再关（MobileNav），
+// 这样页面出来之前菜单里能看到转圈（M13-3）
+type NavProps = { onNavigate?: () => void };
 
 // usePathname 在动态路由（/import/[batchId]）上只有请求时才知道，cacheComponents 要求放进 Suspense。
 // 用的地方：<Suspense fallback={<SidebarNavFallback />}><SidebarNav /></Suspense>
@@ -27,16 +29,11 @@ export function SidebarNavFallback(props: NavProps) {
 
 function NavList({ pathname, onNavigate }: NavProps & { pathname: string | null }) {
   // active 不传时按 isActive 判断；分组里由 NavGroup 传入（同组只高亮一项）
-  function leaf(
-    item: NavLeaf,
-    className: string,
-    children: React.ReactNode,
-    activeOverride?: boolean,
-  ) {
+  function leaf(item: NavLeaf, className: string, icon?: LucideIcon, activeOverride?: boolean) {
     if (item.href === null) {
       return (
         <span aria-disabled="true" title="还没做" className={cn(className, disabledClass)}>
-          {children}
+          <NavLabel icon={icon} label={item.label} />
         </span>
       );
     }
@@ -45,10 +42,10 @@ function NavList({ pathname, onNavigate }: NavProps & { pathname: string | null 
       <Link
         href={item.href}
         aria-current={active ? 'page' : undefined}
-        onClick={onNavigate}
+        onClick={active ? onNavigate : undefined}
         className={cn(className, active ? activeClass : idleClass)}
       >
-        {children}
+        <NavLinkLabel icon={icon} label={item.label} />
       </Link>
     );
   }
@@ -56,24 +53,15 @@ function NavList({ pathname, onNavigate }: NavProps & { pathname: string | null 
   return (
     <nav aria-label="主导航">
       <ul className="flex flex-col gap-1">
-        {NAV_ITEMS.map((item) => {
-          const Icon = item.icon;
-          const label = (
-            <>
-              <Icon className="size-4 shrink-0" />
-              {item.label}
-            </>
-          );
-          return (
-            <li key={item.label}>
-              {item.children ? (
-                <NavGroup item={item} label={label} pathname={pathname} leaf={leaf} />
-              ) : (
-                leaf(item, itemClass, label)
-              )}
-            </li>
-          );
-        })}
+        {NAV_ITEMS.map((item) => (
+          <li key={item.label}>
+            {item.children ? (
+              <NavGroup item={item} pathname={pathname} leaf={leaf} />
+            ) : (
+              leaf(item, itemClass, item.icon)
+            )}
+          </li>
+        ))}
       </ul>
     </nav>
   );
@@ -82,17 +70,15 @@ function NavList({ pathname, onNavigate }: NavProps & { pathname: string | null 
 // 有子项的分组（导入、设置）：标题是展开收起按钮。当前页在分组里时默认展开，否则收起
 function NavGroup({
   item,
-  label,
   pathname,
   leaf,
 }: {
   item: NavItem;
-  label: React.ReactNode;
   pathname: string | null;
   leaf: (
     item: NavLeaf,
     className: string,
-    children: React.ReactNode,
+    icon?: LucideIcon,
     activeOverride?: boolean,
   ) => React.ReactNode;
 }) {
@@ -109,7 +95,7 @@ function NavGroup({
         onClick={() => setOpen((v) => !v)}
         className={cn(itemClass, idleClass, 'w-full')}
       >
-        {label}
+        <NavLabel icon={item.icon} label={item.label} />
         <ChevronDown
           className={cn('ml-auto size-4 transition-transform', open ? 'rotate-180' : '')}
         />
@@ -121,13 +107,49 @@ function NavGroup({
               {leaf(
                 child,
                 cn(itemClass, 'h-8'),
-                child.label,
+                undefined,
                 pathname === null ? false : child.href !== null && child.href === activeHref,
               )}
             </li>
           ))}
         </ul>
       )}
+    </>
+  );
+}
+
+function NavLabel({ icon: Icon, label }: { icon?: LucideIcon; label: string }) {
+  return (
+    <>
+      {Icon && <Icon className="size-4 shrink-0" />}
+      {label}
+    </>
+  );
+}
+
+// M13-3：点下去到新页面出来之前转圈。useLinkStatus 只能用在 <Link> 里面。
+// 一级项把图标换成转圈；子项没有图标，转圈放在文字右边，平时透明占位，不让文字跳
+function NavLinkLabel({ icon: Icon, label }: { icon?: LucideIcon; label: string }) {
+  const { pending } = useLinkStatus();
+  if (Icon) {
+    return (
+      <>
+        {pending ? (
+          <Loader2 aria-hidden className="size-4 shrink-0 animate-spin" />
+        ) : (
+          <Icon className="size-4 shrink-0" />
+        )}
+        {label}
+      </>
+    );
+  }
+  return (
+    <>
+      {label}
+      <Loader2
+        aria-hidden
+        className={cn('ml-auto size-3.5 shrink-0 animate-spin', pending ? '' : 'opacity-0')}
+      />
     </>
   );
 }

@@ -1,4 +1,5 @@
 import { Suspense } from 'react';
+import { TableSkeleton } from '@/components/skeletons';
 import { filterRules } from '@/lib/rules/rule-admin';
 import { pickerSections } from '@/lib/transactions/category-picker';
 import { listCategoryTree } from '@/server/categories';
@@ -18,7 +19,7 @@ export default function RulesPage(props: PageProps<'/settings/rules'>) {
       </header>
 
       {/* 读 session 和 searchParams 的部分放在 Suspense 里（cacheComponents） */}
-      <Suspense fallback={<p className="text-sm text-muted-foreground">加载中…</p>}>
+      <Suspense fallback={<TableSkeleton />}>
         <RulesSection searchParams={props.searchParams} />
       </Suspense>
     </>

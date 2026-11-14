@@ -1,5 +1,6 @@
 import { connection } from 'next/server';
 import { Suspense } from 'react';
+import { GoalsSkeleton } from '@/components/skeletons';
 import { todayInMelbourne } from '@/lib/rules/periods';
 import { listAccounts } from '@/server/accounts';
 import { getHouseholdContext } from '@/server/context';
@@ -20,7 +21,7 @@ export default function GoalsPage() {
       </header>
 
       {/* 读 session 的部分放在 Suspense 里（cacheComponents） */}
-      <Suspense fallback={<p className="text-sm text-muted-foreground">加载中…</p>}>
+      <Suspense fallback={<GoalsSkeleton />}>
         <GoalsSection />
       </Suspense>
     </>

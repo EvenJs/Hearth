@@ -1,5 +1,6 @@
 import { connection } from 'next/server';
 import { Suspense } from 'react';
+import { TableSkeleton } from '@/components/skeletons';
 import { todayInMelbourne } from '@/lib/rules/periods';
 import { financialYearOf } from '@/lib/tax/estimate';
 import { availableFinancialYears, financialYearLabel } from '@/lib/tax/rates';
@@ -21,7 +22,7 @@ export default function TaxPage(props: PageProps<'/settings/tax'>) {
       </header>
 
       {/* 读 session 和 searchParams 的部分放在 Suspense 里（cacheComponents） */}
-      <Suspense fallback={<p className="text-sm text-muted-foreground">加载中…</p>}>
+      <Suspense fallback={<TableSkeleton />}>
         <TaxSection searchParams={props.searchParams} />
       </Suspense>
     </>

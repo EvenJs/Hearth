@@ -1,6 +1,7 @@
 import { CheckCircle2, ChevronLeft, CircleSlash, FileUp, XCircle } from 'lucide-react';
 import Link from 'next/link';
 import { Suspense } from 'react';
+import { TableSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -47,7 +48,7 @@ export default function ImportHistoryPage() {
       </header>
 
       {/* 读 session 的部分放在 Suspense 里（cacheComponents） */}
-      <Suspense fallback={<p className="text-sm text-muted-foreground">加载中…</p>}>
+      <Suspense fallback={<TableSkeleton />}>
         <HistorySection />
       </Suspense>
     </>

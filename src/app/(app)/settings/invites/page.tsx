@@ -1,4 +1,5 @@
 import { Suspense } from 'react';
+import { TableSkeleton } from '@/components/skeletons';
 import { getHouseholdContext } from '@/server/context';
 import { canIssueNewHousehold, listInvites } from '@/server/invites';
 import { listMembers } from '@/server/members';
@@ -18,7 +19,7 @@ export default function InvitesPage() {
       </header>
 
       {/* 读 session 的部分放在 Suspense 里（cacheComponents） */}
-      <Suspense fallback={<p className="text-sm text-muted-foreground">加载中…</p>}>
+      <Suspense fallback={<TableSkeleton />}>
         <InvitesSection />
       </Suspense>
     </>

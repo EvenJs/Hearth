@@ -1,5 +1,6 @@
 import { connection } from 'next/server';
 import { Suspense } from 'react';
+import { DashboardSkeleton } from '@/components/skeletons';
 import { formatRange, DEFAULT_PERIOD } from '@/lib/dashboard/format';
 import { pivotViewFromSearchParams } from '@/lib/dashboard/pivot-view';
 import type { DashboardScope } from '@/lib/dashboard/links';
@@ -40,14 +41,7 @@ import { TopMerchants } from './_dashboard/top-merchants';
 export default function HomePage(props: PageProps<'/'>) {
   return (
     // 读 session 和 searchParams 的部分放在 Suspense 里（cacheComponents）
-    <Suspense
-      fallback={
-        <>
-          <h1 className="text-2xl font-semibold">看板</h1>
-          <p className="text-sm text-muted-foreground">加载中…</p>
-        </>
-      }
-    >
+    <Suspense fallback={<DashboardSkeleton />}>
       <DashboardSection searchParams={props.searchParams} />
     </Suspense>
   );
