@@ -100,15 +100,17 @@ export function RulesView({ rules, totalCount, q, category, tops, refs, sections
     startTransition(() => router.replace(rulesHref(text, next), { scroll: false }));
   }
 
-  // 新建、修改、删除成功后：R7.2 预览，N = 0 只给 toast，否则问要不要应用
+  // 新建、修改、删除成功后：R7.2 预览，N = 0 只给 toast，否则问要不要应用。
+  // 预览算完才关对话框，这段时间保存按钮继续转圈
   async function afterWrite(savedMessage: string) {
-    setDialog(null);
     const p = await previewReapplyAction();
     if (!p.ok) {
+      setDialog(null);
       toast.error(p.message);
       return;
     }
     if (p.changeCount === 0) {
+      setDialog(null);
       toast.success(`${savedMessage}，没有需要重新分类的交易`);
       return;
     }
@@ -248,14 +250,14 @@ export function RulesView({ rules, totalCount, q, category, tops, refs, sections
           rule={dialog.name === 'edit' ? dialog.rule : null}
           sections={sections}
           onClose={() => setDialog(null)}
-          onSaved={(msg) => void afterWrite(msg)}
+          onSaved={afterWrite}
         />
       )}
       {dialog?.name === 'delete' && (
         <DeleteRuleDialog
           rule={dialog.rule}
           onClose={() => setDialog(null)}
-          onDeleted={() => void afterWrite('规则已删除')}
+          onDeleted={() => afterWrite('规则已删除')}
         />
       )}
       {dialog?.name === 'apply' && (

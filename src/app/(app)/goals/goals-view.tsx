@@ -256,7 +256,7 @@ function DoneActions({ goal, onDelete }: { goal: DoneGoal; onDelete: (g: DoneGoa
       <Button
         variant="outline"
         size="sm"
-        disabled={pending}
+        loading={pending}
         onClick={() =>
           startTransition(async () => {
             const r = await reopenGoalAction(goal.id);

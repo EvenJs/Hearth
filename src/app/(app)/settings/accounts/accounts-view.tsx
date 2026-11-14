@@ -94,10 +94,14 @@ export function AccountsView({
     }
   }
   const [pending, startTransition] = useTransition();
+  // 正在归档/恢复的那一行转圈，其他行一起禁用
+  const [archivingId, setArchivingId] = useState<string | null>(null);
 
   function setArchived(account: Account, archived: boolean) {
+    setArchivingId(account.id);
     startTransition(async () => {
       const result = await setAccountArchivedAction(account.id, archived);
+      setArchivingId(null);
       if (!result.ok) {
         toast.error(result.message);
         return;
@@ -208,6 +212,7 @@ export function AccountsView({
                         size="icon-sm"
                         aria-label={a.isArchived ? `恢复 ${a.name}` : `归档 ${a.name}`}
                         title={a.isArchived ? '恢复' : '归档'}
+                        loading={archivingId === a.id}
                         disabled={pending}
                         onClick={() => setArchived(a, !a.isArchived)}
                       >

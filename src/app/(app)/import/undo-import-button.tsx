@@ -2,15 +2,7 @@
 
 // R12.1 撤销导入的按钮和弹窗（M3-9）。导入历史页和导入结果页共用
 // 点击时现查 getUndoPreview：有手动改过的或确认的 pending → 弹窗列出笔数，确认后才撤销；都没有 → 直接撤销
-import {
-  Loader2,
-  PencilLine,
-  Receipt,
-  RotateCcw,
-  Trash2,
-  TriangleAlert,
-  Undo2,
-} from 'lucide-react';
+import { PencilLine, Receipt, RotateCcw, Trash2, TriangleAlert, Undo2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition, type ReactNode } from 'react';
 import { toast } from 'sonner';
@@ -99,14 +91,11 @@ export function UndoImportButton({
         variant="outline"
         size="sm"
         onClick={onClick}
+        loading={pending && !prompt}
         disabled={pending}
         className={cn('w-fit shrink-0', className)}
       >
-        {pending && !prompt ? (
-          <Loader2 className="size-4 animate-spin" />
-        ) : (
-          <Undo2 className="size-4" />
-        )}
+        <Undo2 className="size-4" />
         {label}
       </Button>
 
@@ -160,12 +149,8 @@ export function UndoImportButton({
 
             <AlertDialogFooter>
               <AlertDialogCancel disabled={pending}>取消</AlertDialogCancel>
-              <Button variant="destructive" onClick={runUndo} disabled={pending}>
-                {pending ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Undo2 className="size-4" />
-                )}
+              <Button variant="destructive" onClick={runUndo} loading={pending}>
+                <Undo2 className="size-4" />
                 撤销本次导入
               </Button>
             </AlertDialogFooter>

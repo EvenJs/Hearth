@@ -3,7 +3,6 @@
 // 新建 / 修改分类的对话框（设计图 13-settings-categories-dialog，R19.2、R19.3）
 // 字段：名字、类型（只有新建一级时能选）、默认归属人（可空）、税前（只有收入的二级出现）
 // Other 不能改名；报错显示在对话框里，不关
-import { Loader2 } from 'lucide-react';
 import { useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -231,8 +230,7 @@ export function CategoryDialog({ mode, members, memberName, onClose, onSaved }: 
             <Button type="button" variant="outline" disabled={pending} onClick={onClose}>
               取消
             </Button>
-            <Button type="submit" disabled={pending || (!isOther && name.trim() === '')}>
-              {pending && <Loader2 className="animate-spin" />}
+            <Button type="submit" loading={pending} disabled={!isOther && name.trim() === ''}>
               保存
             </Button>
           </DialogFooter>

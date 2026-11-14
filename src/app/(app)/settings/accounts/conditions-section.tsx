@@ -149,8 +149,8 @@ export function ConditionsSection({ accountId, hasLinkedAccount, conditions, tod
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel disabled={pending}>取消</AlertDialogCancel>
-              <Button variant="destructive" onClick={() => remove(removing)} disabled={pending}>
-                {pending ? '删除中…' : '删除'}
+              <Button variant="destructive" onClick={() => remove(removing)} loading={pending}>
+                删除
               </Button>
             </AlertDialogFooter>
           </AlertDialogContent>

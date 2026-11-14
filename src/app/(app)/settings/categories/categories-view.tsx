@@ -64,6 +64,8 @@ export function CategoriesView({ list, members, showArchived }: Props) {
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const [pending, startTransition] = useTransition();
+  // 正在取消归档的那一行：它的菜单按钮转圈，其他行一起禁用
+  const [unarchivingId, setUnarchivingId] = useState<string | null>(null);
 
   // 对话框是一次性的：页面被 <Activity> 藏起来时关掉（docs/tech-stack.md 2 "页面状态"）
   useLayoutEffect(() => () => setDialog(null), []);
@@ -87,8 +89,10 @@ export function CategoriesView({ list, members, showArchived }: Props) {
   }
 
   function unarchive(item: AdminCategoryItem) {
+    setUnarchivingId(item.id);
     startTransition(async () => {
       const r = await unarchiveCategoryAction(item.id);
+      setUnarchivingId(null);
       if (!r.ok) {
         toast.error(r.message);
         return;
@@ -103,6 +107,7 @@ export function CategoriesView({ list, members, showArchived }: Props) {
     onArchive: (item, top) => setDialog({ name: 'archive', item, top }),
     onUnarchive: unarchive,
     busy: pending,
+    unarchivingId,
   };
 
   return (
@@ -181,6 +186,7 @@ type RowActions = {
   onArchive: (item: AdminCategoryItem, top: AdminTopCategory | null) => void;
   onUnarchive: (item: AdminCategoryItem) => void;
   busy: boolean;
+  unarchivingId: string | null;
 };
 
 function Group({
@@ -393,6 +399,7 @@ function RowMenu({
             size="icon"
             className="size-8"
             aria-label={`${item.nameEn} 的操作`}
+            loading={actions.unarchivingId === item.id}
             disabled={actions.busy || parentArchived}
             title={parentArchived ? '一级在归档中，先取消归档一级' : undefined}
           >

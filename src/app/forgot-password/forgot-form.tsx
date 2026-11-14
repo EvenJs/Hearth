@@ -83,8 +83,8 @@ export function ForgotForm() {
           </p>
         )}
 
-        <Button type="submit" className="h-11 w-full text-base" disabled={submitting}>
-          {submitting ? '发送中…' : '发送重置链接'}
+        <Button type="submit" className="h-11 w-full text-base" loading={submitting}>
+          发送重置链接
         </Button>
 
         <p className="text-center text-sm">

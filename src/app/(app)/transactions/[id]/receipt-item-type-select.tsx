@@ -40,13 +40,10 @@ export function ReceiptItemTypeSelect({
   }
 
   return (
-    <Select
-      value={shown ?? undefined}
-      onValueChange={(v) => change(v as ItemType)}
-      disabled={pending}
-    >
+    <Select value={shown ?? undefined} onValueChange={(v) => change(v as ItemType)}>
       {/* 手机上高一点好点；shadcn 的高度写在 data-[size] 上，要用同一个变体才盖得住 */}
       <SelectTrigger
+        loading={pending}
         aria-label={`${name} 的类型`}
         className="w-28 data-[size=default]:h-10 sm:w-full sm:data-[size=default]:h-8"
       >

@@ -4,7 +4,7 @@
 // 改的都是一个拆分（R16.1）；auto / confirmed 转账分类只读（R16.2）；下拉选项按 R16.3
 // 改完之后的追问（M5.5-4）：存成规则（R16.9）、同商家一起改归属人（R16.10）
 import { Check, ChevronDown, Loader2, X } from 'lucide-react';
-import { useTransition } from 'react';
+import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -183,12 +183,9 @@ export function MemberSelect({
   }
 
   return (
-    <Select value={split.member.id} onValueChange={onChange} disabled={pending}>
-      <SelectTrigger size="sm" aria-label="归属人" className={triggerClass}>
-        <SelectValue>
-          {split.member.name}
-          {pending && <Loader2 className="animate-spin" />}
-        </SelectValue>
+    <Select value={split.member.id} onValueChange={onChange}>
+      <SelectTrigger size="sm" loading={pending} aria-label="归属人" className={triggerClass}>
+        <SelectValue>{split.member.name}</SelectValue>
       </SelectTrigger>
       <SelectContent position="popper" align="start">
         {!known && (
@@ -216,8 +213,10 @@ export function SuggestionButtons({
   className?: string;
 }) {
   const [pending, startTransition] = useTransition();
+  const [running, setRunning] = useState<'confirm' | 'reject' | null>(null);
 
   function run(action: 'confirm' | 'reject') {
+    setRunning(action);
     startTransition(async () => {
       const r = await resolveSuggestionAction({ transactionId, action });
       if (!r.ok) {
@@ -234,10 +233,11 @@ export function SuggestionButtons({
         type="button"
         size="sm"
         className="h-6 gap-1 px-2 text-xs"
+        loading={pending && running === 'confirm'}
         disabled={pending}
         onClick={() => run('confirm')}
       >
-        {pending ? <Loader2 className="animate-spin" /> : <Check />}
+        <Check />
         确认
       </Button>
       <Button
@@ -245,6 +245,7 @@ export function SuggestionButtons({
         size="sm"
         variant="outline"
         className="h-6 gap-1 px-2 text-xs"
+        loading={pending && running === 'reject'}
         disabled={pending}
         onClick={() => run('reject')}
       >

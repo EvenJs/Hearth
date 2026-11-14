@@ -21,8 +21,8 @@ export function SignOutButton() {
   }
 
   return (
-    <Button variant="outline" size="sm" onClick={handleSignOut} disabled={pending}>
-      {pending ? '退出中…' : '退出'}
+    <Button variant="outline" size="sm" onClick={handleSignOut} loading={pending}>
+      退出
     </Button>
   );
 }

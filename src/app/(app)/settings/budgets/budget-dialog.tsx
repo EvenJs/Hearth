@@ -4,7 +4,7 @@
 // 字段：分类（只在新建时能选，R11.2 的范围）、每月上限、提醒百分比（1–100，默认 80）、固定到首页
 // 编辑不能改分类，要换就删掉重建。报错（已经有预算、上限不对）显示在对话框里，不关
 // R22.11：新建选了分类后上限默认填近 12 个月月均（整元），用户动过上限就不再覆盖；编辑不填
-import { ChevronsUpDown, Loader2 } from 'lucide-react';
+import { ChevronsUpDown } from 'lucide-react';
 import { useState, useTransition } from 'react';
 import {
   AlertDialog,
@@ -217,8 +217,7 @@ export function BudgetDialog({ budget, sections, average, onClose, onSaved }: Pr
             <Button type="button" variant="outline" disabled={pending} onClick={onClose}>
               取消
             </Button>
-            <Button type="submit" disabled={pending || limit.trim() === ''}>
-              {pending && <Loader2 className="animate-spin" />}
+            <Button type="submit" loading={pending} disabled={limit.trim() === ''}>
               保存
             </Button>
           </DialogFooter>
@@ -269,8 +268,7 @@ export function DeleteBudgetDialog({
           <AlertDialogCancel type="button" disabled={pending}>
             取消
           </AlertDialogCancel>
-          <Button type="button" variant="destructive" disabled={pending} onClick={remove}>
-            {pending && <Loader2 className="animate-spin" />}
+          <Button type="button" variant="destructive" loading={pending} onClick={remove}>
             删除
           </Button>
         </AlertDialogFooter>

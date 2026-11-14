@@ -3,9 +3,9 @@
 // 设置 → 预算（设计图 10，R11、R11.1、R11.3）。电脑上表格，手机上卡片（10-settings-budgets-mobile）
 // 顶部是 R11.1 的总览（有要按月存的目标时多一行"还能花"，R25.10）；被一级包含的二级预算照常显示进度，标"不进合计"
 // 固定开关直接保存；新建、修改、删除走对话框（budget-dialog.tsx）
-import { MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Loader2, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
 import Link from 'next/link';
-import { useLayoutEffect, useState, useTransition } from 'react';
+import { useLayoutEffect, useOptimistic, useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -320,21 +320,26 @@ function Progress({ budget }: { budget: BudgetItem }) {
   );
 }
 
-// 直接保存；成功后 revalidatePath 刷新，开关跟着服务端的值
+// 直接保存；点了马上翻过去并转圈，成功后 revalidatePath 刷新，开关跟着服务端的值（失败就翻回来）
 function PinSwitch({ budget }: { budget: BudgetItem }) {
   const [pending, startTransition] = useTransition();
+  const [checked, setChecked] = useOptimistic(budget.isPinned);
   return (
-    <Switch
-      checked={budget.isPinned}
-      disabled={pending}
-      aria-label={`把 ${budget.label} 固定到首页`}
-      onCheckedChange={(checked) =>
-        startTransition(async () => {
-          const r = await setBudgetPinnedAction(budget.id, checked);
-          if (!r.ok) toast.error(r.message);
-        })
-      }
-    />
+    <span className="inline-flex items-center gap-1.5">
+      <Switch
+        checked={checked}
+        disabled={pending}
+        aria-label={`把 ${budget.label} 固定到首页`}
+        onCheckedChange={(next) =>
+          startTransition(async () => {
+            setChecked(next);
+            const r = await setBudgetPinnedAction(budget.id, next);
+            if (!r.ok) toast.error(r.message);
+          })
+        }
+      />
+      {pending && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+    </span>
   );
 }
 

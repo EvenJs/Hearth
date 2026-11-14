@@ -7,12 +7,13 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  Loader2,
   MoreHorizontal,
   Pencil,
   Trash2,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useState, useTransition } from 'react';
+import { useOptimistic, useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -291,11 +292,16 @@ function MoveButtons({
   isLast: boolean;
 }) {
   const [pending, startTransition] = useTransition();
-  const move = (direction: 'up' | 'down') =>
+  // 点的那个按钮转圈，两个都禁用
+  const [moving, setMoving] = useState<'up' | 'down' | null>(null);
+  const move = (direction: 'up' | 'down') => {
+    setMoving(direction);
     startTransition(async () => {
       const r = await moveGoalAction(goal.id, direction);
+      setMoving(null);
       if (!r.ok) toast.error(r.message);
     });
+  };
   return (
     <div className="flex shrink-0">
       <Button
@@ -303,6 +309,7 @@ function MoveButtons({
         size="icon"
         className="size-8"
         aria-label={`把 ${goal.name} 上移`}
+        loading={pending && moving === 'up'}
         disabled={pending || isFirst}
         onClick={() => move('up')}
       >
@@ -313,6 +320,7 @@ function MoveButtons({
         size="icon"
         className="size-8"
         aria-label={`把 ${goal.name} 下移`}
+        loading={pending && moving === 'down'}
         disabled={pending || isLast}
         onClick={() => move('down')}
       >
@@ -322,21 +330,26 @@ function MoveButtons({
   );
 }
 
-// 直接保存；成功后 revalidatePath 刷新，开关跟着服务端的值
+// 直接保存；点了马上翻过去并转圈，成功后 revalidatePath 刷新，开关跟着服务端的值（失败就翻回来）
 export function PinSwitch({ goal }: { goal: GoalRecord }) {
   const [pending, startTransition] = useTransition();
+  const [checked, setChecked] = useOptimistic(goal.isPinned);
   return (
-    <Switch
-      checked={goal.isPinned}
-      disabled={pending}
-      aria-label={`把 ${goal.name} 固定到首页`}
-      onCheckedChange={(checked) =>
-        startTransition(async () => {
-          const r = await updateGoalAction(goal.id, { ...goalInput(goal), isPinned: checked });
-          if (!r.ok) toast.error(r.message);
-        })
-      }
-    />
+    <span className="inline-flex items-center gap-1.5">
+      <Switch
+        checked={checked}
+        disabled={pending}
+        aria-label={`把 ${goal.name} 固定到首页`}
+        onCheckedChange={(next) =>
+          startTransition(async () => {
+            setChecked(next);
+            const r = await updateGoalAction(goal.id, { ...goalInput(goal), isPinned: next });
+            if (!r.ok) toast.error(r.message);
+          })
+        }
+      />
+      {pending && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+    </span>
   );
 }
 

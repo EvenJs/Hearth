@@ -204,8 +204,8 @@ export function SignupForm({ initialCode }: { initialCode: string }) {
           </p>
         )}
 
-        <Button type="submit" className="h-11 w-full text-base" disabled={submitting}>
-          {submitting ? '注册中…' : '注册'}
+        <Button type="submit" className="h-11 w-full text-base" loading={submitting}>
+          注册
         </Button>
 
         <p className="text-center text-sm text-muted-foreground">

@@ -370,8 +370,8 @@ function ImportFormInner({
 
         {canSubmit && (
           <div>
-            <Button type="submit" disabled={submitting} className="w-full sm:w-auto">
-              {submitting ? '导入中…' : '开始导入'}
+            <Button type="submit" loading={submitting} className="w-full sm:w-auto">
+              开始导入
             </Button>
           </div>
         )}

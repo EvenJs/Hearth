@@ -4,7 +4,6 @@
 // 1. 关键词，默认 suggestKeyword(merchant)，可以改；匹配方式固定 contains（R16.9）
 // 2. 已有同样的关键词、指向不同分类 → 提示，确认后改成新分类（R16.6）；分类相同直接下一步
 // 3. 现查会改几笔，问"要对 N 笔未分类和规则分类的交易应用吗"（R7.2）；0 笔就直接结束
-import { Loader2 } from 'lucide-react';
 import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import {
@@ -117,8 +116,7 @@ export function SaveRuleDialog({ draft, onClose }: { draft: RuleDraft; onClose: 
               <AlertDialogCancel type="button" disabled={pending}>
                 不用了
               </AlertDialogCancel>
-              <Button type="submit" disabled={pending || keyword.trim() === ''}>
-                {pending && <Loader2 className="animate-spin" />}
+              <Button type="submit" loading={pending} disabled={keyword.trim() === ''}>
                 保存规则
               </Button>
             </AlertDialogFooter>
@@ -142,8 +140,7 @@ export function SaveRuleDialog({ draft, onClose }: { draft: RuleDraft; onClose: 
               >
                 换个关键词
               </Button>
-              <Button type="button" disabled={pending} onClick={() => save(true)}>
-                {pending && <Loader2 className="animate-spin" />}
+              <Button type="button" loading={pending} onClick={() => save(true)}>
                 改成新分类
               </Button>
             </AlertDialogFooter>
@@ -163,8 +160,7 @@ export function SaveRuleDialog({ draft, onClose }: { draft: RuleDraft; onClose: 
               <AlertDialogCancel type="button" disabled={pending}>
                 先不用
               </AlertDialogCancel>
-              <Button type="button" disabled={pending} onClick={apply}>
-                {pending && <Loader2 className="animate-spin" />}
+              <Button type="button" loading={pending} onClick={apply}>
                 应用到 {step.changeCount} 笔
               </Button>
             </AlertDialogFooter>

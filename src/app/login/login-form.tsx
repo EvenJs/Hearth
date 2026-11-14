@@ -162,8 +162,8 @@ export function LoginForm({ notice }: { notice: LoginNotice }) {
 
         {canResend && (
           <div className="flex flex-col gap-2">
-            <Button type="button" variant="outline" onClick={onResend} disabled={resending}>
-              {resending ? '发送中…' : '重发验证邮件'}
+            <Button type="button" variant="outline" onClick={onResend} loading={resending}>
+              重发验证邮件
             </Button>
             {resendResult && (
               <p
@@ -178,8 +178,8 @@ export function LoginForm({ notice }: { notice: LoginNotice }) {
           </div>
         )}
 
-        <Button type="submit" className="h-11 w-full text-base" disabled={submitting}>
-          {submitting ? '登录中…' : '登录'}
+        <Button type="submit" className="h-11 w-full text-base" loading={submitting}>
+          登录
         </Button>
       </form>
     </Form>

@@ -251,9 +251,9 @@ function AttachForm({
           <ChevronLeft className="size-4" />
           返回列表
         </Button>
-        <Button disabled={!canSave} onClick={() => save(false)}>
-          {saving ? <Loader2 className="size-4 animate-spin" /> : <Link2 className="size-4" />}
-          {saving ? '挂上中…' : '挂上'}
+        <Button loading={saving} disabled={!canSave} onClick={() => save(false)}>
+          <Link2 className="size-4" />
+          挂上
         </Button>
       </div>
 
@@ -268,8 +268,7 @@ function AttachForm({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={saving}>取消</AlertDialogCancel>
-            <Button onClick={() => save(true)} disabled={saving}>
-              {saving && <Loader2 className="size-4 animate-spin" />}
+            <Button onClick={() => save(true)} loading={saving}>
               覆盖并挂上
             </Button>
           </AlertDialogFooter>

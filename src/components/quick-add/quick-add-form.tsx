@@ -65,7 +65,9 @@ export function QuickAddForm({ variant, data, loadError, onClose, onReceipt }: P
   const sheet = variant === 'sheet';
   const amountRef = useRef<HTMLInputElement>(null);
   const [errors, setErrors] = useState<FieldErrors>({});
-  const [saving, setSaving] = useState(false);
+  // 正在保存时记下点的是哪个按钮，那个按钮转圈
+  const [savingMode, setSavingMode] = useState<'close' | 'next' | null>(null);
+  const saving = savingMode !== null;
 
   const form = useForm<QuickAddValues>({
     defaultValues: emptyValues({ lastAccountId: null, today: '' }),
@@ -145,7 +147,7 @@ export function QuickAddForm({ variant, data, loadError, onClose, onReceipt }: P
       setErrors(prepared.errors);
       return;
     }
-    setSaving(true);
+    setSavingMode(mode);
     try {
       const r = await createQuickAddAction(prepared.input);
       if (!r.ok) {
@@ -167,7 +169,7 @@ export function QuickAddForm({ variant, data, loadError, onClose, onReceipt }: P
         amountRef.current?.focus();
       }
     } finally {
-      setSaving(false);
+      setSavingMode(null);
     }
   }
 
@@ -208,8 +210,13 @@ export function QuickAddForm({ variant, data, loadError, onClose, onReceipt }: P
             <X className="size-5" />
           </Button>
           <SheetTitle className="flex-1 text-base">记一笔</SheetTitle>
-          <Button type="submit" disabled={!data || saving} className="min-w-20">
-            {saving ? '保存中…' : '保存'}
+          <Button
+            type="submit"
+            loading={savingMode === 'close'}
+            disabled={!data || saving}
+            className="min-w-20"
+          >
+            保存
             {!saving && parsedAmount.ok && (
               <span className="tabular-nums">{formatAud(parsedAmount.cents)}</span>
             )}
@@ -532,6 +539,7 @@ export function QuickAddForm({ variant, data, loadError, onClose, onReceipt }: P
           <Button
             type="button"
             variant="outline"
+            loading={savingMode === 'next'}
             disabled={!data || saving}
             onClick={() => void save('next')}
           >
@@ -542,6 +550,7 @@ export function QuickAddForm({ variant, data, loadError, onClose, onReceipt }: P
             <Button
               type="button"
               variant="ghost"
+              loading={savingMode === 'next'}
               disabled={!data || saving}
               onClick={() => void save('next')}
               className="sm:mr-auto"
@@ -551,8 +560,8 @@ export function QuickAddForm({ variant, data, loadError, onClose, onReceipt }: P
             <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
               取消
             </Button>
-            <Button type="submit" disabled={!data || saving}>
-              {saving ? '保存中…' : '保存'}
+            <Button type="submit" loading={savingMode === 'close'} disabled={!data || saving}>
+              保存
               <kbd className="rounded bg-primary-foreground/20 px-1.5 py-0.5 font-sans text-xs">
                 {shortcut}
               </kbd>

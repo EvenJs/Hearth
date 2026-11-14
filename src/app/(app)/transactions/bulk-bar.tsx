@@ -3,8 +3,8 @@
 // F8 批量修改的操作栏（M4-9，设计图 03-transactions-bulk）：勾选后贴在页面底部
 // 下拉里选了就执行，一次只改一样（分类或归属人）；跳过的规则在 bulkUpdate 里（R16.1、R16.2）
 // 批量改分类不弹"存成规则"：选中的交易商家各不相同（R16.9 针对的是单笔修改）
-import { Loader2, Tag, User, X } from 'lucide-react';
-import { useTransition } from 'react';
+import { Tag, User, X } from 'lucide-react';
+import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -31,9 +31,12 @@ const triggerClass =
 
 export function BulkBar({ selectedIds, options, onDone, onClear }: Props) {
   const [pending, startTransition] = useTransition();
+  // 正在改的那个（分类 / 归属人）转圈
+  const [running, setRunning] = useState<BulkField | null>(null);
 
   function run(field: BulkField, id: string) {
     const change = field === 'category' ? { categoryId: id } : { memberId: id };
+    setRunning(field);
     startTransition(async () => {
       const r = await bulkUpdateAction({ transactionIds: selectedIds, ...change });
       if (!r.ok) {
@@ -57,7 +60,6 @@ export function BulkBar({ selectedIds, options, onDone, onClear }: Props) {
         <span className="mr-auto px-1 whitespace-nowrap sm:mr-1">
           已选 <strong className="tabular-nums">{selectedIds.length}</strong> 笔
         </span>
-        {pending && <Loader2 className="size-4 animate-spin" aria-label="保存中" />}
 
         <CategoryPicker
           sections={options.categorySections}
@@ -68,14 +70,25 @@ export function BulkBar({ selectedIds, options, onDone, onClear }: Props) {
           align="center"
           disabled={pending}
         >
-          <Button type="button" variant="outline" size="sm" className={triggerClass}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            loading={pending && running === 'category'}
+            className={triggerClass}
+          >
             <Tag className="size-4" />
             改分类
           </Button>
         </CategoryPicker>
 
         <Select value="" onValueChange={(id) => run('member', id)} disabled={pending}>
-          <SelectTrigger size="sm" aria-label="改归属人" className={triggerClass}>
+          <SelectTrigger
+            size="sm"
+            loading={pending && running === 'member'}
+            aria-label="改归属人"
+            className={triggerClass}
+          >
             <User />
             <SelectValue placeholder="改归属人" />
           </SelectTrigger>

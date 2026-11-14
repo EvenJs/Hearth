@@ -201,8 +201,8 @@ function CalibrateDialog({ account, today, onClose }: Props & { onClose: () => v
                 <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
                   取消
                 </Button>
-                <Button type="submit" disabled={submitting}>
-                  {submitting ? '保存中…' : '保存'}
+                <Button type="submit" loading={submitting}>
+                  保存
                 </Button>
               </DialogFooter>
             </form>
@@ -251,8 +251,8 @@ function CalibrateDialog({ account, today, onClose }: Props & { onClose: () => v
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel disabled={deleteBusy}>取消</AlertDialogCancel>
-              <Button variant="destructive" onClick={confirmDelete} disabled={deleteBusy}>
-                {deleteBusy ? '删除中…' : '删除'}
+              <Button variant="destructive" onClick={confirmDelete} loading={deleteBusy}>
+                删除
               </Button>
             </AlertDialogFooter>
           </AlertDialogContent>

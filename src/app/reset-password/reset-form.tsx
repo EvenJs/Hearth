@@ -113,8 +113,8 @@ function NewPasswordForm({ token }: { token: string }) {
           </p>
         )}
 
-        <Button type="submit" className="h-11 w-full text-base" disabled={submitting}>
-          {submitting ? '保存中…' : '改密码'}
+        <Button type="submit" className="h-11 w-full text-base" loading={submitting}>
+          改密码
         </Button>
       </form>
     </Form>
