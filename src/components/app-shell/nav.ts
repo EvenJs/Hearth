@@ -25,7 +25,7 @@ export const NAV_ITEMS: NavItem[] = [
     href: null,
     icon: FileUp,
     children: [
-      { label: '上传 CSV', href: '/import' },
+      { label: '导入', href: '/import' },
       { label: '导入历史', href: '/import/history' },
     ],
   },
@@ -54,7 +54,7 @@ export function isActive(href: string | null, pathname: string): boolean {
 }
 
 // 分组里只高亮一项：匹配的 href 里最长的那个。
-// /import/history 只亮"导入历史"；/import/[batchId] 亮"上传 CSV"
+// /import/history 只亮"导入历史"；/import/[batchId] 亮"导入"
 export function activeChildHref(children: NavLeaf[], pathname: string): string | null {
   let best: string | null = null;
   for (const c of children) {

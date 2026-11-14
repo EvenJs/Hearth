@@ -1,7 +1,15 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { AlertCircle, CalendarClock, CheckCircle2, FileText, Info, Loader2 } from 'lucide-react';
+import {
+  AlertCircle,
+  CalendarClock,
+  CheckCircle2,
+  FileText,
+  FileUp,
+  Info,
+  Loader2,
+} from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
 import { Badge } from '@/components/ui/badge';
@@ -17,8 +25,16 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { BANK_LABELS, type Bank } from '@/lib/accounts/account-input';
-import { canImportCsv } from '@/lib/import/banks';
+import { canImportCsv, canImportStatement } from '@/lib/import/banks';
 import type { ImportCoverage } from '@/lib/import/coverage';
 import {
   checkImportFile,
@@ -51,10 +67,10 @@ const UPLOAD_TITLE: Record<FileBank, string> = {
   anz: '1. 上传 CSV 或 PDF 对账单',
   anz_plus: '1. 上传 PDF 对账单',
 };
+// 哪个账户能导什么写在上面的小表里，这里只写大小限制
 const UPLOAD_DESCRIPTION: Record<FileBank, string> = {
-  anz: '网银导出的原始 CSV（不超过 1 MB），或者网银下载的 ANZ、ANZ Plus、CBA PDF 对账单（不超过 1.5 MB），ANZ Plus 只能导 PDF 对账单。对账单会自动认出是哪个账户。文件本身不会保存',
-  anz_plus:
-    'ANZ Plus 只能导 PDF 对账单，不超过 1.5 MB。对账单会自动认出是哪个账户。文件本身不会保存',
+  anz: 'CSV 不超过 1 MB，PDF 对账单不超过 1.5 MB。对账单会自动认出是哪个账户',
+  anz_plus: 'PDF 对账单不超过 1.5 MB，会自动认出是哪个账户',
 };
 const UPLOAD_ACCEPT: Record<FileBank, string> = {
   anz: '.csv,text/csv,.pdf,application/pdf',
@@ -69,13 +85,18 @@ function formatSize(bytes: number): string {
   return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
 }
 
-type FormProps = { accounts: ImportAccount[] };
+// 小表的"上次导到"：今年的写 MM-DD，不是今年的写全，免得看错年份
+function formatCoverageDate(date: string, today: string): string {
+  return date.slice(0, 4) === today.slice(0, 4) ? date.slice(5) : date;
+}
+
+type FormProps = { accounts: ImportAccount[]; today: string };
 
 // cacheComponents 下离开页面时 Next 用 <Activity> 把页面藏起来，state 和 DOM（包括选的文件）都会留着
 // 导入成功后 redirect 走了，回来时不该看到上一次的账户、文件和余额：页面被隐藏时换 key，整个表单重新挂载
 // 填到一半去别的页面不清空；导入失败留在本页，也不清空，方便改了再传
 // 见 docs/tech-stack.md 2. 关键约定 "页面状态"
-export function ImportForm({ accounts }: FormProps) {
+export function ImportForm({ accounts, today }: FormProps) {
   const [formKey, setFormKey] = useState(0);
   const resetOnHide = useRef(false);
 
@@ -92,6 +113,7 @@ export function ImportForm({ accounts }: FormProps) {
     <ImportFormInner
       key={formKey}
       accounts={accounts}
+      today={today}
       onSubmitStart={() => (resetOnHide.current = true)}
       onSubmitFailed={() => (resetOnHide.current = false)}
     />
@@ -107,6 +129,7 @@ type Identity =
 
 function ImportFormInner({
   accounts,
+  today,
   onSubmitStart,
   onSubmitFailed,
 }: FormProps & { onSubmitStart: () => void; onSubmitFailed: () => void }) {
@@ -228,6 +251,8 @@ function ImportFormInner({
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="flex max-w-3xl flex-col gap-6">
+        <CoverageTable accounts={accounts} today={today} />
+
         {/* 1. 先传文件：PDF 对账单自动认账户（R1C、R1D、R1E），CSV 再选账户 */}
         <Card>
           <CardHeader>
@@ -235,24 +260,14 @@ function ImportFormInner({
             <CardDescription>{UPLOAD_DESCRIPTION[fileBank]}</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-2">
-            <Input
-              type="file"
+            <FileDropzone
+              file={file}
+              kindLabel={kind === null ? null : isPdf ? '对账单' : 'CSV'}
               accept={UPLOAD_ACCEPT[fileBank]}
-              aria-label={UPLOAD_LABEL[fileBank]}
-              aria-invalid={fileError ? true : undefined}
-              onChange={(e) => onFileChange(e.target.files?.[0] ?? null)}
-              className="cursor-pointer"
+              label={UPLOAD_LABEL[fileBank]}
+              invalid={fileError !== null}
+              onFile={onFileChange}
             />
-            {file && !fileError && (
-              <p className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
-                <FileText className="size-4 shrink-0" />
-                <span className="truncate">{file.name}</span>
-                <span className="shrink-0">· {formatSize(file.size)}</span>
-                <Badge variant="outline" className="shrink-0">
-                  {isPdf ? '对账单' : 'CSV'}
-                </Badge>
-              </p>
-            )}
             {fileError && <p className="text-sm text-destructive">{fileError}</p>}
           </CardContent>
         </Card>
@@ -302,7 +317,7 @@ function ImportFormInner({
               )}
               <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
                 <Info className="mt-px size-3.5 shrink-0" />
-                ANZ Plus 只能导 PDF 对账单；现金账户不能导入，用“记一笔”手动录入。
+                现金账户不能导入，用“记一笔”手动录入。
               </p>
             </CardContent>
           </Card>
@@ -377,6 +392,142 @@ function ImportFormInner({
         )}
       </form>
     </Form>
+  );
+}
+
+// R12.2：不选账户也能看到每个账户导到哪天。数据就是 coverage.lastDateTo，没导入过写"还没导过"
+function CoverageTable({ accounts, today }: { accounts: ImportAccount[]; today: string }) {
+  return (
+    <div className="rounded-lg border bg-card">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="px-4">账户</TableHead>
+            <TableHead>文件</TableHead>
+            <TableHead className="px-4 text-right">上次导到</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {accounts.map((a) => (
+            <TableRow key={a.id}>
+              <TableCell className="max-w-0 px-4">
+                <span className="flex min-w-0 items-center gap-2">
+                  <Badge variant="secondary" className="shrink-0">
+                    {BANK_LABELS[a.bank]}
+                  </Badge>
+                  <span className="truncate">{a.name}</span>
+                  {a.numberSuffix && (
+                    <span className="hidden shrink-0 text-muted-foreground sm:inline">
+                      •••• {a.numberSuffix}
+                    </span>
+                  )}
+                </span>
+              </TableCell>
+              <TableCell className="w-px text-muted-foreground">
+                {[canImportCsv(a.bank) && 'CSV', canImportStatement(a.bank) && 'PDF']
+                  .filter(Boolean)
+                  .join(' / ')}
+              </TableCell>
+              <TableCell className="w-px px-4 text-right tabular-nums">
+                {a.coverage.lastDateTo === null ? (
+                  <span className="text-muted-foreground">还没导过</span>
+                ) : (
+                  formatCoverageDate(a.coverage.lastDateTo, today)
+                )}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+// 第 1 步的拖放区：拖进来或点击选文件，选了显示文件名、大小，能换。文件检查还是走 onFile → checkImportFile
+function FileDropzone({
+  file,
+  kindLabel,
+  accept,
+  label,
+  invalid,
+  onFile,
+}: {
+  file: File | null;
+  kindLabel: string | null;
+  accept: string;
+  label: string;
+  invalid: boolean;
+  onFile: (f: File) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const pick = () => inputRef.current?.click();
+
+  return (
+    <div
+      onDragOver={(e) => {
+        e.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={(e) => {
+        // 拖到子元素上也会触发 dragleave，真的离开拖放区才取消高亮
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragging(false);
+        const f = e.dataTransfer.files[0];
+        if (f) onFile(f);
+      }}
+      className={cn(
+        'rounded-lg border-2 border-dashed transition-colors',
+        dragging
+          ? 'border-primary bg-primary/5'
+          : invalid
+            ? 'border-destructive/60'
+            : 'border-input',
+      )}
+    >
+      <input
+        ref={inputRef}
+        type="file"
+        accept={accept}
+        aria-label={label}
+        aria-invalid={invalid ? true : undefined}
+        tabIndex={-1}
+        className="sr-only"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          // 清掉 value，再选同一个文件也会触发 onChange
+          e.target.value = '';
+          if (f) onFile(f);
+        }}
+      />
+      {file ? (
+        <div className="flex items-center gap-3 p-4">
+          <FileText className="size-5 shrink-0 text-muted-foreground" />
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="truncate text-sm font-medium">{file.name}</span>
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              {formatSize(file.size)}
+              {kindLabel && <Badge variant="outline">{kindLabel}</Badge>}
+            </span>
+          </div>
+          <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={pick}>
+            换文件
+          </Button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={pick}
+          className="flex w-full flex-col items-center gap-2 rounded-md px-4 py-8 text-center focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        >
+          <FileUp className="size-6 text-muted-foreground" />
+          <span className="text-sm font-medium">拖{label}到这里，或点击选择</span>
+        </button>
+      )}
+    </div>
   );
 }
 
