@@ -1,7 +1,8 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
-import { ChevronDown, Loader2, LogOut, UserRound } from 'lucide-react';
+import { ChevronDown, Loader2, LogOut, UserRound, UserRoundCog } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -12,7 +13,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { authClient } from '@/lib/auth-client';
 
-// 顶栏右上角：名字 + 下拉菜单（M13-9）。账号页还没做，做好后在"退出"上面加"我的账号"
+// 顶栏右上角：名字 + 下拉菜单（M13-9）。"我的账号"链到设置 → 账号（M12-9）
 export function UserMenu({ name }: { name: string }) {
   const [pending, setPending] = useState(false);
 
@@ -38,6 +39,12 @@ export function UserMenu({ name }: { name: string }) {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
+        <DropdownMenuItem asChild>
+          <Link href="/settings/profile">
+            <UserRoundCog />
+            我的账号
+          </Link>
+        </DropdownMenuItem>
         {/* preventDefault：菜单不关，转圈留在原地直到跳走 */}
         <DropdownMenuItem
           disabled={pending}
