@@ -5,6 +5,8 @@ import { and, asc, eq, gte, lte } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/db';
 import { category, member, taxJob, taxProfile, transaction, transactionSplit } from '@/db/schema';
+import { pickAnchor } from '@/lib/rules/balance';
+import { dataAsOf } from '@/lib/rules/conditions';
 import { parseBalanceToCents } from '@/lib/rules/money';
 import type { StatSplit } from '@/lib/rules/stats';
 import {
@@ -14,6 +16,8 @@ import {
 } from '@/lib/tax/estimate';
 import { prorateJobs, type ProratedJob } from '@/lib/tax/jobs';
 import { availableFinancialYears, financialYearLabel } from '@/lib/tax/rates';
+import { loadAnchors } from './balances';
+import { loadLatestConfirmed } from './conditions';
 import type { HouseholdContext } from './context';
 import { listMembers, type Member } from './members';
 import type { DbTx } from './transactions';
@@ -42,6 +46,9 @@ export type PersonTax = {
   // 这个人的全部在职段和这个财年的折算数，按开始日期排；不在这个财年的 days = 0
   jobs: ProratedJob<TaxJobRow>[];
   estimate: MemberTaxEstimate;
+  // R14.6：有利息的账户里最早的"数据截至"（R24.6）。只在 estimate.interestPartial 时算，其余是 null
+  // interestPartial 但这些账户都没有截至日期时也是 null
+  interestAsOf: string | null;
 };
 
 export type HouseholdTax =
@@ -79,15 +86,19 @@ async function findIncomeCategoryIds(
   return { taxId: find('tax (ato)'), interestId: find('interest') };
 }
 
+// accountId 只用来找 R14.6 有利息的账户
+type YearSplit = StatSplit & { accountId: string };
+
 // 这个财年内的拆分，pending 也算（R10）
 async function loadYearSplits(
   tx: DbTx | typeof db,
   ctx: HouseholdContext,
   financialYear: number,
-): Promise<StatSplit[]> {
+): Promise<YearSplit[]> {
   const { start, end } = financialYearRange(financialYear);
   return tx
     .select({
+      accountId: transaction.accountId,
       date: transaction.date,
       amountCents: transactionSplit.amountCents,
       categoryId: transactionSplit.categoryId,
@@ -147,6 +158,28 @@ export async function listTaxJobs(
     .orderBy(asc(taxJob.startDate), asc(taxJob.createdAt));
 }
 
+// R24.6：每个账户的"数据截至" = max(锚点日期, 最晚一笔 confirmed)。都没有 → 不在 map 里
+async function loadAccountsAsOf(
+  ctx: HouseholdContext,
+  accountIds: string[],
+): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  if (accountIds.length === 0) return result;
+  const [anchors, latest] = await Promise.all([
+    loadAnchors(db, ctx, accountIds),
+    loadLatestConfirmed(ctx, accountIds),
+  ]);
+  for (const id of accountIds) {
+    const latestDate = latest.get(id);
+    const asOf = dataAsOf(
+      pickAnchor(anchors.get(id) ?? [])?.date ?? null,
+      latestDate ? [{ date: latestDate, status: 'confirmed' }] : [],
+    );
+    if (asOf !== null) result.set(id, asOf);
+  }
+  return result;
+}
+
 // R14.3、R14.6：每个 person 的估算。设置页和看板（M7-6）共用
 export async function getHouseholdTax(
   ctx: HouseholdContext,
@@ -185,6 +218,34 @@ export async function getHouseholdTax(
     financialYear,
   });
 
+  // R14.6：有利息的账户 = 这个财年里有 Income / Interest 拆分、归属人是这个人或 shared 的交易所在账户
+  // 只给 interestPartial 的人找；找不到 Interest 分类时已到账是 0，不会 partial
+  const sharedIds = new Set(members.filter((m) => m.kind === 'shared').map((m) => m.id));
+  const interestAccounts = new Map<string, Set<string>>();
+  for (const e of estimates) {
+    if (!e.interestPartial) continue;
+    const ids = splits
+      .filter(
+        (s) =>
+          s.categoryId === categoryIds.interestId &&
+          (s.memberId === e.memberId || sharedIds.has(s.memberId)),
+      )
+      .map((s) => s.accountId);
+    interestAccounts.set(e.memberId, new Set(ids));
+  }
+  const accountAsOf = await loadAccountsAsOf(ctx, [
+    ...new Set([...interestAccounts.values()].flatMap((s) => [...s])),
+  ]);
+  // 取最早的；没有截至日期的账户跳过
+  const interestAsOf = (memberId: string): string | null => {
+    let earliest: string | null = null;
+    for (const id of interestAccounts.get(memberId) ?? []) {
+      const asOf = accountAsOf.get(id);
+      if (asOf !== undefined && (earliest === null || asOf < earliest)) earliest = asOf;
+    }
+    return earliest;
+  };
+
   const byId = new Map(members.map((m) => [m.id, m]));
   const persons = estimates.map((estimate): PersonTax => {
     const p = profiles.find((r) => r.memberId === estimate.memberId);
@@ -203,6 +264,7 @@ export async function getHouseholdTax(
         financialYear,
       ).jobs,
       estimate,
+      interestAsOf: interestAsOf(estimate.memberId),
     };
   });
 
