@@ -49,7 +49,9 @@ type Props = {
 };
 
 // 分 → 输入框里的元，972000 → "9720.00"。只用整数运算
-function centsToInput(cents: number): string {
+// 空 = 没填实际数（M14-3），输入框留空
+function centsToInput(cents: number | null | undefined): string {
+  if (cents == null) return '';
   return `${Math.trunc(cents / 100)}.${String(cents % 100).padStart(2, '0')}`;
 }
 
@@ -154,8 +156,8 @@ function ProfileForm({
   person: PersonTax;
 }) {
   const { member, profile } = person;
-  const [gross, setGross] = useState(profile ? centsToInput(profile.paygGrossCents) : '');
-  const [withheld, setWithheld] = useState(profile ? centsToInput(profile.paygWithheldCents) : '');
+  const [gross, setGross] = useState(centsToInput(profile?.paygGrossCents));
+  const [withheld, setWithheld] = useState(centsToInput(profile?.paygWithheldCents));
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [pending, startTransition] = useTransition();
