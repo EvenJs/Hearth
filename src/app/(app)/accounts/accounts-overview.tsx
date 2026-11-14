@@ -1,7 +1,12 @@
 import { Clock } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { BANK_LABELS } from '@/lib/accounts/account-input';
-import { ACCOUNT_PURPOSE_LABELS, type AccountsOverview as Overview } from '@/lib/rules/balance';
+import {
+  ACCOUNT_PURPOSE_LABELS,
+  afterAnchorLabel,
+  anchorAsOfLabel,
+  type AccountsOverview as Overview,
+} from '@/lib/rules/balance';
 import { formatAud } from '@/lib/rules/money';
 import type { AccountBalance } from '@/server/balances';
 import type { AccountConditionProgress } from '@/server/conditions';
@@ -13,11 +18,6 @@ import { formatDiff } from './format-diff';
 // R23.5 账户总览：顶部合计、按用途分组、每个账户一张卡片
 // 合计都是可用余额，只算有锚点的账户（groupByPurpose）
 // R24.10 有条件的账户卡片下面加"本月条件"和历史
-
-const SOURCE_LABELS: Record<NonNullable<AccountBalance['anchorSource']>, string> = {
-  pdf: '对账单期末',
-  manual: '手动填的',
-};
 
 type Props = {
   overview: Overview<AccountBalance>;
@@ -80,6 +80,7 @@ function AccountCard({
 }) {
   const b = a.balance;
   const diff = a.lastCalibrationDiffCents;
+  const afterLabel = b === null ? null : afterAnchorLabel(b, today);
   return (
     <Card className="min-w-0 gap-1 p-4 lg:p-5">
       <h3 className="truncate font-medium">{a.name}</h3>
@@ -107,10 +108,17 @@ function AccountCard({
               </span>
             </p>
           )}
-          <Sub>
-            截至 <span className="tabular-nums">{b.asOf}</span>
-            {a.anchorSource && ` · ${SOURCE_LABELS[a.anchorSource]}`}
-          </Sub>
+          {/* R23.2：截至行用锚点日期；之后的交易单独一行小字 */}
+          {a.anchorSource && (
+            <Sub>
+              <span className="tabular-nums">{anchorAsOfLabel(a.anchorSource, b.anchorDate, today)}</span>
+            </Sub>
+          )}
+          {afterLabel !== null && (
+            <Sub>
+              <span className="tabular-nums">{afterLabel}</span>
+            </Sub>
+          )}
           {/* R23.3：只看最近一次手动校准，差额是 0 不显示 */}
           {diff !== null && diff !== 0 && (
             <p className="text-xs text-amber-700 dark:text-amber-400">

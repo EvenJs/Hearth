@@ -81,6 +81,8 @@ export type CurrentBalance = {
   pendingCount: number; // date > 锚点日期的 pending
   pendingCents: number;
   asOf: string; // 截至
+  anchorDate: string; // 锚点日期 D，卡片上的"截至"显示用它
+  afterCount: number; // date > D 的交易笔数，pending 也算
 };
 
 // R23.2：只算 date > 锚点日期的交易；锚点当天的已经在锚点里。没有锚点 → 没有余额（不从 0 累加）
@@ -95,8 +97,10 @@ export function currentBalance(
   let pendingCount = 0;
   let pendingCents = 0;
   let asOf = anchor.date;
+  let afterCount = 0;
   for (const t of transactions) {
     if (t.date <= anchor.date) continue;
+    afterCount += 1;
     if (t.status === 'confirmed') {
       postedCents += t.amountCents;
     } else {
@@ -105,7 +109,33 @@ export function currentBalance(
     }
     if (t.date > asOf) asOf = t.date;
   }
-  return { postedCents, availableCents: postedCents + pendingCents, pendingCount, pendingCents, asOf };
+  return {
+    postedCents,
+    availableCents: postedCents + pendingCents,
+    pendingCount,
+    pendingCents,
+    asOf,
+    anchorDate: anchor.date,
+    afterCount,
+  };
+}
+
+// R23.2 显示：MM-DD；不在今年的写 YYYY-MM-DD
+const shortDate = (date: string, today: string) => (date.slice(0, 4) === today.slice(0, 4) ? date.slice(5) : date);
+
+// R23.2 截至行：用锚点日期，不用 max
+export function anchorAsOfLabel(source: BalanceAnchor['source'], anchorDate: string, today: string): string {
+  const d = shortDate(anchorDate, today);
+  return source === 'pdf' ? `对账单截至 ${d}` : `手动填写 ${d}`;
+}
+
+// R23.2：锚点之后没有交易 → null
+export function afterAnchorLabel(
+  balance: Pick<CurrentBalance, 'afterCount' | 'asOf'>,
+  today: string,
+): string | null {
+  if (balance.afterCount === 0) return null;
+  return `之后 ${balance.afterCount} 笔，最晚 ${shortDate(balance.asOf, today)}`;
 }
 
 // ---------- 某天结束时的余额（R24.4） ----------

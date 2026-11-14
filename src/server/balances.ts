@@ -148,8 +148,10 @@ export function balanceFrom(anchor: StoredAnchor, days: readonly DayTotal[]): Cu
   let pendingCount = 0;
   let pendingCents = 0;
   let asOf = anchor.date;
+  let afterCount = 0;
   for (const d of days) {
     if (d.date <= anchor.date) continue;
+    afterCount += d.count;
     if (d.status === 'confirmed') {
       postedCents += d.cents;
     } else {
@@ -158,7 +160,15 @@ export function balanceFrom(anchor: StoredAnchor, days: readonly DayTotal[]): Cu
     }
     if (d.date > asOf) asOf = d.date;
   }
-  return { postedCents, availableCents: postedCents + pendingCents, pendingCount, pendingCents, asOf };
+  return {
+    postedCents,
+    availableCents: postedCents + pendingCents,
+    pendingCount,
+    pendingCents,
+    asOf,
+    anchorDate: anchor.date,
+    afterCount,
+  };
 }
 
 // R23.3：差额 = 填的数 − (P 的金额 + Σ confirmed，P 日期 < date ≤ 手动日期)。没有 P → null
