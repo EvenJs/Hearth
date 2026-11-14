@@ -1,4 +1,5 @@
 import { Suspense } from 'react';
+import { TableSkeleton } from '@/components/skeletons';
 import { spendableAfterGoals } from '@/lib/rules/budget';
 import { pickerSections } from '@/lib/transactions/category-picker';
 import { todayInMelbourne } from '@/lib/rules/periods';
@@ -24,7 +25,7 @@ export default function BudgetsPage() {
       </header>
 
       {/* 读 session 的部分放在 Suspense 里（cacheComponents） */}
-      <Suspense fallback={<p className="text-sm text-muted-foreground">加载中…</p>}>
+      <Suspense fallback={<TableSkeleton />}>
         <BudgetsSection />
       </Suspense>
     </>

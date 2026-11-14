@@ -3,7 +3,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useLayoutEffect, useState } from 'react';
+import { useLayoutEffect, useState, useTransition } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { PasswordInput } from '@/components/password-input';
@@ -48,20 +48,23 @@ export function LoginForm({ notice }: { notice: LoginNotice }) {
   const [canResend, setCanResend] = useState(notice?.kind === 'error');
   const [resendResult, setResendResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [resending, setResending] = useState(false);
-
-  // 离开页面时清掉提示（cacheComponents 会保留 state，tech-stack 2）
-  useLayoutEffect(
-    () => () => {
-      setFormError(null);
-      setResendResult(null);
-    },
-    [],
-  );
+  // 登录成功后等看板出来，这段时间表单保持填好的样子（M13-2）
+  const [navigating, startTransition] = useTransition();
 
   const form = useForm<LoginValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: { email: '', password: '' },
   });
+
+  // 离开页面时清掉提示和密码（cacheComponents 会保留 state，tech-stack 2）。邮箱保留
+  useLayoutEffect(
+    () => () => {
+      setFormError(null);
+      setResendResult(null);
+      form.resetField('password');
+    },
+    [form],
+  );
 
   async function onSubmit(values: LoginValues) {
     setFormError(null);
@@ -72,10 +75,11 @@ export function LoginForm({ notice }: { notice: LoginNotice }) {
       setCanResend(error.code === NOT_VERIFIED);
       return;
     }
-    // 先清空表单，避免密码留在保留下来的页面状态里
-    form.reset();
-    router.replace('/');
-    router.refresh();
+    // 不在这里清表单，否则跳转完成前会露出空表单。密码在离开页面时清（上面的 cleanup）
+    startTransition(() => {
+      router.replace('/');
+      router.refresh();
+    });
   }
 
   // R26.7 用表单里填的邮箱重发，60 秒一次，提示由服务端给
@@ -95,7 +99,7 @@ export function LoginForm({ notice }: { notice: LoginNotice }) {
     }
   }
 
-  const submitting = form.formState.isSubmitting;
+  const busy = form.formState.isSubmitting || navigating;
 
   return (
     <Form {...form}>
@@ -113,73 +117,76 @@ export function LoginForm({ notice }: { notice: LoginNotice }) {
           </p>
         )}
 
-        <FormField
-          control={form.control}
-          name="email"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>邮箱</FormLabel>
-              <FormControl>
-                <Input
-                  type="email"
-                  autoComplete="username"
-                  placeholder="yourname@family.com"
-                  className="h-11"
-                  {...field}
-                />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="password"
-          render={({ field }) => (
-            <FormItem>
-              <div className="flex items-center justify-between">
-                <FormLabel>密码</FormLabel>
-                <Link
-                  href="/forgot-password"
-                  className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-                >
-                  忘记密码
-                </Link>
-              </div>
-              <FormControl>
-                <PasswordInput autoComplete="current-password" {...field} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        {formError && (
-          <p role="alert" className="text-sm text-destructive">
-            {formError}
-          </p>
-        )}
-
-        {canResend && (
-          <div className="flex flex-col gap-2">
-            <Button type="button" variant="outline" onClick={onResend} disabled={resending}>
-              {resending ? '发送中…' : '重发验证邮件'}
-            </Button>
-            {resendResult && (
-              <p
-                role={resendResult.ok ? 'status' : 'alert'}
-                className={
-                  resendResult.ok ? 'text-sm text-muted-foreground' : 'text-sm text-destructive'
-                }
-              >
-                {resendResult.message}
-              </p>
+        {/* 提交和跳转期间整组禁用 */}
+        <fieldset disabled={busy} className="contents">
+          <FormField
+            control={form.control}
+            name="email"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>邮箱</FormLabel>
+                <FormControl>
+                  <Input
+                    type="email"
+                    autoComplete="username"
+                    placeholder="yourname@family.com"
+                    className="h-11"
+                    {...field}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
             )}
-          </div>
-        )}
+          />
+          <FormField
+            control={form.control}
+            name="password"
+            render={({ field }) => (
+              <FormItem>
+                <div className="flex items-center justify-between">
+                  <FormLabel>密码</FormLabel>
+                  <Link
+                    href="/forgot-password"
+                    className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                  >
+                    忘记密码
+                  </Link>
+                </div>
+                <FormControl>
+                  <PasswordInput autoComplete="current-password" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
 
-        <Button type="submit" className="h-11 w-full text-base" disabled={submitting}>
-          {submitting ? '登录中…' : '登录'}
+          {formError && (
+            <p role="alert" className="text-sm text-destructive">
+              {formError}
+            </p>
+          )}
+
+          {canResend && (
+            <div className="flex flex-col gap-2">
+              <Button type="button" variant="outline" onClick={onResend} loading={resending}>
+                重发验证邮件
+              </Button>
+              {resendResult && (
+                <p
+                  role={resendResult.ok ? 'status' : 'alert'}
+                  className={
+                    resendResult.ok ? 'text-sm text-muted-foreground' : 'text-sm text-destructive'
+                  }
+                >
+                  {resendResult.message}
+                </p>
+              )}
+            </div>
+          )}
+        </fieldset>
+
+        <Button type="submit" className="h-11 w-full text-base" loading={busy}>
+          {busy ? '登录中…' : '登录'}
         </Button>
       </form>
     </Form>

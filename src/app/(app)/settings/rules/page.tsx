@@ -1,4 +1,5 @@
 import { Suspense } from 'react';
+import { TableSkeleton } from '@/components/skeletons';
 import { filterRules } from '@/lib/rules/rule-admin';
 import { pickerSections } from '@/lib/transactions/category-picker';
 import { listCategoryTree } from '@/server/categories';
@@ -7,7 +8,7 @@ import { listRules } from '@/server/rules';
 import { RulesView, type CategoryRefMap, type TopOption } from './rules-view';
 
 // 设置 → 规则（设计图 12，M6.5-4，R18）
-// 筛选写在 URL 上：?q=关键词、?category=一级 id（R19.4 "先去规则页"的链接直接用）
+// 筛选写在 URL 上：?q=关键词、?category=一级 id（R19.4 "先去规则页"的链接直接用）、?custom=1 只看自定义
 export default function RulesPage(props: PageProps<'/settings/rules'>) {
   return (
     <>
@@ -18,7 +19,7 @@ export default function RulesPage(props: PageProps<'/settings/rules'>) {
       </header>
 
       {/* 读 session 和 searchParams 的部分放在 Suspense 里（cacheComponents） */}
-      <Suspense fallback={<p className="text-sm text-muted-foreground">加载中…</p>}>
+      <Suspense fallback={<TableSkeleton />}>
         <RulesSection searchParams={props.searchParams} />
       </Suspense>
     </>
@@ -37,6 +38,7 @@ async function RulesSection({
   const params = await searchParams;
   const q = one(params.q);
   const category = one(params.category);
+  const customOnly = one(params.custom) === '1';
 
   const ctx = await getHouseholdContext();
   const [all, tree] = await Promise.all([listRules(ctx), listCategoryTree(ctx)]);
@@ -46,7 +48,8 @@ async function RulesSection({
     id: r.categoryId,
     parentId: r.categoryId === r.topCategoryId ? null : r.topCategoryId,
   }));
-  const rules = filterRules(all, { search: q, topCategoryId: category || undefined }, categories);
+  const matched = filterRules(all, { search: q, topCategoryId: category || undefined }, categories);
+  const rules = customOnly ? matched.filter((r) => !r.isSystem) : matched;
 
   // 分类 tag 用的 CategoryRef（未归档的分类；指向归档分类的规则只显示名字）
   const refs: CategoryRefMap = {};
@@ -76,6 +79,7 @@ async function RulesSection({
       totalCount={all.length}
       q={q}
       category={category}
+      customOnly={customOnly}
       tops={tops}
       refs={refs}
       sections={pickerSections(tree, { includeTransfer: false })} // R16.3

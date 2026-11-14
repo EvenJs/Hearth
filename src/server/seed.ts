@@ -87,7 +87,7 @@ export async function seedHousehold(input: {
     // ---------- household_user ----------
     // 已经有关联就不改（包括 member_id）
     if (!link) {
-      await linkHouseholdUser(tx, { householdId, userId: u.id, memberId: requireMember('Male') });
+      await linkHouseholdUser(tx, { householdId, userId: u.id, memberId: requireMember('Johnson') });
     }
 
     // ---------- category、category_rule ----------
@@ -121,7 +121,7 @@ export function mapSeedMember(
   seedName: SeedMemberName,
   ids: { person: string; shared: string },
 ): string {
-  return seedName === 'Home' ? ids.shared : ids.person;
+  return seedName === SHARED_MEMBER_NAME ? ids.shared : ids.person;
 }
 
 // R26.6：邀请码注册的新家庭。在注册事务里跑（tx 由调用方传），失败了跟着整个注册回滚

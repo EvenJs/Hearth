@@ -17,9 +17,13 @@ export const PERIOD_LABELS: Record<PresetPeriod, string> = {
   this_fy: '本财年',
 };
 
-export const DEFAULT_PERIOD: PresetPeriod = 'this_month'; // prd.md F6：本月（默认）
-
 const DASH = '—';
+
+// R10.4 最后一条：时间段没过完（结束日 ≥ 今天）不算百分比；过完了 null
+export function ongoingLabel(period: Period, today: string): string | null {
+  if (period.end < today) return null;
+  return period.option === 'this_month' ? '本月还没过完' : '本期还没过完';
+}
 
 function signed(n: number): string {
   return n > 0 ? `+${n}` : String(n);
@@ -58,17 +62,13 @@ export function formatRange(range: DateRange, today: string): string {
   return `${fmt(range.start)} – ${fmt(range.end)}`;
 }
 
-// 看板 URL：参数写法和 F8 一样（period 或 from/to、member），默认的本月不写进 URL
+// 看板 URL：参数写法和 F8 一样（period 或 from/to、member）
+// 默认时间段跟着数据走（R10.1a），所以选了的时间段总写进 URL，不带参数的 / 才是默认
 // 汇总表的切换（M5-5）跟在后面，默认值不写；换时间段、归属人时把当前的切换带上，不丢
 export function dashboardHref(scope: DashboardScope, view?: PivotView): string {
   const period: Period = scope.period;
   const p = filtersToSearchParams({
-    period:
-      period.option === 'custom'
-        ? { start: period.start, end: period.end }
-        : period.option === DEFAULT_PERIOD
-          ? undefined
-          : period.option,
+    period: period.option === 'custom' ? { start: period.start, end: period.end } : period.option,
     memberId: scope.memberId,
   });
   if (view) pivotViewToSearchParams(view, p);

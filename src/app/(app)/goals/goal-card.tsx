@@ -2,17 +2,19 @@
 
 // R25.11 一个 active 目标的卡片：进度（R25.3）、还差和每月要存（R25.2）、预计达成（R25.4）
 // 要花掉的加计划和实际、挂的交易（R25.7），挂了交易时提示"买完了吗？"（R25.9）
-// 上移下移、固定开关直接保存；编辑、完成、删除交给 goals-view 开对话框
+// 上移下移、固定开关、挂账户（M13-5）直接保存；编辑、完成、删除交给 goals-view 开对话框
 import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  Link2,
+  Loader2,
   MoreHorizontal,
   Pencil,
   Trash2,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useState, useTransition } from 'react';
+import { useOptimistic, useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -30,6 +32,7 @@ import { formatAud } from '@/lib/rules/money';
 import { cn } from '@/lib/utils';
 import type { ActiveGoal, GoalInput, GoalRecord, LinkedSplit } from '@/server/goals';
 import { moveGoalAction, updateGoalAction } from './actions';
+import type { AccountOption } from './goals-view';
 
 export const NO_PROGRESS_LABELS: Record<NoProgressReason, string> = {
   no_account: '没挂账户',
@@ -64,10 +67,11 @@ type Props = {
   goal: ActiveGoal;
   isFirst: boolean;
   isLast: boolean;
+  accounts: AccountOption[]; // 挂账户下拉：没归档、不是现金的账户
   onAction: (a: GoalAction) => void;
 };
 
-export function GoalCard({ goal: g, isFirst, isLast, onAction }: Props) {
+export function GoalCard({ goal: g, isFirst, isLast, accounts, onAction }: Props) {
   return (
     <Card id={`goal-${g.id}`} className="min-w-0 scroll-mt-20 gap-3 p-4 lg:p-5">
       <div className="flex items-start gap-2">
@@ -93,7 +97,10 @@ export function GoalCard({ goal: g, isFirst, isLast, onAction }: Props) {
         <GoalMenu goal={g} onAction={onAction} />
       </div>
 
-      <ProgressBlock progress={g.progress} />
+      <ProgressBlock
+        progress={g.progress}
+        attach={<AttachAccountButton goal={g} accounts={accounts} />}
+      />
 
       <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
         <dt className="text-muted-foreground">还差</dt>
@@ -139,7 +146,15 @@ export function GoalCard({ goal: g, isFirst, isLast, onAction }: Props) {
 }
 
 // R25.3：已存 / 目标 + 进度条；没有进度时换成原因
-export function ProgressBlock({ progress: p }: { progress: GoalProgress }) {
+// 没挂账户、传了 attach 时显示挂账户按钮，不显示灰框（M13-5）
+export function ProgressBlock({
+  progress: p,
+  attach,
+}: {
+  progress: GoalProgress;
+  attach?: React.ReactNode;
+}) {
+  if (p.noProgress === 'no_account' && attach) return attach;
   if (p.filledCents === null || p.targetCents === null) {
     return (
       <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
@@ -291,11 +306,16 @@ function MoveButtons({
   isLast: boolean;
 }) {
   const [pending, startTransition] = useTransition();
-  const move = (direction: 'up' | 'down') =>
+  // 点的那个按钮转圈，两个都禁用
+  const [moving, setMoving] = useState<'up' | 'down' | null>(null);
+  const move = (direction: 'up' | 'down') => {
+    setMoving(direction);
     startTransition(async () => {
       const r = await moveGoalAction(goal.id, direction);
+      setMoving(null);
       if (!r.ok) toast.error(r.message);
     });
+  };
   return (
     <div className="flex shrink-0">
       <Button
@@ -303,6 +323,7 @@ function MoveButtons({
         size="icon"
         className="size-8"
         aria-label={`把 ${goal.name} 上移`}
+        loading={pending && moving === 'up'}
         disabled={pending || isFirst}
         onClick={() => move('up')}
       >
@@ -313,6 +334,7 @@ function MoveButtons({
         size="icon"
         className="size-8"
         aria-label={`把 ${goal.name} 下移`}
+        loading={pending && moving === 'down'}
         disabled={pending || isLast}
         onClick={() => move('down')}
       >
@@ -322,21 +344,79 @@ function MoveButtons({
   );
 }
 
-// 直接保存；成功后 revalidatePath 刷新，开关跟着服务端的值
+// 直接保存；点了马上翻过去并转圈，成功后 revalidatePath 刷新，开关跟着服务端的值（失败就翻回来）
 export function PinSwitch({ goal }: { goal: GoalRecord }) {
   const [pending, startTransition] = useTransition();
+  const [checked, setChecked] = useOptimistic(goal.isPinned);
   return (
-    <Switch
-      checked={goal.isPinned}
-      disabled={pending}
-      aria-label={`把 ${goal.name} 固定到首页`}
-      onCheckedChange={(checked) =>
-        startTransition(async () => {
-          const r = await updateGoalAction(goal.id, { ...goalInput(goal), isPinned: checked });
-          if (!r.ok) toast.error(r.message);
-        })
-      }
-    />
+    <span className="inline-flex items-center gap-1.5">
+      <Switch
+        checked={checked}
+        disabled={pending}
+        aria-label={`把 ${goal.name} 固定到首页`}
+        onCheckedChange={(next) =>
+          startTransition(async () => {
+            setChecked(next);
+            const r = await updateGoalAction(goal.id, { ...goalInput(goal), isPinned: next });
+            if (!r.ok) toast.error(r.message);
+          })
+        }
+      />
+      {pending && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+    </span>
+  );
+}
+
+// 没挂账户时点开选一个账户，选了直接保存（M13-5）。原样传现在的值，只改 accountId，R25.1 的账户校验在服务端做
+// 保存中换成转圈的按钮（DropdownMenuTrigger asChild 时 Button 不画转圈）
+export function AttachAccountButton({
+  goal,
+  accounts,
+}: {
+  goal: GoalRecord;
+  accounts: AccountOption[];
+}) {
+  const [pending, startTransition] = useTransition();
+  const attach = (accountId: string) =>
+    startTransition(async () => {
+      const r = await updateGoalAction(goal.id, { ...goalInput(goal), accountId });
+      if (!r.ok) toast.error(r.message);
+    });
+
+  if (pending) {
+    return (
+      <Button size="sm" variant="outline" className="self-start" loading>
+        挂账户
+      </Button>
+    );
+  }
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          size="sm"
+          variant="outline"
+          className="self-start"
+          aria-label={`给 ${goal.name} 挂账户`}
+        >
+          <Link2 />
+          挂账户
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        {accounts.length === 0 ? (
+          <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+            没有可挂的账户
+          </DropdownMenuLabel>
+        ) : (
+          accounts.map((a) => (
+            <DropdownMenuItem key={a.id} onSelect={() => attach(a.id)}>
+              {a.name}
+            </DropdownMenuItem>
+          ))
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

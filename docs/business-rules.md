@@ -26,7 +26,7 @@
 | R7. 分类 | [`rules/R07-classify.md`](rules/R07-classify.md) | R7.1、R7.2 |
 | R8. pending 交易匹配 | [`rules/R08-pending.md`](rules/R08-pending.md) | R8.1、R8.2、R8.3、R8.4 |
 | R9. 对账校验 | [`rules/R09-reconcile.md`](rules/R09-reconcile.md) | — |
-| R10. 统计口径 | [`rules/R10-stats.md`](rules/R10-stats.md) | R10.1、R10.2、R10.3、R10.4、R10.5、R10.6 |
+| R10. 统计口径 | [`rules/R10-stats.md`](rules/R10-stats.md) | R10.1、R10.1a、R10.2、R10.3、R10.4、R10.5、R10.6 |
 | R11. 预算 | [`rules/R11-budget.md`](rules/R11-budget.md) | R11.1、R11.2、R11.3 |
 | R12. 导入流程（一次事务） | [`rules/R12-import-flow.md`](rules/R12-import-flow.md) | R12.1、R12.2 |
 | R13. 从手动改分类生成规则 | [`rules/R13-rule-from-edit.md`](rules/R13-rule-from-edit.md) | — |
@@ -40,6 +40,6 @@
 | R21. 小票商品类型（2026-11-01 新增） | [`rules/R21-item-type.md`](rules/R21-item-type.md) | R21.1、R21.2、R21.3、R21.4、R21.5、R21.6、R21.7、R21.8、R21.9 |
 | R22. 月均支出和一次性开销（F11，2026-11-01 新增） | [`rules/R22-monthly-average.md`](rules/R22-monthly-average.md) | R22.1、R22.2、R22.3、R22.4、R22.5、R22.6、R22.7、R22.8、R22.9、R22.10、R22.11 |
 | R23. 账户余额和用途（F12，2026-11-03 新增） | [`rules/R23-balance.md`](rules/R23-balance.md) | R23.1、R23.2、R23.3、R23.4、R23.5、R23.6、R23.7 |
-| R24. 每月条件（F13，2026-11-04 新增） | [`rules/R24-monthly-condition.md`](rules/R24-monthly-condition.md) | R24.1、R24.2、R24.3、R24.4、R24.5、R24.6、R24.7、R24.8、R24.9、R24.10、R24.11 |
+| R24. 每月条件（F13，2026-11-04 新增） | [`rules/R24-monthly-condition.md`](rules/R24-monthly-condition.md) | R24.1、R24.2、R24.3、R24.4、R24.5、R24.5a、R24.6、R24.7、R24.8、R24.9、R24.10、R24.11 |
 | R25. 目标和应急金（F14，2026-11-04 新增） | [`rules/R25-goal.md`](rules/R25-goal.md) | R25.1、R25.2、R25.3、R25.4、R25.5、R25.6、R25.7、R25.8、R25.9、R25.10、R25.11、R25.12 |
 | R26. 邀请码注册（F15，2026-11-08 新增） | [`rules/R26-invite.md`](rules/R26-invite.md) | R26.1、R26.2、R26.3、R26.4、R26.5、R26.6、R26.7、R26.8、R26.9、R26.10 |

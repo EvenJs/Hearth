@@ -5,7 +5,6 @@
 // 应急金：名字、月数、账户、固定到首页，金额自动算（R25.6）。是不是应急金不能改
 // 界面上先校验一次，服务端按 R25.1 的顺序再校验；报错显示在对应字段下面，不关
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Loader2 } from 'lucide-react';
 import { useState, useTransition } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
 import { z } from 'zod';
@@ -428,8 +427,7 @@ export function GoalDialog({ goal, isEmergency, accounts, onClose, onSaved }: Pr
               <Button type="button" variant="outline" disabled={submitting} onClick={onClose}>
                 取消
               </Button>
-              <Button type="submit" disabled={submitting}>
-                {submitting && <Loader2 className="animate-spin" />}
+              <Button type="submit" loading={submitting}>
                 保存
               </Button>
             </DialogFooter>
@@ -542,10 +540,9 @@ function ConfirmDialog({
           <Button
             type="button"
             variant={destructive ? 'destructive' : 'default'}
-            disabled={pending}
+            loading={pending}
             onClick={confirm}
           >
-            {pending && <Loader2 className="animate-spin" />}
             {confirmLabel}
           </Button>
         </AlertDialogFooter>

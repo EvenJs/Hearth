@@ -1,13 +1,12 @@
 'use client';
 
 // 交易详情"删除小票"（R20.7）：只删 receipt 那行，拆分不动。删完详情页又出现"上传小票"
-import { Loader2, Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { useLayoutEffect, useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import { deleteReceiptAction } from '@/components/receipt/actions';
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -54,17 +53,10 @@ export function DeleteReceiptButton({ receiptId }: { receiptId: string }) {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={pending}>取消</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={pending}
-              className="bg-destructive text-white hover:bg-destructive/90"
-              onClick={(e) => {
-                e.preventDefault(); // 等删完再关
-                remove();
-              }}
-            >
-              {pending && <Loader2 className="animate-spin" />}
+            {/* 用 Button 不用 AlertDialogAction：等删完再关 */}
+            <Button variant="destructive" loading={pending} onClick={remove}>
               删除
-            </AlertDialogAction>
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

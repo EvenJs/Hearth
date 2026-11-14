@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { connection } from 'next/server';
 import { Suspense } from 'react';
+import { TransactionsSkeleton } from '@/components/skeletons';
 import { formatAud } from '@/lib/rules/money';
 import { pickerSections } from '@/lib/transactions/category-picker';
 import { categoryOptionGroups } from '@/lib/transactions/inline-edit';
@@ -34,7 +35,7 @@ export default function TransactionsPage(props: PageProps<'/transactions'>) {
         <h1 className="text-2xl font-semibold">流水</h1>
       </header>
       {/* 读 session 和 searchParams 的部分放在 Suspense 里（cacheComponents） */}
-      <Suspense fallback={<p className="text-sm text-muted-foreground">加载中…</p>}>
+      <Suspense fallback={<TransactionsSkeleton />}>
         <TransactionsSection searchParams={props.searchParams} />
       </Suspense>
     </>
@@ -64,7 +65,7 @@ async function TransactionsSection({
       listUnattachedReceipts(ctx), // R20.7 顶部提示条
     ]);
   const options: FilterOptions = {
-    accounts: accounts.map(({ id, name, isArchived }) => ({ id, name, isArchived })),
+    accounts: accounts.map(({ id, name, bank, isArchived }) => ({ id, name, bank, isArchived })),
     members: members.map(({ id, name }) => ({ id, name })),
     // 筛选时都能选，包括内部转账和归档的（R19.4）
     categorySections: pickerSections(allCategories, {
@@ -91,10 +92,17 @@ async function TransactionsSection({
         <span className="text-sm text-muted-foreground">
           共 <strong className="text-foreground tabular-nums">{list.count}</strong> 笔
         </span>
+        {/* M13-6 第 9 条：收入、支出分开，内部转账不算 */}
         <span className="text-sm text-muted-foreground">
-          合计{' '}
+          收入{' '}
+          <strong className="text-lg text-green-700 tabular-nums">
+            {formatAud(list.incomeCents)}
+          </strong>
+        </span>
+        <span className="text-sm text-muted-foreground">
+          支出{' '}
           <strong className="text-lg text-foreground tabular-nums">
-            {formatAud(list.totalCents)}
+            {formatAud(list.expenseCents)}
           </strong>
         </span>
         {/* R16.5 */}

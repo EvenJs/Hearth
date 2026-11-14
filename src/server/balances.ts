@@ -10,6 +10,7 @@ import {
   category,
   financialAccount,
   importBatch,
+  member,
   transaction,
   transactionSplit,
 } from '@/db/schema';
@@ -39,6 +40,7 @@ export type AccountBalance = {
   type: AccountType;
   numberSuffix: string | null;
   purpose: AccountPurpose;
+  defaultMemberName: string; // M13-12 卡片第二行的头像
   isArchived: false; // 只返回没归档的（R23.2）
   linkedAccount: { id: string; name: string; isArchived: boolean } | null;
   balance: CurrentBalance | null; // null = 没有锚点，"还没有余额，填一次"
@@ -148,8 +150,10 @@ export function balanceFrom(anchor: StoredAnchor, days: readonly DayTotal[]): Cu
   let pendingCount = 0;
   let pendingCents = 0;
   let asOf = anchor.date;
+  let afterCount = 0;
   for (const d of days) {
     if (d.date <= anchor.date) continue;
+    afterCount += d.count;
     if (d.status === 'confirmed') {
       postedCents += d.cents;
     } else {
@@ -158,7 +162,15 @@ export function balanceFrom(anchor: StoredAnchor, days: readonly DayTotal[]): Cu
     }
     if (d.date > asOf) asOf = d.date;
   }
-  return { postedCents, availableCents: postedCents + pendingCents, pendingCount, pendingCents, asOf };
+  return {
+    postedCents,
+    availableCents: postedCents + pendingCents,
+    pendingCount,
+    pendingCents,
+    asOf,
+    anchorDate: anchor.date,
+    afterCount,
+  };
 }
 
 // R23.3：差额 = 填的数 − (P 的金额 + Σ confirmed，P 日期 < date ≤ 手动日期)。没有 P → null
@@ -243,11 +255,13 @@ export async function getAccountBalances(
       type: financialAccount.type,
       numberSuffix: financialAccount.numberSuffix,
       purpose: financialAccount.purpose,
+      defaultMemberName: member.name,
       linkedId: linked.id,
       linkedName: linked.name,
       linkedIsArchived: linked.isArchived,
     })
     .from(financialAccount)
+    .innerJoin(member, eq(member.id, financialAccount.defaultMemberId))
     .leftJoin(
       linked,
       and(eq(linked.id, financialAccount.linkedAccountId), eq(linked.householdId, hh)),
@@ -294,6 +308,7 @@ export async function getAccountBalances(
       type: a.type,
       numberSuffix: a.numberSuffix,
       purpose: a.purpose,
+      defaultMemberName: a.defaultMemberName,
       isArchived: false,
       linkedAccount:
         a.linkedId === null

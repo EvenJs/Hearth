@@ -2,7 +2,6 @@
 
 // R16.10 行内改了主拆分的归属人后，同商家的交易要不要一起改（M5.5-4）
 // 确认后服务端在一个事务里重新算一遍再改，实际笔数以返回的为准
-import { Loader2 } from 'lucide-react';
 import { useTransition } from 'react';
 import { toast } from 'sonner';
 import {
@@ -53,8 +52,7 @@ export function MemberPropagationDialog({
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={pending}>不用</AlertDialogCancel>
-          <Button onClick={apply} disabled={pending}>
-            {pending && <Loader2 className="size-4 animate-spin" />}
+          <Button onClick={apply} loading={pending}>
             一起改
           </Button>
         </AlertDialogFooter>

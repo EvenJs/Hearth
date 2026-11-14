@@ -342,8 +342,8 @@ export function ConditionForm({ accountId, hasLinkedAccount, condition, today, o
           <Button type="button" variant="outline" onClick={onDone} disabled={submitting}>
             取消
           </Button>
-          <Button type="submit" disabled={submitting}>
-            {submitting ? '保存中…' : '保存'}
+          <Button type="submit" loading={submitting}>
+            保存
           </Button>
         </div>
       </form>

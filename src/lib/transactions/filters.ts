@@ -49,6 +49,28 @@ export function hasSplitFilter(f: TransactionFilters): boolean {
   );
 }
 
+// M13-6 筛选按钮上的个数。快捷条件和导入批次有自己的显示，不算
+// 电脑上收进"更多筛选"的：归属人、分类、类型、状态、税前、一次性、金额范围（算 1 个）
+export function moreFilterCount(f: TransactionFilters): number {
+  return [
+    f.memberId,
+    f.categoryId,
+    f.type,
+    f.status,
+    f.isPreTax,
+    f.oneOff,
+    f.minCents ?? f.maxCents,
+  ].filter((v) => v !== undefined).length;
+}
+
+// 手机上整块收成一个"筛选"按钮：再加上时间段、账户、商家关键词
+export function activeFilterCount(f: TransactionFilters): number {
+  return (
+    [f.period, f.accountId, f.merchant].filter((v) => v !== undefined).length +
+    moreFilterCount(f)
+  );
+}
+
 // ---------- URL 参数 → 筛选条件 ----------
 
 // Next.js 页面的 searchParams，或者 URLSearchParams

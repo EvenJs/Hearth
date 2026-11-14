@@ -82,23 +82,30 @@ export function ConditionHistory({ progress }: { progress: AccountConditionProgr
           );
         })}
       </ol>
-      <p className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-        {LEGEND.map((s) => (
-          <span key={s} className="flex items-center gap-1">
-            <span className={cn('size-2.5 rounded-xs', CELL_CLASSES[s])} />
-            {MONTH_CELL_LABELS[s]}
-          </span>
-        ))}
-        <span className="flex items-center gap-1">
-          <span className="size-2 rounded-full bg-amber-500" />
-          月费提示
-        </span>
-      </p>
 
       <Dialog open={selected !== null} onOpenChange={(o) => !o && setOpenMonth(null)}>
         {selected !== null && <MonthDetail progress={progress} month={selected} />}
       </Dialog>
     </div>
+  );
+}
+
+// 小格的图例，账户页顶部只放一次
+export function ConditionLegend() {
+  return (
+    <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+      <span>最近 12 个月：</span>
+      {LEGEND.map((s) => (
+        <span key={s} className="flex items-center gap-1">
+          <span className={cn('size-2.5 rounded-xs', CELL_CLASSES[s])} />
+          {MONTH_CELL_LABELS[s]}
+        </span>
+      ))}
+      <span className="flex items-center gap-1">
+        <span className="size-2 rounded-full bg-amber-500" />
+        月费提示
+      </span>
+    </p>
   );
 }
 

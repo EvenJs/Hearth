@@ -4,7 +4,7 @@
 // 字段：关键词、匹配方式（包含 / 开头是）、分类（R16.3 的范围）
 // 报错（空的、太长、撞了"已有规则 X → Y"、分类不能选）显示在对话框里，不关
 // 修改时显示打开时的命中数，不跟着输入变（design/README 第 4 节）
-import { ChevronsUpDown, Loader2 } from 'lucide-react';
+import { ChevronsUpDown } from 'lucide-react';
 import { useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import {
@@ -33,7 +33,7 @@ type Props = {
   rule: RuleListItem | null; // null = 新建
   sections: PickerSections;
   onClose: () => void;
-  onSaved: (message: string) => void;
+  onSaved: (message: string) => Promise<void>;
 };
 
 export function RuleDialog({ rule, sections, onClose, onSaved }: Props) {
@@ -61,7 +61,7 @@ export function RuleDialog({ rule, sections, onClose, onSaved }: Props) {
         setError(r.message);
         return;
       }
-      onSaved(rule ? '规则已修改' : '规则已新建');
+      await onSaved(rule ? '规则已修改' : '规则已新建');
     });
   }
 
@@ -163,8 +163,7 @@ export function RuleDialog({ rule, sections, onClose, onSaved }: Props) {
             <Button type="button" variant="outline" disabled={pending} onClick={onClose}>
               取消
             </Button>
-            <Button type="submit" disabled={pending || keyword.trim() === ''}>
-              {pending && <Loader2 className="animate-spin" />}
+            <Button type="submit" loading={pending} disabled={keyword.trim() === ''}>
               保存
             </Button>
           </DialogFooter>

@@ -6,12 +6,11 @@
 // R22.1 支出拆分一个"一次性"勾选；R22.3 大额未标时上面一行提示，带"是""不是一次性"
 // R25.7 支出拆分一个"挂到目标"下拉（goal-select.tsx），在一次性旁边
 // 电脑（lg 以上）是表格，窄屏是卡片
-import { Loader2, Pencil, Plus, Split, Trash2 } from 'lucide-react';
+import { Pencil, Plus, Split, Trash2 } from 'lucide-react';
 import { useLayoutEffect, useOptimistic, useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -340,11 +339,22 @@ function OneOffHint({ transactionId }: { transactionId: string }) {
     <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm">
       <span>这笔是一次性开销吗？</span>
       <span className="flex gap-2">
-        <Button size="sm" variant="outline" disabled={pending} onClick={() => answer(true)}>
-          {pending && answering === true && <Loader2 className="animate-spin" />}是
+        <Button
+          size="sm"
+          variant="outline"
+          loading={pending && answering === true}
+          disabled={pending}
+          onClick={() => answer(true)}
+        >
+          是
         </Button>
-        <Button size="sm" variant="outline" disabled={pending} onClick={() => answer(false)}>
-          {pending && answering === false && <Loader2 className="animate-spin" />}
+        <Button
+          size="sm"
+          variant="outline"
+          loading={pending && answering === false}
+          disabled={pending}
+          onClick={() => answer(false)}
+        >
           不是一次性
         </Button>
       </span>
@@ -403,16 +413,10 @@ function RemoveSplitDialog({ split, onClose }: { split: SplitView; onClose: () =
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={pending}>取消</AlertDialogCancel>
-          <AlertDialogAction
-            disabled={pending}
-            onClick={(e) => {
-              e.preventDefault(); // 等删完再关
-              confirm();
-            }}
-          >
-            {pending && <Loader2 className="animate-spin" />}
+          {/* 用 Button 不用 AlertDialogAction：等删完再关 */}
+          <Button loading={pending} onClick={confirm}>
             删除
-          </AlertDialogAction>
+          </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

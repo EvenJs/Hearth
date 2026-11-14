@@ -162,6 +162,20 @@ export function periodRange(option: PresetPeriod | DateRange, today: string): Pe
   }
 }
 
+// R10.1a 看板默认时间段：最晚的"数据截至"所在的月，没过完就往前一个月；没有截至 → 本月
+// 上月用"上月"选项（对比上期按日历月），更早的月用整月的自定义
+export function defaultDashboardPeriod(
+  latestAsOf: string | null,
+  today: string,
+): PresetPeriod | DateRange {
+  if (latestAsOf === null) return 'this_month';
+  const asOf = latestAsOf > today ? today : latestAsOf;
+  let start = startOfMonth(asOf);
+  if (endOfMonth(start) >= today) start = addMonths(start, -1);
+  if (start === addMonths(startOfMonth(today), -1)) return 'last_month';
+  return { start, end: endOfMonth(start) };
+}
+
 const MONTHS_BACK: Partial<Record<PeriodOption, number>> = {
   this_month: 1,
   last_month: 1,

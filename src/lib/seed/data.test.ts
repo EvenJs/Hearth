@@ -11,11 +11,11 @@ import {
 // 期望值全部来自 docs/seed-categories.md，不从实现反推
 
 describe('seed members（seed-categories §1）', () => {
-  it('has Male, Female (person) and Home (shared); Kid is not created yet', () => {
+  it('has Johnson, Iris (person) and 共同 (shared); Kid is not created yet', () => {
     expect(SEED_MEMBERS).toEqual([
-      { name: 'Male', kind: 'person' },
-      { name: 'Female', kind: 'person' },
-      { name: 'Home', kind: 'shared' },
+      { name: 'Johnson', kind: 'person' },
+      { name: 'Iris', kind: 'person' },
+      { name: '共同', kind: 'shared' },
     ]);
   });
 });
@@ -70,11 +70,11 @@ describe('seed categories（seed-categories §2、§3）', () => {
     }
   });
 
-  it('default members: Home for Home & utilities, Insurance & financial, Groceries; none for the rest', () => {
+  it('default members: 共同 for Home & utilities, Insurance & financial, Groceries; none for the rest', () => {
     expect(Object.fromEntries(SEED_CATEGORIES.map((c) => [c.nameEn, c.defaultMember]))).toEqual({
-      'Home & utilities': 'Home',
-      'Insurance & financial': 'Home',
-      Groceries: 'Home',
+      'Home & utilities': '共同',
+      'Insurance & financial': '共同',
+      Groceries: '共同',
       'Personal & medical': null,
       'Entertainment & eat-out': null,
       'Transport & auto': null,

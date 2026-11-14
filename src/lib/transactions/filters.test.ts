@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   filtersFromSearchParams,
   filtersToSearchParams,
+  activeFilterCount,
   hasSplitFilter,
+  moreFilterCount,
   pageFromSearchParams,
   type TransactionFilters,
 } from './filters';
@@ -238,5 +240,25 @@ describe('hasSplitFilter（R16.5 合计口径）', () => {
     [{ quick: 'one_off_hint' }, false], // R22.3：大额未标按交易算，合计按整笔（M7.7-6 定）
   ])('R16.5: %j → %s', (filters, expected) => {
     expect(hasSplitFilter(filters)).toBe(expected);
+  });
+});
+
+// M13-6 第 10 条：电脑上"更多筛选 (N)"数收起来的那些；手机上"筛选 (N)"数全部
+// 快捷条件和导入批次有自己的显示，不算
+describe('moreFilterCount / activeFilterCount（M13-6 筛选按钮上的个数）', () => {
+  it.each<[TransactionFilters, number, number]>([
+    [{}, 0, 0],
+    [{ period: 'this_year', accountId: ACCOUNT, merchant: 'COLES' }, 0, 3],
+    [{ period: { start: '2026-09-01', end: '2026-09-30' } }, 0, 1],
+    [{ memberId: MEMBER, categoryId: CATEGORY, type: 'expense', status: 'confirmed' }, 4, 4],
+    [{ isPreTax: false, oneOff: false }, 2, 2], // false 也是有值
+    [{ minCents: 100, maxCents: 200 }, 1, 1], // 金额范围算 1 个
+    [{ minCents: 100 }, 1, 1],
+    [{ maxCents: 200 }, 1, 1],
+    [{ quick: 'uncategorized', batchId: BATCH }, 0, 0],
+    [{ period: 'this_month', memberId: MEMBER, maxCents: 500 }, 2, 3],
+  ])('%j → more %i, all %i', (filters, more, all) => {
+    expect(moreFilterCount(filters)).toBe(more);
+    expect(activeFilterCount(filters)).toBe(all);
   });
 });

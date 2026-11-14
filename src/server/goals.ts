@@ -48,6 +48,7 @@ import {
   type DayTotal,
   type StoredAnchor,
 } from './balances';
+import { listAccounts } from './accounts';
 import type { HouseholdContext } from './context';
 import {
   firstTransactionDate,
@@ -837,8 +838,8 @@ export async function linkSplitToGoal(
 
 // ---------- 预算总览"还能花"（R25.10）、首页固定目标（R25.11） ----------
 
-// R25.11 首页小卡片要的：进度、还差、每月要存
-export type PinnedGoal = Pick<GoalRecord, 'id' | 'name' | 'isEmergency'> & {
+// R25.11 首页小卡片要的：进度、还差、每月要存。带完整的 GoalRecord，卡片上挂账户（M13-5）要原样传回去
+export type PinnedGoal = GoalRecord & {
   progress: GoalProgress;
   monthlyRequiredCents: number | null;
   overdue: boolean;
@@ -889,9 +890,7 @@ async function computeHomeGoals(
     pinned: ordered.map((g) => {
       const p = progressOf.get(g.id)!;
       return {
-        id: g.id,
-        name: g.name,
-        isEmergency: g.isEmergency,
+        ...g,
         progress: p,
         monthlyRequiredCents: required.get(g.id) ?? null,
         overdue: g.targetDate !== null && g.targetDate < today && !p.reached,
@@ -910,4 +909,12 @@ export async function getBudgetSpendable(ctx: HouseholdContext, today: string): 
 export async function getHomeGoals(ctx: HouseholdContext, today: string): Promise<HomeGoals> {
   const records = await loadGoals(db, ctx);
   return computeHomeGoals(ctx, records, today, true);
+}
+
+// R25.1 目标能挂的账户：没归档（listAccounts 默认不含）、不是现金。/goals 和看板的挂账户下拉共用
+export async function listGoalAccountOptions(
+  ctx: HouseholdContext,
+): Promise<{ id: string; name: string }[]> {
+  const accounts = await listAccounts(ctx);
+  return accounts.filter((a) => a.bank !== 'cash').map((a) => ({ id: a.id, name: a.name }));
 }

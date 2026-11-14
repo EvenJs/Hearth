@@ -2,7 +2,7 @@
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { CreditCard, Plus, Trash2 } from 'lucide-react';
-import { useTransition } from 'react';
+import { useState, useTransition } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -36,6 +36,8 @@ type Props = {
 // 卡号后四位 → 归属人（F1、R5 第 3 优先级）。只在编辑已有账户时出现
 export function CardsSection({ accountId, cards, members }: Props) {
   const [deleting, startDelete] = useTransition();
+  // 正在删的那张卡转圈，其他一起禁用
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const form = useForm<CardInput, unknown, CardValues>({
     resolver: zodResolver(cardInputSchema),
@@ -59,8 +61,10 @@ export function CardsSection({ accountId, cards, members }: Props) {
   }
 
   function remove(c: Card) {
+    setDeletingId(c.id);
     startDelete(async () => {
       const result = await deleteCardAction(c.id);
+      setDeletingId(null);
       if (!result.ok) {
         toast.error(result.message);
         return;
@@ -96,6 +100,7 @@ export function CardsSection({ accountId, cards, members }: Props) {
                 size="icon-sm"
                 aria-label={`删除卡 ${c.last4}`}
                 title="删除"
+                loading={deletingId === c.id}
                 disabled={deleting}
                 onClick={() => remove(c)}
               >
@@ -170,9 +175,9 @@ export function CardsSection({ accountId, cards, members }: Props) {
             )}
           />
           <div className="col-span-2 flex justify-end">
-            <Button type="submit" variant="outline" size="sm" disabled={submitting}>
+            <Button type="submit" variant="outline" size="sm" loading={submitting}>
               <Plus />
-              {submitting ? '添加中…' : '添加卡'}
+              添加卡
             </Button>
           </div>
         </form>

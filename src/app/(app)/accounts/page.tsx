@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { connection } from 'next/server';
 import { Suspense } from 'react';
+import { AccountsSkeleton } from '@/components/skeletons';
 import { groupByPurpose } from '@/lib/rules/balance';
 import { todayInMelbourne } from '@/lib/rules/periods';
 import { getAccountBalances } from '@/server/balances';
@@ -22,7 +23,7 @@ export default function AccountsPage() {
       </header>
 
       {/* 读 session 的部分放在 Suspense 里（cacheComponents） */}
-      <Suspense fallback={<p className="text-sm text-muted-foreground">加载中…</p>}>
+      <Suspense fallback={<AccountsSkeleton />}>
         <AccountsSection />
       </Suspense>
     </>

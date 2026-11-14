@@ -3,14 +3,13 @@
 // 编辑、删除手动录入的整笔交易（R17.5，M6-5）
 // 能不能改由 canEditManual 决定：不能的不显示按钮；能改不能删（有转账配对）时删除换成一行原因
 // 字段规则全部在服务端（applyManualEdit），这里只把表单值传过去、显示字段错误
-import { Loader2, Pencil, Trash2 } from 'lucide-react';
+import { Pencil, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useLayoutEffect, useState, useTransition } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -278,8 +277,7 @@ function EditDialog({
             <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
               取消
             </Button>
-            <Button type="submit" disabled={saving}>
-              {saving && <Loader2 className="animate-spin" />}
+            <Button type="submit" loading={saving}>
               保存
             </Button>
           </DialogFooter>
@@ -332,17 +330,10 @@ function DeleteDialog({
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={pending}>取消</AlertDialogCancel>
-          <AlertDialogAction
-            disabled={pending}
-            className="bg-destructive text-white hover:bg-destructive/90"
-            onClick={(e) => {
-              e.preventDefault(); // 等删完再关
-              remove();
-            }}
-          >
-            {pending && <Loader2 className="animate-spin" />}
+          {/* 用 Button 不用 AlertDialogAction：等删完再关 */}
+          <Button variant="destructive" loading={pending} onClick={remove}>
             删除
-          </AlertDialogAction>
+          </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

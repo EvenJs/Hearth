@@ -2,7 +2,7 @@
 
 import { CircleCheck, CircleDashed, CircleHelp, CircleX, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
-import { useTransition } from 'react';
+import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -120,8 +120,11 @@ export function ConditionRow({
 function ManualCheckButtons({ result: r }: { result: ConditionResult }) {
   const [pending, startTransition] = useTransition();
   const checked = r.status === 'met' ? true : r.status === 'failed' ? false : null;
+  // 点的那个按钮转圈（undefined = 没在保存）
+  const [setting, setSetting] = useState<boolean | null | undefined>(undefined);
 
   function set(isMet: boolean | null) {
+    setSetting(isMet);
     startTransition(async () => {
       const result = await setManualCheckAction(r.conditionId, r.month, isMet);
       if (!result.ok) {
@@ -136,6 +139,7 @@ function ManualCheckButtons({ result: r }: { result: ConditionResult }) {
         size="xs"
         variant={checked === true ? 'default' : 'outline'}
         aria-pressed={checked === true}
+        loading={pending && setting === true}
         disabled={pending}
         onClick={() => set(true)}
       >
@@ -145,6 +149,7 @@ function ManualCheckButtons({ result: r }: { result: ConditionResult }) {
         size="xs"
         variant={checked === false ? 'default' : 'outline'}
         aria-pressed={checked === false}
+        loading={pending && setting === false}
         disabled={pending}
         onClick={() => set(false)}
       >
@@ -153,6 +158,7 @@ function ManualCheckButtons({ result: r }: { result: ConditionResult }) {
       <Button
         size="xs"
         variant="ghost"
+        loading={pending && setting === null}
         disabled={pending || checked === null}
         onClick={() => set(null)}
       >

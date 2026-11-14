@@ -1,6 +1,8 @@
 import { CheckCircle2, ChevronLeft, CircleSlash, FileUp, XCircle } from 'lucide-react';
 import Link from 'next/link';
 import { Suspense } from 'react';
+import { BankMark } from '@/components/account-badge';
+import { TableSkeleton } from '@/components/skeletons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -12,7 +14,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { BANK_LABELS } from '@/lib/accounts/account-input';
 import { statementPeriod } from '@/lib/import/index';
 import { formatAud } from '@/lib/rules/money';
 import type { Reconciliation } from '@/lib/rules/reconcile';
@@ -47,7 +48,7 @@ export default function ImportHistoryPage() {
       </header>
 
       {/* 读 session 的部分放在 Suspense 里（cacheComponents） */}
-      <Suspense fallback={<p className="text-sm text-muted-foreground">加载中…</p>}>
+      <Suspense fallback={<TableSkeleton />}>
         <HistorySection />
       </Suspense>
     </>
@@ -146,18 +147,18 @@ function SourceBadge({ source }: { source: ImportHistoryRow['source'] }) {
   );
 }
 
-// "CBA · CBA" 这种账户名已经带银行名的，不再重复显示银行
-function AccountLabel({ account }: { account: ImportHistoryRow['account'] }) {
-  const bank = BANK_LABELS[account.bank];
-  const showBank = !account.name.toLowerCase().includes(bank.toLowerCase());
+// M13-12：银行用方块表示，不再写银行名
+function HistoryAccount({ account }: { account: ImportHistoryRow['account'] }) {
   return (
-    <>
-      {showBank && `${bank} · `}
-      {account.name}
-      {account.numberSuffix && (
-        <span className="text-muted-foreground"> ••{account.numberSuffix}</span>
-      )}
-    </>
+    <span className="inline-flex max-w-full items-center gap-1.5">
+      <BankMark bank={account.bank} />
+      <span className="min-w-0 break-words">
+        {account.name}
+        {account.numberSuffix && (
+          <span className="text-muted-foreground"> ••{account.numberSuffix}</span>
+        )}
+      </span>
+    </span>
   );
 }
 
@@ -168,7 +169,7 @@ function HistoryCard({ r }: { r: ImportHistoryRow }) {
         <CardContent className="flex flex-col gap-2 px-4 text-sm">
           <div className="flex items-start justify-between gap-3">
             <span className="min-w-0 text-base font-medium break-words">
-              <AccountLabel account={r.account} />
+              <HistoryAccount account={r.account} />
             </span>
             {r.canUndo && <UndoImportButton batchId={r.batchId} after="history" />}
           </div>
@@ -204,7 +205,7 @@ function HistoryRow({ r }: { r: ImportHistoryRow }) {
   return (
     <TableRow>
       <TableCell className="pl-4">
-        <AccountLabel account={r.account} />
+        <HistoryAccount account={r.account} />
       </TableCell>
       {/* 导入时间是辅助信息，放文件名下面，不单独占一列 */}
       <TableCell className="max-w-60">
