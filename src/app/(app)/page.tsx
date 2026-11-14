@@ -1,18 +1,18 @@
 import { connection } from 'next/server';
 import { Suspense } from 'react';
 import { DashboardSkeleton } from '@/components/skeletons';
-import { formatRange, DEFAULT_PERIOD } from '@/lib/dashboard/format';
+import { formatRange } from '@/lib/dashboard/format';
 import { pivotViewFromSearchParams } from '@/lib/dashboard/pivot-view';
 import type { DashboardScope } from '@/lib/dashboard/links';
 import { spendableAfterGoals } from '@/lib/rules/budget';
-import { periodRange, todayInMelbourne } from '@/lib/rules/periods';
+import { defaultDashboardPeriod, periodRange, todayInMelbourne } from '@/lib/rules/periods';
 import { financialYearOf } from '@/lib/tax/estimate';
 import { filtersFromSearchParams } from '@/lib/transactions/filters';
 import { listBudgetsWithProgress } from '@/server/budgets';
-import { getConditionReminder } from '@/server/conditions';
+import { getConditionReminder, getLatestDataAsOf } from '@/server/conditions';
 import { getHouseholdContext } from '@/server/context';
 import { getDashboard, getPivot } from '@/server/dashboard';
-import { getHomeGoals } from '@/server/goals';
+import { getHomeGoals, listGoalAccountOptions } from '@/server/goals';
 import { getItemTypeStats } from '@/server/item-types';
 import { listMembers } from '@/server/members';
 import { getMonthlyAverage } from '@/server/monthly-average';
@@ -31,13 +31,14 @@ import { TaxCards } from './_dashboard/tax-cards';
 import { TopMerchants } from './_dashboard/top-merchants';
 
 // F6 看板（设计图 02，M5-3）：时间段和归属人在 URL 参数里，写法和 F8 一样（period 或 from/to、member）
-// 没有参数 = 本月、全部归属人。不合法的参数丢掉（filtersFromSearchParams）
+// 没有参数 = 最近一个有数据的完整月（R10.1a）、全部归属人。不合法的参数丢掉（filtersFromSearchParams）
 // 分类占比和 Top 商家（M5-4）；汇总表（M5-5，切换写在 URL 的 grain、group、metric）；趋势（M5-6）后面加
 // 顶部置顶预算（M7-4，R11.3）固定本月、全家，不跟筛选；税务卡片（M7-6，R14.6）固定今天所在的财年
 // 商品类型统计（M7.6-7，R21.7）跟时间段、不跟归属人，放在汇总表下面
 // 月均卡片（M7.7-7，R22.8）跟归属人、不跟时间段，放在汇总表上面；KPI 支出下面"其中一次性"（R22.10）
 // 每月条件提示（M10-7，R24.9）一行放在最上面，只在本月最后几天出现，不跟筛选
-// 预算那一行加"还能花（已扣目标）"（M11-7，R25.10）；固定目标（R25.11）放在置顶预算下面，不跟筛选
+// 预算那一行加"还能花（已扣目标）"（M11-7，R25.10）；固定目标（R25.11）不跟筛选
+// M13-5：KPI 放最上面，固定目标紧跟在 KPI 下面，再是条件提示和置顶预算；标题旁"数据到 MM-DD"（R10.1a）
 export default function HomePage(props: PageProps<'/'>) {
   return (
     // 读 session 和 searchParams 的部分放在 Suspense 里（cacheComponents）
@@ -65,7 +66,12 @@ async function DashboardSection({
   const members = allMembers.map(({ id, name }) => ({ id, name }));
   // 不是本家庭的归属人 id 当作没选
   const memberId = members.some((m) => m.id === filters.memberId) ? filters.memberId : undefined;
-  const input = { period: filters.period ?? DEFAULT_PERIOD, memberId };
+  // R10.1a：标题旁一直显示"数据到"，所以带了时间段参数也查
+  const latestAsOf = await getLatestDataAsOf(ctx);
+  const input = {
+    period: filters.period ?? defaultDashboardPeriod(latestAsOf, today),
+    memberId,
+  };
   const period = periodRange(input.period, today);
   const [
     dashboard,
@@ -76,6 +82,7 @@ async function DashboardSection({
     monthlyAverage,
     conditionReminder,
     homeGoals,
+    goalAccounts,
   ] = await Promise.all([
     getDashboard(ctx, input, today),
     getPivot(ctx, { ...input, ...view }, today),
@@ -91,6 +98,8 @@ async function DashboardSection({
     getConditionReminder(ctx, today),
     // R25.10、R25.11：不跟时间段和归属人
     getHomeGoals(ctx, today),
+    // M13-5 固定目标卡片上挂账户的下拉
+    listGoalAccountOptions(ctx),
   ]);
   const spendable = spendableAfterGoals(budgets.overview, homeGoals.goalsCents);
   const scope: DashboardScope = { period: dashboard.period, memberId };
@@ -103,6 +112,7 @@ async function DashboardSection({
           <h1 className="text-2xl font-semibold">看板</h1>
           <span className="text-sm text-muted-foreground tabular-nums">
             {formatRange(dashboard.period, today)}
+            {latestAsOf !== null && ` · 数据到 ${latestAsOf.slice(5)}`}
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -116,6 +126,17 @@ async function DashboardSection({
         </div>
       </header>
 
+      <div className="flex flex-col gap-3">
+        <KpiCards dashboard={dashboard} scope={scope} today={today} />
+        <PendingNote count={dashboard.pendingCount} scope={scope} />
+      </div>
+
+      <PinnedGoals
+        goals={homeGoals.pinned}
+        accounts={goalAccounts}
+        memberSelected={memberId !== undefined}
+      />
+
       <ConditionReminder reminder={conditionReminder} />
 
       <PinnedBudgets
@@ -124,13 +145,6 @@ async function DashboardSection({
         spendable={spendable}
         memberSelected={memberId !== undefined}
       />
-
-      <PinnedGoals goals={homeGoals.pinned} memberSelected={memberId !== undefined} />
-
-      <div className="flex flex-col gap-3">
-        <KpiCards dashboard={dashboard} scope={scope} today={today} />
-        <PendingNote count={dashboard.pendingCount} scope={scope} />
-      </div>
 
       {/* 设计图 02 把税务卡片放在右栏 Top 商家上面，右栏会比支出分类高很多、左边留大片空白，
           所以单独一行放在支出分类上面 */}

@@ -2,9 +2,8 @@ import { connection } from 'next/server';
 import { Suspense } from 'react';
 import { GoalsSkeleton } from '@/components/skeletons';
 import { todayInMelbourne } from '@/lib/rules/periods';
-import { listAccounts } from '@/server/accounts';
 import { getHouseholdContext } from '@/server/context';
-import { getGoals } from '@/server/goals';
+import { getGoals, listGoalAccountOptions } from '@/server/goals';
 import { GoalsView } from './goals-view';
 
 // F14 目标和应急金（设计图 16 不出图，照 /accounts 和看板卡片做，M11-5，R25.11）
@@ -33,11 +32,10 @@ async function GoalsSection() {
   // "今天"每次请求都要重新算（每月要存、预计达成、过期），不能被预渲染
   await connection();
   const today = todayInMelbourne();
-  const [overview, accounts] = await Promise.all([getGoals(ctx, today), listAccounts(ctx)]);
-
-  // R25.1：下拉里去掉已归档的（listAccounts 默认不含）和现金账户
-  const options = accounts
-    .filter((a) => a.bank !== 'cash')
-    .map((a) => ({ id: a.id, name: a.name }));
-  return <GoalsView overview={overview} accounts={options} />;
+  // R25.1：下拉里去掉已归档的和现金账户
+  const [overview, accounts] = await Promise.all([
+    getGoals(ctx, today),
+    listGoalAccountOptions(ctx),
+  ]);
+  return <GoalsView overview={overview} accounts={accounts} />;
 }

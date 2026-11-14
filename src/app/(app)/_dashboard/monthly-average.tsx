@@ -13,14 +13,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { formatPercentChange } from '@/lib/dashboard/format';
 import { formatAud } from '@/lib/rules/money';
 import { cn } from '@/lib/utils';
 import type { AverageCells, MonthlyAverageCard } from '@/server/monthly-average';
 import { ToneDot, toneOfTop } from '../transactions/tx-badges';
 
 // F11 月均支出卡片（M7.7-7，R22.5 到 R22.9）：样子照汇总表，不出设计图（R22.8）
-// 两个窗口各写"基于 n 个月"；本月排除一次性，对比近 12 个月月均，灰色（R10.4）
+// 两个窗口各写"基于 n 个月"；本月排除一次性，本月没过完所以不算百分比、没有"对比"列（R22.9）
 // 分类 / 归属人切换是这张卡片自己的 state，不写进 URL，不影响别的卡片
 // 按分类时有二级的一级点这一行展开收起（同汇总表）；不跳 F8
 // 数据跟归属人筛选，不跟时间段（R22.8），由 page.tsx 传进来
@@ -138,15 +137,10 @@ export function MonthlyAverage({ data }: Props) {
         <Stat label="近 3 个月月均" note={`基于 ${data.months3} 个月`}>
           {formatAud(data.total.avg3Cents)}
         </Stat>
-        <Stat
-          label="本月"
-          note={`${formatPercentChange(data.total.percent)} 对比近 12 个月月均`}
-          className="col-span-2 lg:col-span-1"
-        >
+        <Stat label="本月" note="本月还没过完" className="col-span-2 lg:col-span-1">
           {formatAud(data.total.currentCents)}
         </Stat>
       </dl>
-      <p className="-mt-2 text-xs text-muted-foreground">本月到今天，还没过完</p>
 
       {rows.length === 0 ? (
         <p className="py-6 text-center text-sm text-muted-foreground">近 12 个月和本月都没有支出</p>
@@ -160,7 +154,6 @@ export function MonthlyAverage({ data }: Props) {
               <TableHead className="text-right">近 12 月均</TableHead>
               <TableHead className="text-right">近 3 月均</TableHead>
               <TableHead className="text-right">本月</TableHead>
-              <TableHead className="text-right">对比</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -250,7 +243,7 @@ function Stat({
   );
 }
 
-// 近 12 月均、近 3 月均、本月、对比；对比灰色（R22.9 颜色同 R10.4）
+// 近 12 月均、近 3 月均、本月（R22.9 不显示百分比）
 function Cells({ cells, className }: { cells: AverageCells; className?: string }) {
   const amounts = [cells.avg12Cents, cells.avg3Cents, cells.currentCents];
   return (
@@ -263,9 +256,6 @@ function Cells({ cells, className }: { cells: AverageCells; className?: string }
           {formatAud(cents)}
         </TableCell>
       ))}
-      <TableCell className={cn('text-right text-muted-foreground', className)}>
-        {formatPercentChange(cells.percent)}
-      </TableCell>
     </>
   );
 }

@@ -26,7 +26,7 @@
 | R7. 分类 | [`rules/R07-classify.md`](rules/R07-classify.md) | R7.1、R7.2 |
 | R8. pending 交易匹配 | [`rules/R08-pending.md`](rules/R08-pending.md) | R8.1、R8.2、R8.3、R8.4 |
 | R9. 对账校验 | [`rules/R09-reconcile.md`](rules/R09-reconcile.md) | — |
-| R10. 统计口径 | [`rules/R10-stats.md`](rules/R10-stats.md) | R10.1、R10.2、R10.3、R10.4、R10.5、R10.6 |
+| R10. 统计口径 | [`rules/R10-stats.md`](rules/R10-stats.md) | R10.1、R10.1a、R10.2、R10.3、R10.4、R10.5、R10.6 |
 | R11. 预算 | [`rules/R11-budget.md`](rules/R11-budget.md) | R11.1、R11.2、R11.3 |
 | R12. 导入流程（一次事务） | [`rules/R12-import-flow.md`](rules/R12-import-flow.md) | R12.1、R12.2 |
 | R13. 从手动改分类生成规则 | [`rules/R13-rule-from-edit.md`](rules/R13-rule-from-edit.md) | — |

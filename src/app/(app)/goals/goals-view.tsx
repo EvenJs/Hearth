@@ -47,6 +47,7 @@ export function GoalsView({ overview, accounts }: Props) {
 
       <EmergencyCard
         goal={emergency}
+        accounts={accounts}
         onCreate={() => setDialog({ name: 'create', emergency: true })}
         onAction={setDialog}
       />
@@ -72,6 +73,7 @@ export function GoalsView({ overview, accounts }: Props) {
                 goal={g}
                 isFirst={i === 0}
                 isLast={i === active.length - 1}
+                accounts={accounts}
                 onAction={setDialog}
               />
             ))}
