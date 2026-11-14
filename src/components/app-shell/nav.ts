@@ -34,14 +34,13 @@ export const NAV_ITEMS: NavItem[] = [
     href: null,
     icon: Settings,
     children: [
-      { label: '账户', href: '/settings/accounts' },
+      { label: '银行账户', href: '/settings/accounts' },
       { label: '规则', href: '/settings/rules' },
       { label: '分类', href: '/settings/categories' },
       { label: '预算', href: '/settings/budgets' },
       { label: '税务', href: '/settings/tax' },
-      // M12-6 邀请、账号（R26.2、R26.3、R26.8）
+      // M12-6 邀请（R26.2、R26.3）。账号页还没做，做好后入口放右上角名字的下拉菜单（M13-9）
       { label: '邀请', href: '/settings/invites' },
-      { label: '账号', href: '/settings/profile' },
     ],
   },
 ];

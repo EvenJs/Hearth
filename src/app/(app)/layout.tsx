@@ -2,7 +2,7 @@ import { Suspense } from 'react';
 import { Brand } from '@/components/app-shell/brand';
 import { MobileNav } from '@/components/app-shell/mobile-nav';
 import { SidebarNav, SidebarNavFallback } from '@/components/app-shell/sidebar-nav';
-import { SignOutButton } from '@/components/app-shell/sign-out-button';
+import { UserMenu } from '@/components/app-shell/user-menu';
 import { QuickAddButton } from '@/components/quick-add/quick-add-button';
 import { getCurrentUser } from '@/server/auth';
 import { getReceiptReader } from '@/server/receipt-readers';
@@ -55,12 +55,5 @@ function receiptInputMode(): 'image' | null {
 
 async function CurrentUser() {
   const user = await getCurrentUser();
-  return (
-    <>
-      <span className="hidden max-w-32 truncate text-sm text-muted-foreground sm:inline">
-        {user.name}
-      </span>
-      <SignOutButton />
-    </>
-  );
+  return <UserMenu name={user.name} />;
 }

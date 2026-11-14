@@ -10,12 +10,12 @@
 
 ## 1. 归属人（钱用在谁身上）
 
-| name   | kind   | 说明                     |
-| ------ | ------ | ------------------------ |
-| Male   | person | 我                       |
-| Female | person | 老婆                     |
-| Home   | shared | 家庭共同部分             |
-| Kid    | child  | **先不建**，有孩子时再加 |
+| name    | kind   | 说明                     |
+| ------- | ------ | ------------------------ |
+| Johnson | person | 我                       |
+| Iris    | person | 老婆                     |
+| 共同    | shared | 家庭共同部分（2026-11-14 由 Home 改名，和新家庭的 R26.6 一致） |
+| Kid     | child  | **先不建**，有孩子时再加 |
 
 ---
 
@@ -25,9 +25,9 @@
 
 | 一级                        | 默认归属人 | 二级                                                                                                                                                                      |
 | --------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Home & utilities**        | Home       | Mortgage · Rent · Body corporate fees · Council rates · Furniture & appliances · Renovations & maintenance · Household supplies · Electricity · Water · Internet · Mobile |
-| **Insurance & financial**   | Home       | Car insurance · Home insurance · Personal & life insurance                                                                                                                |
-| **Groceries**               | Home       | Supermarket · Butcher · Fruit · Vegetable · Pet                                                                                                                           |
+| **Home & utilities**        | 共同       | Mortgage · Rent · Body corporate fees · Council rates · Furniture & appliances · Renovations & maintenance · Household supplies · Electricity · Water · Internet · Mobile |
+| **Insurance & financial**   | 共同       | Car insurance · Home insurance · Personal & life insurance                                                                                                                |
+| **Groceries**               | 共同       | Supermarket · Butcher · Fruit · Vegetable · Pet                                                                                                                           |
 | **Personal & medical**      |            | Hair & beauty · Cosmetics & toiletries · Medicines & pharmacy · Hobbies · Clothing & shoes · Jewellery & accessories · Education · Computers & gadgets                    |
 | **Entertainment & eat-out** |            | Coffee & tea · Bubble tea · Lunches · Restaurants · Take-away & snacks · Drinks · Books · Movies & music · Holidays · Celebrations & gifts · Bakery                                |
 | **Transport & auto**        |            | Public transport · Petrol / EV charging · Rego & licence · Road tolls & parking · Repairs & maintenance · Fines                                                           |
@@ -159,7 +159,7 @@
 | BAKERS          | Bakery               |
 
 > Bubble tea 是奶茶店，Coffee & tea 是咖啡馆。
-> Bakery（2026-10-25 加）：面包店。原来 `BREAD`、`BAKERS` 归 Groceries / Other，默认归属人是 Home，自己吃的点心也记到 Home 上；放到这里没有分类默认，按卡号决定归属人（R5）。给全家买的面包偶尔算进来，不值得单独处理，需要时在 F8 手动改。
+> Bakery（2026-10-25 加）：面包店。原来 `BREAD`、`BAKERS` 归 Groceries / Other，默认归属人是共同（当时叫 Home），自己吃的点心也记到共同上；放到这里没有分类默认，按卡号决定归属人（R5）。给全家买的面包偶尔算进来，不值得单独处理，需要时在 F8 手动改。
 > prod 的 Bakery 是 2026-10-25 手动用 SQL 加的（排在 Other 前面），规则在 F8 用 R16.6 覆盖、R7.2 重新应用。
 > `SW WHITE`：描述是 `272 SW WHITE ...` 这类，前面的数字是门店号，关键词只取后半段。
 > Lunches 没有预置规则：同一家面馆是不是午饭，从流水看不出来。
