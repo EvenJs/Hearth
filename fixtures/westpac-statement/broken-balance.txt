@@ -1,0 +1,43 @@
+Statement Period
+01 November 2026 - 30 November 2026
+Westpac Choice  Account Name
+MR MALE A TEST
+Customer ID
+1 TEST STREET  0000 0000  Enquiries, Postal
+PO BOX 0000
+EXAMPLETON VIC 3000  BSB  Account Number
+039-999  120 005
+Opening Balance  $1,000.00
+Total Credits  + $3,250.00
+Total Debits  - $1,786.45
+Closing Balance  + $2,463.55
+INTEREST RATES (per annum) ON CREDIT BALANCES
+Effective Date  Rate
+$0
+01 Nov 2026  0.01 %
+Note text about how interest is calculated on this account.
+interest.
+Transactions
+Please check the entries on this statement and promptly inform Westpac of any possible error or unauthorised transaction
+DATE  TRANSACTION DESCRIPTION  DEBIT  CREDIT  BALANCE
+01/11/26  STATEMENT OPENING BALANCE  1,000.00
+01/11/26  Deposit-Osko Payment 1000001 TEST FRIEND 31
+Oct 2026  500.00  1,500.00
+03/11/26  Withdrawal Mobile 1000002 Tfr Westpac Lif  300.00  1,200.00
+03/11/26  Withdrawal Mobile 1000003 Tfr Westpac Lif  300.00  900.00
+10/11/26  Deposit-Osko Payment 1000004 ACME PTY LTD 09
+Nov 2026  2,750.00  3,650.10
+15/11/26  Withdrawal Mobile 1000005 Tfr Westpac Lif  1,186.45  2,463.55
+30/11/26  CLOSING BALANCE  2,463.55
+Convenience at your fingertips
+Use Online, Mobile or the Westpac App to check balances and view your account activity
+Westpac Banking Corporation ABN 00 000 000 000 AFSL and Australian credit licence 000000  Statement No. 2  Page 1 of 3
+<<<PAGE>>>
+Westpac Choice
+Important information
+Please check this statement carefully. The Closing Balance shown may not be your available balance.
+Westpac Banking Corporation ABN 00 000 000 000 AFSL and Australian credit licence 000000  Statement No. 2  Page 2 of 3
+<<<PAGE>>>
+Westpac Choice
+Westpac Help  Contact us  Other text
+Westpac Banking Corporation ABN 00 000 000 000 AFSL and Australian credit licence 000000  Statement No. 2  Page 3 of 3
