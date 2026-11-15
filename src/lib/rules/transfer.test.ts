@@ -603,6 +603,46 @@ describe('storedTransferAccountId（R6.2 用，从脱敏后的描述重跑 R6.1�
   });
 });
 
+describe('storedTransferAccountId 按账户名认（R6.2、R24.3 用，M9.5-9）', () => {
+  const boqAcct = (name: string, numberSuffix: string): Account => ({
+    ...acct(`acc:${name}`, numberSuffix),
+    name,
+    bank: 'boq',
+  });
+  const everyday = boqAcct('BOQ Everyday Male', '0007');
+  const saver9 = boqAcct('BOQ Future Saver Male', '0008');
+  const accounts = [...h.accounts, everyday, saver9];
+  const entry = (a: Account, statementName: string | null): StatementNameAccount => ({
+    id: a.id,
+    bank: a.bank,
+    statementName,
+    isArchived: false,
+  });
+  const named = [entry(everyday, 'Everyday Account'), entry(saver9, 'Future Saver')];
+
+  it('R6.1: "To: Future Saver NOTPROVIDED" on Everyday → Future Saver', () => {
+    expect(
+      storedTransferAccountId('To: Future Saver NOTPROVIDED', everyday, accounts, named),
+    ).toBe(saver9.id);
+  });
+
+  it('R6.1: name matches several accounts → null (counterpart unknown)', () => {
+    const other = boqAcct('BOQ Test', '0011');
+    expect(
+      storedTransferAccountId(
+        'To: Future Saver NOTPROVIDED',
+        everyday,
+        [...accounts, other],
+        [...named, entry(other, 'Future Saver')],
+      ),
+    ).toBeNull();
+  });
+
+  it('R6.1: without named → null', () => {
+    expect(storedTransferAccountId('To: Future Saver NOTPROVIDED', everyday, accounts)).toBeNull();
+  });
+});
+
 describe('planTransfers（R6.2 整个家庭配对，然后 R6.3 建议）', () => {
   // 照 processFile 的结果当成已入库的交易，id 用 "账户名#行号"
   function file(path: FixturePath, account: Account): HouseholdTransferTx[] {

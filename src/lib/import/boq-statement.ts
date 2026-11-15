@@ -110,6 +110,37 @@ export function looksLikeBoqStatement(lines: readonly StatementLine[]): boolean 
   return isBoq(cleanLines(lines));
 }
 
+// R1F 自动认账户（照 R1G）：在调用方给的账户（没归档的 BOQ）里，找 number_suffix 和对账单账号尾部对得上的
+// BSB 和账号不返回；错误信息里只带后 4 位
+export function identifyBoqStatementAccount(
+  lines: readonly StatementLine[],
+  accounts: readonly { id: string; numberSuffix: string | null }[],
+): { ok: true; accountId: string } | { ok: false; message: string } {
+  const cleaned = cleanLines(lines);
+  if (!isBoq(cleaned)) return { ok: false, message: NOT_BOQ_MESSAGE };
+  const headerAt = cleaned.findIndex((l) => TABLE_HEADER.test(l.text));
+  let digits: string;
+  try {
+    digits = readAccountDigits(cleaned.slice(0, headerAt));
+  } catch (error) {
+    if (error instanceof StatementError) return { ok: false, message: error.message };
+    throw error;
+  }
+
+  const matches = accounts.filter((a) => a.numberSuffix && digits.endsWith(a.numberSuffix));
+  if (matches.length === 1) return { ok: true, accountId: matches[0].id };
+  if (matches.length === 0) {
+    return {
+      ok: false,
+      message: `找不到尾号是 ${digits.slice(-4)} 的 BOQ 账户，先去账户设置填上尾号`,
+    };
+  }
+  return {
+    ok: false,
+    message: `有 ${matches.length} 个 BOQ 账户的尾号都对得上，去账户设置把尾号填长一点`,
+  };
+}
+
 // 去首尾空白，空行跳过
 function cleanLines(lines: readonly StatementLine[]): StatementLine[] {
   return lines.map((l) => ({ page: l.page, text: l.text.trim() })).filter((l) => l.text !== '');

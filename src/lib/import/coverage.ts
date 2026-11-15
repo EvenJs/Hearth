@@ -1,4 +1,5 @@
-// 防漏导（business-rules.md R12.2 前两条）：上次导到哪天、建议导出范围、对账单导到哪天；CSV 导入后的空档警告
+// 防漏导（business-rules.md R12.2）：上次导到哪天、建议导出范围、对账单导到哪天；CSV 导入后的空档警告；
+// PDF 对账单的首尾衔接和账期重叠
 // 日期都是 YYYY-MM-DD 字符串，可以直接比较，不转 JS Date
 // 纯函数，不 import 数据库和 Next.js
 import { addDays } from '@/lib/rules/periods';
@@ -37,4 +38,31 @@ export function importCoverage(batches: readonly CoverageBatch[], today: string)
 export function csvGapWarning(dateFrom: string, lastDateTo: string | null): ImportGap | null {
   if (lastDateTo === null || dateFrom <= lastDateTo) return null;
   return { dateFrom, previousDateTo: lastDateTo };
+}
+
+// R12.2 PDF 对账单批次（同账户、source = pdf）
+export type StatementBatch = { batchId: string; dateFrom: string; dateTo: string };
+
+// R12.2 首尾衔接：date_to 早于本次 date_from 的里面 date_to 最大的（2026-11-15 改，原来拿本次的 date_to 比）
+// 一样大的取先出现的（调用方按创建时间从新到旧传）
+export function previousStatement<T extends StatementBatch>(
+  batches: readonly T[],
+  dateFrom: string,
+): T | null {
+  let previous: T | null = null;
+  for (const b of batches) {
+    if (b.dateTo < dateFrom && (previous === null || b.dateTo > previous.dateTo)) previous = b;
+  }
+  return previous;
+}
+
+// R12.2 账期重叠：[date_from, date_to] 有交集的批次，按 date_from 排。只提示，不比余额
+export function overlappingStatements<T extends StatementBatch>(
+  batches: readonly T[],
+  dateFrom: string,
+  dateTo: string,
+): T[] {
+  return batches
+    .filter((b) => b.dateFrom <= dateTo && b.dateTo >= dateFrom)
+    .sort((a, b) => a.dateFrom.localeCompare(b.dateFrom) || a.dateTo.localeCompare(b.dateTo));
 }

@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { buildTestHousehold } from '../../../tests/helpers/household';
 import { readFixture } from '../../../tests/helpers/fixtures';
-import type { MemberSource, ProcessedRow, TransferStatus } from '../rules/types';
+import type { Account, MemberSource, ProcessedRow, TransferStatus } from '../rules/types';
 import { parseAnzStatement } from './anz-statement';
-import { parseBankCsv } from './index';
+import { parseBankCsv, parseBankStatement } from './index';
 import { processFile, processRows } from './process';
-import { readStatementFixture } from '../../../tests/helpers/fixtures';
+import { readBoqStatementFixture, readStatementFixture } from '../../../tests/helpers/fixtures';
 
 // 期望值来自 fixtures/README.md "期望结果：joint-2026-09.csv" 和 "期望结果：导入 cba/female-2026-09.csv"
 // 每个文件单独处理（R12 第 2 步、第 5 步里"新交易"的部分），不含 R6.2 配对、R6.3 建议
@@ -556,5 +556,47 @@ describe('processRows', () => {
 
   it('R1C: a statement with no transactions gives no rows', () => {
     expect(processRows([], joint, h)).toEqual([]);
+  });
+});
+
+// fixtures/cases/18-boq-westpac-statement.md 的两个 BOQ 账户。server 传的是同一个数组，accounts 和 named 都用它
+describe('processRows 按账户名认（R6.1，M9.5-9）', () => {
+  const boq = (name: string, numberSuffix: string, statementName: string) => ({
+    id: `acc:${name}`,
+    name,
+    bank: 'boq' as const,
+    type: 'everyday' as const,
+    defaultMemberId: h.member('Male').id,
+    numberSuffix,
+    statementName,
+    isArchived: false,
+  });
+  const everyday = boq('BOQ Everyday Male', '0007', 'Everyday Account');
+  const saver = boq('BOQ Future Saver Male', '0008', 'Future Saver');
+  const accounts: Account[] = [...h.accounts, everyday, saver];
+  const named = [...h.accounts.map((a) => ({ ...a, statementName: null, isArchived: false })), everyday, saver];
+
+  const parsed = parseBankStatement('boq', readBoqStatementFixture('everyday-2026-11.txt'), '0007');
+  if (!parsed.ok) throw new Error(parsed.message);
+
+  it('R6.1 TD1: the 7 "To: Future Saver" rows are auto, Internal transfer, counterpart Future Saver', () => {
+    const got = processRows(parsed.rows, everyday, { ...h, accounts, named });
+    const transfers = got.filter((r) => r.rawDescription.startsWith('To: Future Saver'));
+    expect(transfers).toHaveLength(7);
+    for (const r of transfers) {
+      expect(r).toMatchObject({
+        transferStatus: 'auto',
+        transferAccountId: saver.id,
+        categoryId: h.systemCategory('internal_transfer').id,
+        categorySource: 'system',
+      });
+    }
+    // From: TEST FRIEND、From: ACME PTY LTD、TEST CAFE 不是转账
+    expect(got.filter((r) => r.transferStatus === 'none')).toHaveLength(3);
+  });
+
+  it('R6.1: without named only the account number is used → no transfer', () => {
+    const got = processRows(parsed.rows, everyday, { ...h, accounts });
+    expect(got.every((r) => r.transferStatus === 'none')).toBe(true);
   });
 });

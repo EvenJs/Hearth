@@ -316,13 +316,20 @@ export function resolveSuggestion(
 
 // R6.2：以前导入的 auto 转账，表里没存对方账户，完整账号也已经脱敏了
 // 和 R12.1 一样从脱敏后的描述重跑 R6.1：****1234 当成 4 位尾号。尾号对上多个家庭账户时认不出 → null
+// 没取到尾号时按账户名认（named），对上多个也是 null（对方未知）
 export function storedTransferAccountId(
   maskedDescription: string,
   account: Account,
   allAccounts: readonly Account[],
+  named: readonly StatementNameAccount[] = [],
 ): string | null {
   const transferAccount = extractMaskedTransferSuffix(maskedDescription);
-  return detectTransfer({ transferAccount }, account, allAccounts).transferAccountId;
+  return detectTransfer(
+    { transferAccount, description: maskedDescription },
+    account,
+    allAccounts,
+    named,
+  ).transferAccountId;
 }
 
 // 家庭里还没配对的 confirmed 交易 + 主拆分上 R5.1 要用的字段

@@ -7,6 +7,7 @@ import {
   planTransfers,
   storedTransferAccountId,
   type HouseholdTransferTx,
+  type StatementNameAccount,
   type TransferPlan,
 } from '@/lib/rules/transfer';
 import type { CategorySource, MemberSource } from '@/lib/rules/types';
@@ -25,6 +26,8 @@ export type PairOptions = {
   newIds: ReadonlySet<string>;
   // 本次导入的交易用内存里 R6.1 的结果（完整账号还在）；不在这里的 auto 转账从脱敏后的描述重认
   knownTransferAccount?: ReadonlyMap<string, string | null>;
+  // R6.1 按账户名认：重认以前导入的 auto 转账时用。不传就只按账号认
+  named?: readonly StatementNameAccount[];
 };
 
 // R6.2 整个家庭配对，然后 R6.3 建议，结果写回数据库。返回算出的计划（导入结果页要用）
@@ -32,7 +35,7 @@ export async function pairHouseholdTransfers(
   tx: DbTx,
   ctx: HouseholdContext,
   memberCtx: MemberContext,
-  { newIds, knownTransferAccount = new Map() }: PairOptions,
+  { newIds, knownTransferAccount = new Map(), named = [] }: PairOptions,
 ): Promise<TransferPlan> {
   const hh = ctx.householdId;
   const accountById = new Map(memberCtx.accounts.map((a) => [a.id, a]));
@@ -76,6 +79,7 @@ export async function pairHouseholdTransfers(
             t.rawDescription,
             accountById.get(t.accountId)!,
             memberCtx.accounts,
+            named,
           )
         : null,
     transferPairId: null,

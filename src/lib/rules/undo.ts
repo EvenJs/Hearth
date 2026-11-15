@@ -3,7 +3,7 @@
 import { bySystemKey } from './classify';
 import { extractMaskedTransferSuffix } from './extract';
 import { recomputeMember } from './member';
-import { detectTransfer } from './transfer';
+import { detectTransfer, type StatementNameAccount } from './transfer';
 import type {
   Account,
   Card,
@@ -85,6 +85,7 @@ export type UndoInput = {
   accounts: readonly Account[];
   categories: readonly Category[];
   cards: readonly Card[];
+  named?: readonly StatementNameAccount[]; // R6.1 按账户名认，不传就只按账号认
 };
 
 // R12.1 弹窗：category_source 或 member_source 是 manual、有多个拆分、有备注（交易或拆分上）、挂了小票
@@ -99,24 +100,36 @@ function manuallyEdited(tx: UndoBatchTx): boolean {
   );
 }
 
-// R12.1：用数据库里脱敏后的描述重跑 R6.1，****1234 当成 4 位尾号
-function stillDetected(c: UndoCounterpart, accounts: readonly Account[]): boolean {
+// R12.1：用数据库里脱敏后的描述重跑 R6.1，****1234 当成 4 位尾号；没有尾号时按账户名认
+// 按账户名对上多个也算认出（auto、对方未知）
+function stillDetected(
+  c: UndoCounterpart,
+  accounts: readonly Account[],
+  named: readonly StatementNameAccount[],
+): boolean {
   const account = accounts.find((a) => a.id === c.accountId);
   if (!account) throw new Error(`账户不存在: ${c.accountId}`);
   const transferAccount = extractMaskedTransferSuffix(c.rawDescription);
-  return detectTransfer({ transferAccount }, account, accounts).transferStatus === 'auto';
+  return (
+    detectTransfer({ transferAccount, description: c.rawDescription }, account, accounts, named)
+      .transferStatus === 'auto'
+  );
 }
 
-function counterpartCase(c: UndoCounterpart, accounts: readonly Account[]): CounterpartCase {
+function counterpartCase(
+  c: UndoCounterpart,
+  accounts: readonly Account[],
+  named: readonly StatementNameAccount[],
+): CounterpartCase {
   if (c.transferStatus === 'auto') {
-    return stillDetected(c, accounts) ? 'auto_still_detected' : 'auto_not_detected';
+    return stillDetected(c, accounts, named) ? 'auto_still_detected' : 'auto_not_detected';
   }
   return c.transferStatus;
 }
 
 // R12.1：先按这个计划处理另一半（清空配对），再删交易、恢复 pending
 export function planUndo(input: UndoInput): UndoPlan {
-  const { batchTxs, counterparts, accounts, categories, cards } = input;
+  const { batchTxs, counterparts, accounts, categories, cards, named = [] } = input;
   const inBatch = new Set(batchTxs.map((t) => t.id));
   const uncategorized = bySystemKey(categories, 'uncategorized');
 
@@ -126,7 +139,7 @@ export function planUndo(input: UndoInput): UndoPlan {
     const c = counterparts.find((x) => x.id === tx.transferPairId);
     if (!c) throw new Error(`配对的另一半不存在: ${tx.transferPairId}`);
 
-    const kase = counterpartCase(c, accounts);
+    const kase = counterpartCase(c, accounts, named);
     if (kase === 'none' || kase === 'auto_still_detected') {
       plans.push({ id: c.id, case: kase, action: 'unpair' });
       continue;

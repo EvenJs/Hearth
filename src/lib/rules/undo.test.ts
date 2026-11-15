@@ -3,6 +3,7 @@ import { processFile } from '@/lib/import/process';
 import { readFixture, type FixturePath } from '../../../tests/helpers/fixtures';
 import { buildTestHousehold } from '../../../tests/helpers/household';
 import type { Account, CategorySource, MemberSource, TransferStatus } from './types';
+import type { StatementNameAccount } from './transfer';
 import { planUndo, type UndoBatchTx, type UndoCounterpart } from './undo';
 
 // 期望值来自 business-rules.md R12.1 和 fixtures/README.md "撤销导入用例"
@@ -304,5 +305,76 @@ describe('planUndo（R12.1）', () => {
   it('R12.1: missing counterpart → throws', () => {
     const { meTxs } = afterMe();
     expect(() => planUndo({ batchTxs: meTxs, counterparts: [], ...config })).toThrow();
+  });
+});
+
+// R12.1 重跑 R6.1 也要能按账户名认（M9.5-9）：撤销 Everyday 的导入，Saver 那笔 From: Everyday Account 还是 auto
+describe('planUndo 按账户名认（R12.1、R6.1）', () => {
+  const boqAcct = (name: string, numberSuffix: string): Account => ({
+    id: `acc:${name}`,
+    name,
+    bank: 'boq',
+    type: 'everyday',
+    defaultMemberId: member('Male'),
+    numberSuffix,
+  });
+  const everyday = boqAcct('BOQ Everyday Male', '0007');
+  const saver = boqAcct('BOQ Future Saver Male', '0008');
+  const accounts = [...h.accounts, everyday, saver];
+  const named: StatementNameAccount[] = [
+    { id: everyday.id, bank: 'boq', statementName: 'Everyday Account', isArchived: false },
+    { id: saver.id, bank: 'boq', statementName: 'Future Saver', isArchived: false },
+  ];
+
+  const batchTx: UndoBatchTx = {
+    id: 'everyday#2',
+    transferPairId: 'saver#1',
+    wasPending: false,
+    splits: [{ categorySource: 'system', memberSource: 'account', note: null }],
+  };
+  const counterpart: UndoCounterpart = {
+    id: 'saver#1',
+    accountId: saver.id,
+    rawDescription: 'From: Everyday Account NOTPROVIDED',
+    cardLast4: null,
+    transferStatus: 'auto',
+    transferPairId: 'everyday#2',
+    primarySplit: {
+      categoryId: INTERNAL,
+      categorySource: 'system',
+      memberId: member('Male'),
+      memberSource: 'account',
+    },
+  };
+
+  it('R12.1: counterpart matched by statement name stays auto, only unpaired', () => {
+    expect(
+      planUndo({ ...config, accounts, named, batchTxs: [batchTx], counterparts: [counterpart] })
+        .counterparts,
+    ).toEqual([{ id: 'saver#1', case: 'auto_still_detected', action: 'unpair' }]);
+  });
+
+  it('R12.1: matching several accounts by name still counts as detected', () => {
+    const other = boqAcct('BOQ Test', '0011');
+    const everydayTwice: StatementNameAccount[] = [
+      ...named,
+      { id: other.id, bank: 'boq', statementName: 'Everyday Account', isArchived: false },
+    ];
+    expect(
+      planUndo({
+        ...config,
+        accounts: [...accounts, other],
+        named: everydayTwice,
+        batchTxs: [batchTx],
+        counterparts: [counterpart],
+      }).counterparts,
+    ).toEqual([{ id: 'saver#1', case: 'auto_still_detected', action: 'unpair' }]);
+  });
+
+  it('R12.1: without named → not detected, reset to Uncategorised', () => {
+    expect(
+      planUndo({ ...config, accounts, batchTxs: [batchTx], counterparts: [counterpart] })
+        .counterparts[0],
+    ).toMatchObject({ id: 'saver#1', case: 'auto_not_detected', action: 'reset' });
   });
 });
