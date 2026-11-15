@@ -185,6 +185,20 @@ describe('confirmPendingTransfer：R8.3 例外，银行那行是内部转账', (
     ).toEqual({ kind: 'multiple_splits', transferAccountId: h.account('CBA Female').id });
   });
 
+  it('R8.3: bank row auto with unknown counterpart (R6.1 statement name matched several) → still a transfer', () => {
+    const got = confirmPendingTransfer(
+      { ...row(11), transferAccountId: null },
+      { splitCount: 1, primaryMember: { memberId: female, memberSource: 'manual' } },
+      ctx,
+    );
+    expect(got).toMatchObject({
+      kind: 'transfer',
+      transferStatus: 'auto',
+      transferAccountId: null,
+      primarySplit: { categoryId: INTERNAL.id, categorySource: 'system' },
+    });
+  });
+
   it('R8.3: bank row that is not an internal transfer (P1 → #8, #18 external account) → keep the pending as is', () => {
     const pending = {
       splitCount: 1,

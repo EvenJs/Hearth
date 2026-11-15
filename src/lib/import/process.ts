@@ -8,7 +8,7 @@ import { assignOccurrences, dedupeKey } from '@/lib/rules/dedupe';
 import { extractAndMask } from '@/lib/rules/extract';
 import { resolveMember } from '@/lib/rules/member';
 import { cleanMerchant } from '@/lib/rules/merchant';
-import { detectTransfer } from '@/lib/rules/transfer';
+import { detectTransfer, type StatementNameAccount } from '@/lib/rules/transfer';
 import type {
   Account,
   Card,
@@ -22,6 +22,8 @@ import { parseBankCsv } from './index';
 // 处理需要的家庭配置
 export type HouseholdConfig = {
   accounts: readonly Account[];
+  // R6.1 按账户名认：本家庭账户的 bank、statement_name、是否归档。不传就只按账号认
+  named?: readonly StatementNameAccount[];
   cards: readonly Card[];
   categories: readonly Category[];
   rules: readonly CategoryRule[];
@@ -62,7 +64,7 @@ export function processRows(
     const merchant = cleanMerchant(row.description); // R3
 
     // R6.1 → R7 → R5
-    const transfer = detectTransfer(row, account, household.accounts);
+    const transfer = detectTransfer(row, account, household.accounts, household.named);
     const category = classify(
       { merchant, isInternalTransfer: transfer.transferStatus === 'auto' },
       household.rules,

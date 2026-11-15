@@ -1,9 +1,9 @@
 // M3-7 导入页的表单校验。前端表单和 Server Action 共用
 // 纯函数，不 import 数据库和 Next.js
 import { z } from 'zod';
-import type { Bank } from '@/lib/accounts/account-input';
+import { BANK_LABELS, type Bank } from '@/lib/accounts/account-input';
 import { parseBalanceToCents } from '@/lib/rules/money';
-import { canImportStatement } from './banks';
+import { canImportCsv, canImportStatement } from './banks';
 
 // 半年流水远远够
 export const MAX_CSV_BYTES = 1024 * 1024;
@@ -73,21 +73,19 @@ export function checkPdfFile(file: { name: string; size: number }): string | nul
 
 export type ImportFileKind = 'csv' | 'pdf';
 
-// R1D：ANZ Plus 不能导出 CSV
-export const ANZ_PLUS_PDF_ONLY = 'ANZ Plus 只能导 PDF 对账单';
-
-// 导入页的文件检查（M6.6-6）：ANZ 收 .csv 和 .pdf 对账单（R1C），CBA 也是（R1B、R1E，M8.5-5），ANZ Plus 只收 .pdf（R1D）
+// 导入页的文件检查（M6.6-6）：ANZ 收 .csv 和 .pdf 对账单（R1C），CBA 也是（R1B、R1E，M8.5-5），
+// ANZ Plus、BOQ、Westpac 只收 .pdf（R1D、R1F、R1G，不能导出 CSV）
 // 按扩展名分，大小按各自的上限。kind = null 表示这种文件不能导入
 export function checkImportFile(
   file: { name: string; size: number },
   bank: Bank,
 ): { kind: ImportFileKind | null; error: string | null } {
-  if (bank === 'anz_plus') {
+  const takesPdf = canImportStatement(bank);
+  if (takesPdf && !canImportCsv(bank)) {
     return /.\.pdf$/i.test(file.name)
       ? { kind: 'pdf', error: checkPdfFile(file) }
-      : { kind: null, error: ANZ_PLUS_PDF_ONLY };
+      : { kind: null, error: `${BANK_LABELS[bank]} 只能导 PDF 对账单` };
   }
-  const takesPdf = canImportStatement(bank);
   if (takesPdf && /.\.pdf$/i.test(file.name)) {
     return { kind: 'pdf', error: checkPdfFile(file) };
   }

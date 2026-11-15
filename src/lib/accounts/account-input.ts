@@ -3,7 +3,7 @@
 import { z } from 'zod';
 import { ACCOUNT_PURPOSES } from '@/lib/rules/balance';
 
-export const BANKS = ['anz', 'anz_plus', 'cba', 'cash', 'other'] as const;
+export const BANKS = ['anz', 'anz_plus', 'cba', 'boq', 'westpac', 'ing', 'cash', 'other'] as const;
 export const ACCOUNT_TYPES = ['everyday', 'savings', 'credit_card', 'joint', 'cash'] as const;
 
 export type Bank = (typeof BANKS)[number];
@@ -13,6 +13,9 @@ export const BANK_LABELS: Record<Bank, string> = {
   anz: 'ANZ',
   anz_plus: 'ANZ Plus',
   cba: 'CBA',
+  boq: 'BOQ',
+  westpac: 'Westpac',
+  ing: 'ING',
   cash: '现金',
   other: '其他',
 };
@@ -26,12 +29,19 @@ export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
   cash: '现金',
 };
 
-// 尾号：空 = 不填；否则 4 到 6 位 ASCII 数字（schema.md financial_account.number_suffix）
+// 尾号：空 = 不填；否则 ASCII 数字，位数按银行在 superRefine 里查（schema.md financial_account.number_suffix）
 const numberSuffix = z
   .string()
   .trim()
-  .refine((v) => v === '' || /^[0-9]{4,6}$/.test(v), '尾号是 4 到 6 位数字')
   .transform((v) => (v === '' ? null : v));
+
+// R6.1 对账单上的账户名。空 = 不填
+const statementName = z
+  .string()
+  .trim()
+  .max(50, '账户名最多 50 个字')
+  .transform((v) => (v === '' ? null : v))
+  .nullable();
 
 export const accountInputSchema = z
   .object({
@@ -40,6 +50,8 @@ export const accountInputSchema = z
     type: z.enum(ACCOUNT_TYPES, '请选择类型'),
     defaultMemberId: z.uuid('请选择默认归属人'),
     numberSuffix,
+    // R6.1。不传 = 新建不填、编辑不改；null = 不填
+    statementName: statementName.optional(),
     // R23.4。不传 = 新建用默认 everyday、编辑不改
     purpose: z.enum(ACCOUNT_PURPOSES, '请选择用途').optional(),
     // R23.4。不传 = 新建不关联、编辑不改；null = 不关联
@@ -48,8 +60,20 @@ export const accountInputSchema = z
     openingBalanceCents: z.number().int('金额不对').min(-2147483648).max(2147483647).optional(),
   })
   .superRefine((v, ctx) => {
-    if (v.type === 'cash' && v.numberSuffix !== null) {
+    if (v.numberSuffix === null) return;
+    if (v.type === 'cash') {
       ctx.addIssue({ code: 'custom', path: ['numberSuffix'], message: '现金账户不填尾号' });
+    } else if (v.bank === 'westpac') {
+      // R1G：Westpac 账号只有 6 位，填 3 位，撞了加 1 位，最多 5 位
+      if (!/^[0-9]{3,5}$/.test(v.numberSuffix)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['numberSuffix'],
+          message: 'Westpac 尾号是 3 到 5 位数字（账号只有 6 位，不能填满）',
+        });
+      }
+    } else if (!/^[0-9]{4,6}$/.test(v.numberSuffix)) {
+      ctx.addIssue({ code: 'custom', path: ['numberSuffix'], message: '尾号是 4 到 6 位数字' });
     }
   });
 

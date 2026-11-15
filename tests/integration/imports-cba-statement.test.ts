@@ -315,7 +315,7 @@ describeDb('M8.5-5 CBA importStatement', () => {
     expect((await batchRow(plus.batchId)).accountId).toBe(t.h.account('ANZ Plus Male').id);
   });
 
-  it('R1E: a statement that looks like none of the three → fails, nothing written', async () => {
+  it('R1F: a statement that looks like none of the five → fails, nothing written', async () => {
     const result = await importStatementLines(t.ctx, {
       fileName: 'hello.txt',
       lines: [{ page: 1, text: 'Hello' }],
@@ -323,7 +323,7 @@ describeDb('M8.5-5 CBA importStatement', () => {
     expect(result).toMatchObject({
       ok: false,
       reason: 'parse',
-      message: '认不出这份对账单，只支持 ANZ、ANZ Plus、CBA 的 PDF 对账单',
+      message: '认不出这份对账单，只支持 ANZ、ANZ Plus、CBA、BOQ、Westpac 的 PDF 对账单',
     });
     expect(await countRows()).toEqual({ batches: 0, txs: 0 });
   });
@@ -347,7 +347,7 @@ describeDb('M8.5-5 CBA importStatement', () => {
     expect(result).toMatchObject({
       ok: false,
       reason: 'not_importable',
-      message: '只有 ANZ、ANZ Plus 和 CBA 账户能导入 PDF 对账单',
+      message: '只有 ANZ、ANZ Plus、CBA、BOQ 和 Westpac 账户能导入 PDF 对账单',
     });
     expect(await countRows()).toEqual({ batches: 0, txs: 0 });
   });

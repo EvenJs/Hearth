@@ -124,7 +124,17 @@ export const accountRelations = relations(account, ({ one }) => ({
 // ---------- 1. 枚举 ----------
 
 export const memberKind = pgEnum('member_kind', ['person', 'shared', 'child']);
-export const bank = pgEnum('bank', ['anz', 'anz_plus', 'cba', 'cash', 'other']);
+// boq、westpac、ing M9.5-7 加（ing 的解析器 M9.6 做）
+export const bank = pgEnum('bank', [
+  'anz',
+  'anz_plus',
+  'cba',
+  'boq',
+  'westpac',
+  'ing',
+  'cash',
+  'other',
+]);
 export const accountType = pgEnum('account_type', [
   'everyday',
   'savings',
@@ -218,6 +228,8 @@ export const financialAccount = pgTable(
       .references(() => member.id),
     // 账号尾号 4-6 位，不存完整账号和 BSB
     numberSuffix: varchar('number_suffix', { length: 6 }),
+    // R6.1 对账单上的账户名，同一家银行内部转账按它认。M9.5-7 加
+    statementName: text('statement_name'),
     purpose: accountPurpose('purpose').default('everyday').notNull(), // R23.4
     // R23.4 最多关联一个。同家庭、没归档、不是现金在 validateLink 里查
     linkedAccountId: uuid('linked_account_id').references((): AnyPgColumn => financialAccount.id),
@@ -226,7 +238,11 @@ export const financialAccount = pgTable(
   },
   (t) => [
     unique('financial_account_household_id_name_unique').on(t.householdId, t.name),
-    check('financial_account_number_suffix_check', sql`${t.numberSuffix} ~ '^[0-9]{4,6}$'`),
+    // R1G：Westpac 账号只有 6 位，尾号 3 到 5 位；别的银行 4 到 6 位。bank::text 免得在加枚举值的同一个事务里用新值
+    check(
+      'financial_account_number_suffix_check',
+      sql`case when ${t.bank}::text = 'westpac' then ${t.numberSuffix} ~ '^[0-9]{3,5}$' else ${t.numberSuffix} ~ '^[0-9]{4,6}$' end`,
+    ),
     check('financial_account_linked_account_id_check', sql`${t.linkedAccountId} <> ${t.id}`),
   ],
 );

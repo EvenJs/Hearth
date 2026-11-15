@@ -260,6 +260,7 @@ export async function getConditionProgress(
       type: financialAccount.type,
       defaultMemberId: financialAccount.defaultMemberId,
       numberSuffix: financialAccount.numberSuffix,
+      statementName: financialAccount.statementName, // R6.1 按账户名认
       linkedAccountId: financialAccount.linkedAccountId,
       isArchived: financialAccount.isArchived,
     })
@@ -339,6 +340,7 @@ export async function getConditionProgress(
         maskedDescription: rawDescription,
       },
       ruleAccounts,
+      accounts,
     );
     txsByAccount.get(t.accountId)?.push({ ...rest, counterpartyAccountId });
   }

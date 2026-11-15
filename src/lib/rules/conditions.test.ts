@@ -309,6 +309,29 @@ describe('resolveCounterparty（R24.3）', () => {
     ).toBeNull();
   });
 
+  it('R24.3: unpaired auto transfer matched by statement name (R6.1) → that account; several → unknown', () => {
+    const everyday = bankAccount('acc:everyday', 'BOQ Everyday Male', 'boq', '0007');
+    const saver = bankAccount('acc:saver', 'BOQ Future Saver Male', 'boq', '0008');
+    const accounts = [...BANK_ACCOUNTS, everyday, saver];
+    const named = [
+      { id: everyday.id, bank: 'boq', statementName: 'Everyday Account', isArchived: false },
+      { id: saver.id, bank: 'boq', statementName: 'Future Saver', isArchived: false },
+    ];
+    const tx = {
+      accountId: everyday.id,
+      pairAccountId: null,
+      transferStatus: 'auto' as const,
+      maskedDescription: 'To: Future Saver NOTPROVIDED',
+    };
+    expect(resolveCounterparty(tx, accounts, named)).toBe(saver.id);
+    expect(
+      resolveCounterparty(tx, accounts, [
+        ...named,
+        { id: 'acc:test', bank: 'boq', statementName: 'Future Saver', isArchived: false },
+      ]),
+    ).toBeNull();
+  });
+
   it('R24.3: none and suggested → unknown even if the description has a suffix', () => {
     const desc = 'ANZ M-BANKING FUNDS TFER TRANSFER 100000  FROM  ****0004';
     expect(resolveCounterparty({ ...base, transferStatus: 'none', maskedDescription: desc }, BANK_ACCOUNTS)).toBeNull();

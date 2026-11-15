@@ -19,7 +19,7 @@
 | 图表       | Recharts（通过 shadcn/ui charts）                           |                                                     |
 | 表单和校验 | Zod + react-hook-form                                       | Zod schema 前后端共用                               |
 | CSV 解析   | Papa Parse                                                  |                                                     |
-| PDF 读文字 | `unpdf`（包装 Mozilla PDF.js，serverless 能用）             | ANZ 对账单（R1C，M6.6 加）、ANZ Plus 对账单（R1D，M7.5）、CBA 对账单（R1E，M8.5）。要求 Node ≥ 22；装时定死版本 |
+| PDF 读文字 | `unpdf`（包装 Mozilla PDF.js，serverless 能用）             | ANZ 对账单（R1C，M6.6 加）、ANZ Plus 对账单（R1D，M7.5）、CBA 对账单（R1E，M8.5）、BOQ 对账单（R1F，M9.5）、Westpac 对账单（R1G，M9.5）。要求 Node ≥ 22；装时定死版本 |
 | 测试       | Vitest                                                      | 核心逻辑单元测试                                    |
 | 发邮件     | `nodemailer` + Gmail SMTP                                   | 邮箱验证、忘记密码（F15，M12 加），见第 4 节        |
 | 代码规范   | ESLint + Prettier                                           |                                                     |

@@ -47,6 +47,21 @@ describe('accountInputSchema', () => {
     }
   });
 
+  it('accepts the 4 accounts added in fixtures 18 (BOQ, Westpac)', () => {
+    const fixtures = [
+      { name: 'BOQ Everyday Male', bank: 'boq', type: 'everyday', numberSuffix: '0007', statementName: 'Everyday Account' },
+      { name: 'BOQ Future Saver Male', bank: 'boq', type: 'savings', numberSuffix: '0008', statementName: 'Future Saver' },
+      { name: 'Westpac Choice Male', bank: 'westpac', type: 'everyday', numberSuffix: '005', statementName: 'Westpac Choice' },
+      { name: 'Westpac Life Male', bank: 'westpac', type: 'savings', numberSuffix: '006', statementName: 'Westpac Life' },
+    ];
+    for (const f of fixtures) {
+      expect(accountInputSchema.parse({ ...f, defaultMemberId: MEMBER_ID })).toEqual({
+        ...f,
+        defaultMemberId: MEMBER_ID,
+      });
+    }
+  });
+
   it('trims the name and requires it', () => {
     expect(accountInputSchema.parse({ ...valid, name: '  ANZ Joint  ' }).name).toBe('ANZ Joint');
     expect(errorsOf({ ...valid, name: '' })).toEqual([{ path: 'name', message: '名称必填' }]);
@@ -77,6 +92,31 @@ describe('accountInputSchema', () => {
     },
   );
 
+  it('R1G: westpac suffix accepts 3 to 5 digits', () => {
+    const westpac = { ...valid, name: 'Westpac Choice', bank: 'westpac', type: 'everyday' };
+    for (const numberSuffix of ['005', '0005', '20005']) {
+      expect(accountInputSchema.parse({ ...westpac, numberSuffix }).numberSuffix).toBe(numberSuffix);
+    }
+  });
+
+  // R1G：Westpac 账号只有 6 位，填 6 位就是完整账号
+  it.each(['12', '120005', '1234567', '12a'])('R1G: westpac suffix %j is rejected', (numberSuffix) => {
+    const westpac = { ...valid, name: 'Westpac Choice', bank: 'westpac', type: 'everyday' };
+    expect(errorsOf({ ...westpac, numberSuffix })).toEqual([
+      { path: 'numberSuffix', message: 'Westpac 尾号是 3 到 5 位数字（账号只有 6 位，不能填满）' },
+    ]);
+  });
+
+  it('R6.1: statement name is trimmed, empty becomes null, not passed stays undefined', () => {
+    expect(accountInputSchema.parse(valid).statementName).toBeUndefined();
+    expect(accountInputSchema.parse({ ...valid, statementName: '  Westpac Life ' }).statementName).toBe(
+      'Westpac Life',
+    );
+    expect(accountInputSchema.parse({ ...valid, statementName: '   ' }).statementName).toBeNull();
+    expect(accountInputSchema.parse({ ...valid, statementName: null }).statementName).toBeNull();
+    expect(errorsOf({ ...valid, statementName: 'x'.repeat(51) })?.[0].path).toBe('statementName');
+  });
+
   it('cash account (type = cash) cannot have a suffix', () => {
     const cash = { ...valid, name: '现金（我）', bank: 'cash', type: 'cash' };
     expect(errorsOf({ ...cash, numberSuffix: '1234' })).toEqual([
@@ -86,7 +126,7 @@ describe('accountInputSchema', () => {
   });
 
   it('rejects unknown bank, type and non-uuid member', () => {
-    expect(errorsOf({ ...valid, bank: 'westpac' })?.[0].path).toBe('bank');
+    expect(errorsOf({ ...valid, bank: 'nab' })?.[0].path).toBe('bank');
     expect(errorsOf({ ...valid, type: 'loan' })?.[0].path).toBe('type');
     expect(errorsOf({ ...valid, defaultMemberId: 'Male' })?.[0].path).toBe('defaultMemberId');
   });

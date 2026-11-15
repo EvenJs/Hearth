@@ -4,7 +4,7 @@ import { balanceAt, type BalanceAnchor } from './balance';
 import { formatAud } from './money';
 import { MAX_DAYS_LATER } from './pending';
 import { addDays, endOfMonth, lastTwelveMonths, startOfMonth } from './periods';
-import { storedTransferAccountId } from './transfer';
+import { storedTransferAccountId, type StatementNameAccount } from './transfer';
 import type { Account, TransferStatus } from './types';
 
 // ---------- 条件（R24.1） ----------
@@ -122,12 +122,17 @@ export type CounterpartyInput = {
 };
 
 // R24.3：1. 有配对 → 配对那笔的账户；2. auto / confirmed → 从脱敏描述重跑 R6.1；3. 别的 → 未知（null）
-export function resolveCounterparty(tx: CounterpartyInput, accounts: readonly Account[]): string | null {
+// named 给 R6.1 按账户名认用；按账户名对上多个 → 未知
+export function resolveCounterparty(
+  tx: CounterpartyInput,
+  accounts: readonly Account[],
+  named: readonly StatementNameAccount[] = [],
+): string | null {
   if (tx.pairAccountId !== null) return tx.pairAccountId;
   if (tx.transferStatus !== 'auto' && tx.transferStatus !== 'confirmed') return null;
   const account = accounts.find((a) => a.id === tx.accountId);
   if (!account) return null;
-  return storedTransferAccountId(tx.maskedDescription, account, accounts);
+  return storedTransferAccountId(tx.maskedDescription, account, accounts, named);
 }
 
 // ---------- 存入、取款、刷卡（R24.2） ----------
