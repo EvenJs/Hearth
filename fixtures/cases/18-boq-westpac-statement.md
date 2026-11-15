@@ -1,16 +1,16 @@
 # BOQ、Westpac 对账单用例（R1F、R1G，M9.5）
 
 > 测试数据的一部分。格式、家庭配置（账户、卡、成员）、文件清单见 [`fixtures/README.md`](../README.md)，写测试前先看那里。
-> 前提：看各用例自己的前提。Westpac 部分 M9.5-1 写，BOQ 部分 M9.5-3 写，同行内部转账（R6.1）M9.5-5 补。
+> 前提：看各用例自己的前提。Westpac 部分 M9.5-1 写，BOQ 部分 M9.5-3 写，同行内部转账（R6.1）M9.5-5 写，在最后一节。
 
-**这一组另加的账户**（导入用例要先建好，解析用例只用尾号）。`bank = boq`、`westpac` 是 M9.5-7 加的值：
+**这一组另加的账户**（导入用例要先建好，解析用例只用尾号）。`bank = boq`、`westpac` 和 `statement_name` 列是 M9.5-7 加的；`statement_name` 照对账单上印的产品名填（BOQ 是 `Account name` 那行，Westpac 是左上角）：
 
-| 账户 | bank | type | 默认归属人 | number_suffix |
-| --- | --- | --- | --- | --- |
-| BOQ Everyday Male | boq | everyday | Male | `0007` |
-| BOQ Future Saver Male | boq | savings | Male | `0008` |
-| Westpac Choice Male | westpac | everyday | Male | `0005` |
-| Westpac Life Male | westpac | savings | Male | `0006` |
+| 账户 | bank | type | 默认归属人 | number_suffix | statement_name |
+| --- | --- | --- | --- | --- | --- |
+| BOQ Everyday Male | boq | everyday | Male | `0007` | `Everyday Account` |
+| BOQ Future Saver Male | boq | savings | Male | `0008` | `Future Saver` |
+| Westpac Choice Male | westpac | everyday | Male | `0005` | `Westpac Choice` |
+| Westpac Life Male | westpac | savings | Male | `0006` | `Westpac Life` |
 
 ## Westpac（R1G，M9.5-1）
 
@@ -172,7 +172,7 @@ Westpac Banking Corporation ABN 00 000 000 000 AFSL and Australian credit licenc
 
 ### 导入用例（连数据库，M9.5-9）
 
-前提：建好上面两个 Westpac 账户。`Tfr Westpac Lif` / `Tfr Westpac Cho` 那几笔认不认成内部转账，等 M9.5-5（R6.1）定了再补，这里只看解析、去重、对账。
+前提：建好上面两个 Westpac 账户。这里只看解析、去重、对账；`Tfr Westpac Lif` / `Tfr Westpac Cho` 认成内部转账的见最后一节 TD。
 
 | 用例 | 前置 | 操作 | 期望 |
 | --- | --- | --- | --- |
@@ -406,7 +406,7 @@ Page 4 of 4
 
 ### 导入用例（连数据库，M9.5-9）
 
-前提：建好上面两个 BOQ 账户。`To: Future Saver` / `From: Everyday Account` 那几笔认不认成内部转账，等 M9.5-5（R6.1）定了再补，这里只看解析、去重、对账。
+前提：建好上面两个 BOQ 账户。这里只看解析、去重、对账；`To: Future Saver` / `From: Everyday Account` 认成内部转账的见最后一节 TD。
 
 | 用例 | 前置 | 操作 | 期望 |
 | --- | --- | --- | --- |
@@ -419,3 +419,44 @@ Page 4 of 4
 | QD7 | 空数据库 | 不选账户，导入 `wrong-account.txt` | 整份失败"找不到尾号是 0002 的 BOQ 账户"（`ANZ Male` 尾号是 `0002` 也不算）；什么都没写 |
 | QD8 | 再建一个 `boq` 账户，尾号 `00007` | 不选账户，导入 `everyday-2026-11.txt` | 整份失败"有 2 个 BOQ 账户的尾号都对得上"；什么都没写 |
 | QD9 | 空数据库 | 不选账户，导入 `anz-statement/joint-2026-09.txt`、`anz-plus-statement/growth-2026-09.txt`、`cba-statement/female-2026-09.txt`、`westpac-statement/choice-2026-11.txt` | 照旧分别认出 `ANZ Joint`、`ANZ Plus Male`、`CBA Female`、`Westpac Choice Male`（五选一以后不受影响） |
+
+## 同行内部转账（R6.1 按账户名认，M9.5-5）
+
+### 识别用例（纯函数，M9.5-6）
+
+输入：当前账户、一笔描述（解析器输出的样子）、本家庭账户（`bank`、`statement_name`、`number_suffix`、`is_archived`）。没特别说的，本家庭账户就是 fixtures 家庭加上面 4 个，`statement_name` 照上表；"改成"是测试里现改。期望里的"不认"是 R6.1 不出对方账户（走 R7）。
+
+| 用例 | 当前账户 | 描述 | 账户改动 | 期望 |
+| --- | --- | --- | --- | --- |
+| T1 | Westpac Choice Male | `Withdrawal Mobile 1000002 Tfr Westpac Lif` | | auto，对方 `Westpac Life Male`（截断） |
+| T2 | Westpac Life Male | `Deposit Online 2000001 Tfr Westpac Cho` | | auto，对方 `Westpac Choice Male`（截断） |
+| T3 | BOQ Everyday Male | `To: Future Saver NOTPROVIDED` | | auto，对方 `BOQ Future Saver Male`（后面带了 `NOTPROVIDED`） |
+| T4 | BOQ Future Saver Male | `From: Everyday Account NOTPROVIDED` | | auto，对方 `BOQ Everyday Male`（拆成两行拼回来的名字） |
+| T5 | Westpac Choice Male | `Withdrawal Mobile 1000002 Tfr Westpac Life` | | auto，对方 `Westpac Life Male`（没截断，一字不差也算） |
+| T6 | BOQ Everyday Male | `To: Future Saver Holiday NOTPROVIDED` | | auto，对方 `BOQ Future Saver Male`（名字后面是备注） |
+| T7 | Westpac Choice Male | `Withdrawal Mobile 1000002 Tfr Westpac Lif` | Westpac Life Male 的 `statement_name` 改成 `westpac  LIFE` | auto（不分大小写，空白压成一个） |
+| T8 | Westpac Choice Male | `Withdrawal Mobile 1000002 Tfr Westpac Lif` | 加一个 westpac 账户 `statement_name = Westpac Life Bonus`，尾号 `0009` | 不认（对上 2 个） |
+| T9 | BOQ Everyday Male | `To: Future Saver NOTPROVIDED` | 加一个 boq 账户 `statement_name = Future`，尾号 `0010` | 不认（`Future`、`Future Saver` 都对上） |
+| T10 | BOQ Everyday Male | `To: Future Saver NOTPROVIDED` | BOQ Future Saver Male 的 `bank` 改成 `westpac` | 不认（同名的在别家银行） |
+| T11 | BOQ Everyday Male | `To: Everyday Account NOTPROVIDED` | | 不认（对上的是自己） |
+| T12 | BOQ Everyday Male | `To: Future Saver NOTPROVIDED` | BOQ Future Saver Male 的 `statement_name` 改成空 | 不认 |
+| T13 | BOQ Everyday Male | `To: Future Saver NOTPROVIDED` | BOQ Future Saver Male 归档 | 不认 |
+| T14 | BOQ Everyday Male | `To: Future Savers NOTPROVIDED` | | 不认（`Future Saver` 后面紧跟的不是空格） |
+| T15 | BOQ Future Saver Male | `From: TEST FRIEND NA` | | 不认（外行转入，靠 R6.3） |
+| T16 | Westpac Choice Male | `Deposit-Osko Payment 1000001 TEST FRIEND 31 Oct 2026` | | 不认（不是表里的开头） |
+| T17 | ANZ Male | `To: Future Saver NOTPROVIDED` | | 不认（`anz` 不在按名字认的表里） |
+| T18 | BOQ Everyday Male | `To: Future Saver TRANSFER FROM 400009999` | | 不认：R2.2 取到了 `400009999`，只按账号认，对不上就走 R7，不再按名字试（描述是编的） |
+| T19 | ANZ Male | `TRANSFER TO 012345-400000004 #123456` | | auto，对方 `ANZ Plus Male`（原来按账号认的不受影响） |
+
+### 导入用例（连数据库，M9.5-9）
+
+前提：建好上面 4 个账户，`statement_name` 照上表。"不计收支"指 auto 转账不进 R10 的收入、支出。
+
+| 用例 | 前置 | 操作 | 期望 |
+| --- | --- | --- | --- |
+| TD1 | 空数据库 | 导入 `everyday-2026-11.txt`，再导入 `saver-2026-11.txt` | Everyday 的 7 笔 `To: Future Saver` 和 Saver 的 7 笔 `From: Everyday Account` **都是** `transfer_status = auto`、内部转账、`category_source = system`，不计收支。R6.2：`11-03` 的 400、600 两对各配上；`11-06` 的 5 笔 100 每笔都有 5 个候选，**都不配对**（`transfer_pair_id` 为空），但还是 auto。`From: TEST FRIEND`、`From: ACME PTY LTD` 不是转账 |
+| TD2 | 空数据库 | 先导入 `saver-2026-11.txt`，再导入 `everyday-2026-11.txt` | 和 TD1 一样（两边各自认，和先后无关） |
+| TD3 | 空数据库 | 导入 `choice-2026-11.txt`，再导入 `life-2026-11.txt` | Choice 的 3 笔 `Tfr Westpac Lif`、Life 的 3 笔 `Tfr Westpac Cho` 都是 auto，不计收支。R6.2：`11-15` 的 1186.45 配上；`11-03` 的两笔 300 各有 2 个候选，都不配对。两笔 Osko 收款不是转账 |
+| TD4 | 空数据库，BOQ Future Saver Male 的 `statement_name` 先空着 | 导入 `everyday-2026-11.txt`；然后编辑 BOQ Future Saver Male，填 `Future Saver` 保存 | 导入时 7 笔 `To: Future Saver` 不是转账（走 R7）。保存时 R6.4 弹窗 N = 7，确认后 7 笔都是 auto、内部转账，归属人 Male；Saver 还没有交易，都不配对 |
+| TD5 | TD4 | 导入 `saver-2026-11.txt` | 7 笔 `From: Everyday Account` 是 auto；R6.2 配上 400、600 两对，5 笔 100 不配对 |
+| TD6 | 空数据库，再建一个 boq 账户 `BOQ Test`，`statement_name = Future Saver`，尾号 `0011` | 导入 `everyday-2026-11.txt` | 7 笔 `To: Future Saver` 都不是转账（对上 2 个账户，走 R7） |

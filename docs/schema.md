@@ -118,6 +118,7 @@ M12（F15，R26）：`verification` 表存重置密码的链接（验证邮箱�
 | type              | account_type | not null                |                                                             |
 | default_member_id | uuid         | FK → member, not null   |                                                             |
 | number_suffix     | varchar(6)   | null                    | 账号尾号，4 到 6 位数字，用于识别内部转账；现金账户为空     |
+| statement_name    | text         | null                    | 对账单上的账户名（银行产品名，如 `Westpac Life`、`Everyday Account`），同一家银行内部转账按它认（R6.1）。只有 `boq`、`westpac` 用得上，空着就不参与。不要求唯一。M9.5-7 建 |
 | purpose           | account_purpose | not null, default `everyday` | 用途（R23.4）。M9-3 建 |
 | linked_account_id | uuid         | FK → financial_account, null | 关联账户，最多一个（R23.4）。不级联（账户只软删除）。M9-3 建 |
 | is_archived       | boolean      | not null, default false |                                                             |
