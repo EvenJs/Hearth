@@ -188,8 +188,8 @@ async function loadConditionTxs(
     .groupBy(transaction.id, pair.accountId);
 }
 
-// R24.6：每个账户最晚一笔 confirmed 交易的日期。不限 13 个月，所以单独查
-async function loadLatestConfirmed(
+// R24.6：每个账户最晚一笔 confirmed 交易的日期。不限 13 个月，所以单独查。税务卡（R14.6）也用
+export async function loadLatestConfirmed(
   ctx: HouseholdContext,
   accountIds: string[],
 ): Promise<Map<string, string>> {
@@ -260,6 +260,7 @@ export async function getConditionProgress(
       type: financialAccount.type,
       defaultMemberId: financialAccount.defaultMemberId,
       numberSuffix: financialAccount.numberSuffix,
+      statementName: financialAccount.statementName, // R6.1 按账户名认
       linkedAccountId: financialAccount.linkedAccountId,
       isArchived: financialAccount.isArchived,
     })
@@ -339,6 +340,7 @@ export async function getConditionProgress(
         maskedDescription: rawDescription,
       },
       ruleAccounts,
+      accounts,
     );
     txsByAccount.get(t.accountId)?.push({ ...rest, counterpartyAccountId });
   }

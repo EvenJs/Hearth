@@ -77,26 +77,34 @@ export function TaxCards({ tax, memberId, members }: Props) {
 
 // R14.6：已缴 = 已代扣 + 已预缴，合成一个数；补税是负数时写"预计退税"
 // 上面一行名字和补税金额，下面三列小字
+// 没有任何工资信息时大字"还没填工资"代替金额，按 0 算的补税放到下面的链接里
 function PersonCard({ person }: { person: PersonTax }) {
   const { estimate } = person;
   const refund = estimate.owingCents < 0;
+  const owing = `${refund ? '预计退税' : '预计补税'} ${formatAud(Math.abs(estimate.owingCents))}`;
   return (
     <div className="flex flex-col gap-3 rounded-lg border p-3">
       <div className="flex items-start justify-between gap-3">
         <span className="min-w-0 truncate pt-0.5 text-sm font-medium">{person.member.name}</span>
-        <div className="flex shrink-0 flex-col items-end">
-          <span
-            className={cn(
-              'text-xl font-semibold tabular-nums',
-              refund && 'text-green-700 dark:text-green-500',
-            )}
-          >
-            {formatAud(Math.abs(estimate.owingCents))}
+        {estimate.hasSalaryInfo ? (
+          <div className="flex shrink-0 flex-col items-end">
+            <span
+              className={cn(
+                'text-xl font-semibold tabular-nums',
+                refund && 'text-green-700 dark:text-green-500',
+              )}
+            >
+              {formatAud(Math.abs(estimate.owingCents))}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {refund ? '预计退税' : '预计年底补税'}
+            </span>
+          </div>
+        ) : (
+          <span className="shrink-0 text-xl font-semibold text-amber-700 dark:text-amber-400">
+            还没填工资
           </span>
-          <span className="text-xs text-muted-foreground">
-            {refund ? '预计退税' : '预计年底补税'}
-          </span>
-        </div>
+        )}
       </div>
       <dl className="grid grid-cols-3 gap-2 border-t pt-2 text-xs">
         {/* 工资 + 税前收入，和设置页的"应纳税收入"一样（R14.6，2026-10-30） */}
@@ -104,14 +112,22 @@ function PersonCard({ person }: { person: PersonTax }) {
         <Stat label="预计总税额" cents={estimate.totalCents} />
         <Stat label="已缴" cents={estimate.paygWithheldCents + estimate.prepaidCents} />
       </dl>
-      {!estimate.hasProfile && (
+      {!estimate.hasSalaryInfo && (
         <Link
           href="/settings/tax"
           className="flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-800 hover:underline dark:bg-amber-950 dark:text-amber-300"
         >
-          还没填工资，估算按 0 算，去设置页填
+          <span className="tabular-nums">按工资 0 算，{owing}</span>
           <ArrowRight className="size-3 shrink-0" />
         </Link>
+      )}
+      {/* R14.6、R14.10：没填预计全年利息、已到账 > 0 */}
+      {estimate.interestPartial && (
+        <p className="text-xs text-muted-foreground">
+          {person.interestAsOf === null
+            ? '利息只算到账的部分，全年会更多'
+            : `利息只算到 ${person.interestAsOf.slice(5)}，全年会更多`}
+        </p>
       )}
     </div>
   );

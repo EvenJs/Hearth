@@ -179,4 +179,24 @@ describe('checkImportFile', () => {
       });
     }
   });
+  it('R1F / R1G: BOQ and Westpac only take a PDF statement', () => {
+    for (const [bank, label] of [
+      ['boq', 'BOQ'],
+      ['westpac', 'Westpac'],
+    ] as const) {
+      expect(checkImportFile({ name: 'statement.pdf', size: 1234 }, bank)).toEqual({
+        kind: 'pdf',
+        error: null,
+      });
+      expect(checkImportFile({ name: 'a.pdf', size: MAX_PDF_BYTES + 1 }, bank).error).toBe(
+        '文件不能超过 1.5 MB',
+      );
+      for (const name of ['statement.csv', 'statement.xlsx']) {
+        expect(checkImportFile({ name, size: 1234 }, bank)).toEqual({
+          kind: null,
+          error: `${label} 只能导 PDF 对账单`,
+        });
+      }
+    }
+  });
 });

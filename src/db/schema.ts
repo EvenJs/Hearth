@@ -124,7 +124,17 @@ export const accountRelations = relations(account, ({ one }) => ({
 // ---------- 1. 枚举 ----------
 
 export const memberKind = pgEnum('member_kind', ['person', 'shared', 'child']);
-export const bank = pgEnum('bank', ['anz', 'anz_plus', 'cba', 'cash', 'other']);
+// boq、westpac、ing M9.5-7 加（ing 的解析器 M9.6 做）
+export const bank = pgEnum('bank', [
+  'anz',
+  'anz_plus',
+  'cba',
+  'boq',
+  'westpac',
+  'ing',
+  'cash',
+  'other',
+]);
 export const accountType = pgEnum('account_type', [
   'everyday',
   'savings',
@@ -218,6 +228,8 @@ export const financialAccount = pgTable(
       .references(() => member.id),
     // 账号尾号 4-6 位，不存完整账号和 BSB
     numberSuffix: varchar('number_suffix', { length: 6 }),
+    // R6.1 对账单上的账户名，同一家银行内部转账按它认。M9.5-7 加
+    statementName: text('statement_name'),
     purpose: accountPurpose('purpose').default('everyday').notNull(), // R23.4
     // R23.4 最多关联一个。同家庭、没归档、不是现金在 validateLink 里查
     linkedAccountId: uuid('linked_account_id').references((): AnyPgColumn => financialAccount.id),
@@ -226,7 +238,11 @@ export const financialAccount = pgTable(
   },
   (t) => [
     unique('financial_account_household_id_name_unique').on(t.householdId, t.name),
-    check('financial_account_number_suffix_check', sql`${t.numberSuffix} ~ '^[0-9]{4,6}$'`),
+    // R1G：Westpac 账号只有 6 位，尾号 3 到 5 位；别的银行 4 到 6 位。bank::text 免得在加枚举值的同一个事务里用新值
+    check(
+      'financial_account_number_suffix_check',
+      sql`case when ${t.bank}::text = 'westpac' then ${t.numberSuffix} ~ '^[0-9]{3,5}$' else ${t.numberSuffix} ~ '^[0-9]{4,6}$' end`,
+    ),
     check('financial_account_linked_account_id_check', sql`${t.linkedAccountId} <> ${t.id}`),
   ],
 );
@@ -619,11 +635,39 @@ export const taxProfile = pgTable(
       .notNull()
       .references(() => member.id), // 只能是 kind = person（应用层保证）
     financialYear: smallint('financial_year').notNull(), // 2026 = 2026-27 财年
-    paygGrossCents: integer('payg_gross_cents').default(0).notNull(),
-    paygWithheldCents: integer('payg_withheld_cents').default(0).notNull(),
+    // 三个金额空 = 没填实际数：工资、已代扣用 R14.9 折算，利息只算已到账（R14.10）
+    paygGrossCents: integer('payg_gross_cents'),
+    paygWithheldCents: integer('payg_withheld_cents'),
+    expectedInterestCents: integer('expected_interest_cents'), // R14.10 预计全年利息
     updatedAt: updatedAt(),
   },
   (t) => [unique('tax_profile_member_id_financial_year_unique').on(t.memberId, t.financialYear)],
+);
+
+// R14.9 在职段。一份工作跨财年也只存一行，每个财年各自折算
+export const taxJob = pgTable(
+  'tax_job',
+  {
+    id: id(),
+    householdId: householdId(),
+    memberId: uuid('member_id')
+      .notNull()
+      .references(() => member.id), // 只能是 kind = person（应用层保证）
+    employer: text('employer'), // 只用来显示
+    annualSalaryCents: integer('annual_salary_cents').notNull(), // 税前，不含 super
+    startDate: date('start_date', { mode: 'string' }).notNull(),
+    endDate: date('end_date', { mode: 'string' }), // null = 还在职
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index('tax_job_household_id_member_id_idx').on(t.householdId, t.memberId),
+    check('tax_job_salary_check', sql`${t.annualSalaryCents} > 0`),
+    check(
+      'tax_job_dates_check',
+      sql`${t.endDate} is null or ${t.endDate} >= ${t.startDate}`,
+    ),
+  ],
 );
 
 // R26.1 到 R26.3。状态不存，按 used_at、revoked_at、expires_at 实时算（inviteStatus）

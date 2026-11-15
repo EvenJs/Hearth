@@ -17,7 +17,7 @@ export default function TaxPage(props: PageProps<'/settings/tax'>) {
         <p className="text-sm text-muted-foreground">设置 / 税务</p>
         <h1 className="text-2xl font-semibold">税务</h1>
         <p className="text-sm text-muted-foreground">
-          每人每财年填一次工资，估算年底要补多少税。
+          每人填在职段，自动折算到财年底，估算年底要补多少税。
         </p>
       </header>
 

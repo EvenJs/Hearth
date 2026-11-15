@@ -1,0 +1,35 @@
+Everyday Account Statement
+Statement period
+15 Dec 2026 - 14 Jan 2027
+MR MALE A TEST
+UNIT 1 0000/000 TEST ST
+EXAMPLETON VIC 3000
+Account summary
+Account name  Everyday Account
+Opening balance  $1,987.50
+Account BSB  129-999
+Total credits  $0.00
+Account number  100000007
+Total debits  $ 112.50
+Closing balance  $1,875.00
+Transactions
+Date  Processed  Description  Debits ($)  Credits ($)  Balance ($)
+A
+2026
+20-Dec  20-Dec  TEST CAFE MELBOURNE  -12.50  1,975.00
+Eftpos Purchase -
+Card 1234
+05-Jan  05-Jan  To: Future Saver  -100.00  1,875.00
+NOTPROVIDED
+Bank of Queensland Limited ABN 00 000 000 000 (BOQ) AFSL and Australian credit licence 000000
+Page 1 of 3  | Statement continues over
+<<<PAGE>>>
+Everyday Account Statement
+Important information about your account and how to report a lost card.
+Page 2 of 3  | Statement continues over
+<<<PAGE>>>
+Everyday Account Statement
+How we calculate interest
+Interest is paid monthly. Interest is calculated on the daily closing balance of your account.
+Bank of Queensland Limited ABN 00 000 000 000 (BOQ) AFSL and Australian credit licence 000000
+Page 3 of 3

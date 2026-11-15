@@ -1,6 +1,6 @@
 // 银行 / 现金账户（financial_account）的数据访问。F1、M1-5
 // 输入先用 accountInputSchema 校验，再进这里；这里负责 household 隔离和数据库约束
-// 保存带尾号的账户时重新识别旧转账（R6.4，M5.5-3）
+// 保存带尾号或 statement_name 的账户时重新识别旧转账（R6.4，M5.5-3、M9.5-9）
 // 用途、关联账户（R23.4）和新建时的开户余额（R23.1），M9-3
 import { and, asc, eq, ilike, inArray, isNull, ne, or } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
@@ -8,7 +8,12 @@ import { db } from '@/db';
 import { financialAccount, member, transaction, transactionSplit } from '@/db/schema';
 import type { AccountType, AccountValues, Bank } from '@/lib/accounts/account-input';
 import { openingAnchorDate, validateLink, type AccountPurpose } from '@/lib/rules/balance';
-import { planTransferRedetect, type RedetectPlan, type RedetectTx } from '@/lib/rules/transfer';
+import {
+  planTransferRedetect,
+  type RedetectPlan,
+  type RedetectTx,
+  type StatementNameAccount,
+} from '@/lib/rules/transfer';
 import type { Account as RuleAccount, CategorySource, MemberSource } from '@/lib/rules/types';
 import { insertOpeningBalance } from './balances';
 import type { HouseholdContext } from './context';
@@ -24,6 +29,7 @@ export type Account = {
   defaultMemberId: string;
   defaultMemberName: string;
   numberSuffix: string | null;
+  statementName: string | null; // R6.1
   isArchived: boolean;
   purpose: AccountPurpose;
   // R23.4 关联账户。对方归档了也照样返回，显示"（已归档）"
@@ -63,6 +69,7 @@ export async function listAccounts(
       defaultMemberId: financialAccount.defaultMemberId,
       defaultMemberName: member.name,
       numberSuffix: financialAccount.numberSuffix,
+      statementName: financialAccount.statementName,
       isArchived: financialAccount.isArchived,
       purpose: financialAccount.purpose,
       linkedAccountId: financialAccount.linkedAccountId,
@@ -104,12 +111,14 @@ const NO_REDETECT: RedetectPreview = { count: 0, keptCount: 0 };
 
 // R6.4 第 1 步的候选：本家庭其他账户里 confirmed、transfer_status = none、没配对的交易，带全部拆分
 // 描述不含 TRANSFER / FUNDS TFER 的 R2.2 一定认不出，先在 SQL 里筛掉；剩下的交给纯函数判断
+// 按账户名认时（R6.1），同一个 bank 的账户里的交易都留下（描述开头由纯函数判断）
 // pending 不参与（和 R6.2 一样，等导入确认时再说）
 async function loadRedetectCandidates(
   tx: DbTx,
   ctx: HouseholdContext,
   accountId: string | null, // null = 新建，还没有自己的交易
   lock: boolean,
+  sameBankAccountIds: readonly string[], // 按账户名认时传，不按名字认传空
 ): Promise<RedetectTx[]> {
   const hh = ctx.householdId;
   const txQuery = tx
@@ -132,6 +141,9 @@ async function loadRedetectCandidates(
         or(
           ilike(transaction.rawDescription, '%TRANSFER%'),
           ilike(transaction.rawDescription, '%FUNDS TFER%'),
+          sameBankAccountIds.length > 0
+            ? inArray(transaction.accountId, [...sameBankAccountIds])
+            : undefined,
         ),
       ),
     )
@@ -187,19 +199,50 @@ async function planRedetect(
   accountId: string | null,
   values: AccountValues,
   lock: boolean,
-): Promise<{ plan: RedetectPlan; editCtx: Awaited<ReturnType<typeof loadEditContext>> } | null> {
-  if (!values.numberSuffix) return null; // 尾号是空的不触发
+): Promise<{
+  plan: RedetectPlan;
+  editCtx: Awaited<ReturnType<typeof loadEditContext>>;
+  named: StatementNameAccount[];
+} | null> {
+  const id = accountId ?? NEW_ACCOUNT_ID;
+  const stored = await tx
+    .select({
+      id: financialAccount.id,
+      bank: financialAccount.bank,
+      statementName: financialAccount.statementName,
+      isArchived: financialAccount.isArchived,
+    })
+    .from(financialAccount)
+    .where(eq(financialAccount.householdId, ctx.householdId));
+  // 这个账户那一条用要保存的值；statementName 不传 = 编辑不改，用表里的
+  const self = stored.find((n) => n.id === id);
+  const statementName =
+    values.statementName !== undefined ? values.statementName : (self?.statementName ?? null);
+  const named: StatementNameAccount[] = [
+    ...stored.filter((n) => n.id !== id),
+    { id, bank: values.bank, statementName, isArchived: self?.isArchived ?? false },
+  ];
+  // 尾号和 statement_name 都是空的不触发
+  if (!values.numberSuffix && !statementName) return null;
+
   const editCtx = await loadEditContext(tx, ctx);
   const account: RuleAccount = {
-    id: accountId ?? NEW_ACCOUNT_ID,
+    id,
     name: values.name,
     bank: values.bank,
     type: values.type,
     defaultMemberId: values.defaultMemberId,
     numberSuffix: values.numberSuffix,
   };
-  const candidates = await loadRedetectCandidates(tx, ctx, accountId, lock);
-  return { plan: planTransferRedetect(account, candidates, editCtx.accounts, editCtx), editCtx };
+  const sameBank = statementName
+    ? named.filter((n) => n.bank === values.bank && n.id !== id).map((n) => n.id)
+    : [];
+  const candidates = await loadRedetectCandidates(tx, ctx, accountId, lock, sameBank);
+  return {
+    plan: planTransferRedetect(account, candidates, editCtx.accounts, editCtx, named),
+    editCtx,
+    named,
+  };
 }
 
 // R6.4 保存前的预览：会认成转账的 N 笔、对上了但不改的 M 笔。只读，新建时 accountId 传 null
@@ -239,7 +282,10 @@ async function applyRedetect(
     await writeSplit(tx, ctx, { ...u.split, isOneOff: null });
   }
   // 只做 R6.2，不产生新的 R6.3 建议
-  const transfers = await pairHouseholdTransfers(tx, ctx, r.editCtx, { newIds: new Set() });
+  const transfers = await pairHouseholdTransfers(tx, ctx, r.editCtx, {
+    newIds: new Set(),
+    named: r.named,
+  });
   return { redetectedCount: r.plan.updates.length, pairedCount: transfers.pairs.length };
 }
 

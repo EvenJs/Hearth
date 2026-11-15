@@ -11,6 +11,8 @@ dedupe_key = sha256( account_id | date | amount_cents | normalizedDescription | 
 - `balance_cents`：CBA 有余额，写进 key；ANZ 没有，写空字符串。ANZ 的 PDF 对账单虽然有余额，也写空字符串（R1C），不然和 CSV 的 key 对不上
 - ANZ Plus 的 PDF 对账单（R1D）**写余额**：ANZ Plus 没有 CSV 要对齐，和 R1C 不一样。同一天同额同描述的两笔余额不同，key 本来就不同，`occurrence` 照旧数
 - CBA 的 PDF 对账单（R1E）**写余额**，算法和 CBA CSV 一样。R1E 按新的在前输出，`occurrence` 和 CSV 数法一致。2026-11-02 对过真实文件：同期的 CSV 和 PDF 有 10 / 167 笔描述对不上（BPAY 账单码、`(` 读不出来，见 R1E "和 CSV 混导"），key 不改，混导靠 R4.3
+- BOQ 的 PDF 对账单（R1F）**写余额**，同 R1G。余额是 0 时对账单不印，key 里写算出来的 0，不写空，和印了 `0.00` 的那份对得上。`NA`、`NOTPROVIDED` 留在描述里，也进 key
+- Westpac 的 PDF 对账单（R1G）**写余额**，同 R1D：没有 CSV 要对齐。key 不用账期、页码、`Statement No.`，按需申请和按周期出的两份重叠时，重叠的那几笔 key 一样，R4.2 跳过
 - `normalizedDescription`：**脱敏后**的原始描述，转大写，连续空白合并为一个空格，去首尾空白（不是 merchant，清洗规则以后会改，key 不能跟着变）
 - `occurrence`：同一个文件内，`(date, amount_cents, normalizedDescription)` 完全相同的第几笔，从 1 开始，按文件里的出现顺序计数
 

@@ -3,10 +3,10 @@
 // id 是可读的假 id（如 'member:Male'），测试失败时好认
 import {
   SEED_CATEGORIES,
-  SEED_MEMBERS,
   SEED_RULE_DEFAULTS,
   SEED_RULES,
   SEED_SYSTEM_CATEGORIES,
+  type SeedMemberName,
 } from '@/lib/seed/data';
 import type {
   Account,
@@ -31,6 +31,21 @@ export type TestHousehold = {
   // 'Groceries / Supermarket' 或一级 'Groceries'
   category: (path: string) => Category;
   systemCategory: (key: SystemCategoryKey) => Category;
+};
+
+// 归属人照 fixtures/README.md 建，不用 seed 的真名（M13-9 起 seed 是 Johnson / Iris / 共同）
+// 顺序就是 sort_order，平分余数给 Male（R14.2）
+const MEMBER_DEFS: [name: string, kind: Member['kind']][] = [
+  ['Male', 'person'],
+  ['Female', 'person'],
+  ['Home', 'shared'],
+];
+
+// seed 分类的默认归属人按 seed 成员名写，换成 fixtures 的名字
+const FROM_SEED_MEMBER: Record<SeedMemberName, string> = {
+  Johnson: 'Male',
+  Iris: 'Female',
+  共同: 'Home',
 };
 
 const ACCOUNT_DEFS: [
@@ -63,10 +78,10 @@ function find<T>(items: T[], pred: (t: T) => boolean, what: string): T {
 }
 
 export function buildTestHousehold(): TestHousehold {
-  const members: Member[] = SEED_MEMBERS.map((m) => ({
-    id: `member:${m.name}`,
-    name: m.name,
-    kind: m.kind,
+  const members: Member[] = MEMBER_DEFS.map(([name, kind]) => ({
+    id: `member:${name}`,
+    name,
+    kind,
   }));
   const memberId = (name: string) => find(members, (m) => m.name === name, `归属人 ${name}`).id;
 
@@ -97,7 +112,7 @@ export function buildTestHousehold(): TestHousehold {
       nameEn: c.nameEn,
       kind: c.kind,
       systemKey: null,
-      defaultMemberId: c.defaultMember ? memberId(c.defaultMember) : null,
+      defaultMemberId: c.defaultMember ? memberId(FROM_SEED_MEMBER[c.defaultMember]) : null,
       isPreTaxDefault: false,
       isOther: false,
     });

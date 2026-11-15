@@ -271,6 +271,14 @@ describe('estimateHouseholdTax：cba/female-2026-09.csv（fixtures R14）', () =
     expect(m).toEqual({
       memberId: mem('Male'),
       hasProfile: false,
+      hasSalaryInfo: false,
+      paygGrossCents: 0,
+      paygGrossSource: 'prorated',
+      paygWithheldSource: 'prorated',
+      interestReceivedCents: 0,
+      interestCents: 0,
+      interestSource: 'received',
+      interestPartial: false,
       preTaxIncomeCents: 0,
       taxableDollars: 0,
       incomeTaxCents: 0,
@@ -306,5 +314,295 @@ describe('estimateHouseholdTax：cba/female-2026-09.csv（fixtures R14）', () =
     });
     expect(of(rs, 'Female').hasProfile).toBe(false);
     expect(of(rs, 'Female').taxableDollars).toBe(12);
+  });
+});
+
+describe('estimateHouseholdTax：在职段和预计利息（fixtures/cases/19-tax-jobs.md）', () => {
+  const INTEREST_CATEGORY = cat('Income / Interest');
+
+  type Profile = {
+    paygGrossCents: number | null;
+    paygWithheldCents: number | null;
+    expectedInterestCents: number | null;
+  };
+
+  const job = (
+    member: string,
+    annualSalaryCents: number,
+    startDate: string,
+    endDate: string | null,
+  ) => ({ memberId: mem(member), annualSalaryCents, startDate, endDate });
+
+  const profile = (member: string, p: Profile, financialYear = 2026) => ({
+    memberId: mem(member),
+    financialYear,
+    ...p,
+  });
+
+  function estimateFor(
+    name: string,
+    input: {
+      jobs?: ReturnType<typeof job>[];
+      profiles?: ReturnType<typeof profile>[];
+      splits?: StatSplit[];
+    },
+  ) {
+    const rs = estimateHouseholdTax({
+      splits: input.splits ?? [],
+      members: h.members,
+      profiles: input.profiles ?? [],
+      jobs: input.jobs ?? [],
+      taxCategoryId: TAX_CATEGORY,
+      interestCategoryId: INTEREST_CATEGORY,
+      financialYear: 2026,
+    });
+    const r = rs.find((x) => x.memberId === mem(name));
+    if (!r) throw new Error(`没有 ${name}`);
+    return r;
+  }
+
+  it('R14.9 A: joined 2027-01-01 → prorated gross and withheld, refund expected', () => {
+    const r = estimateFor('Male', { jobs: [job('Male', 12000000, '2027-01-01', null)] });
+    expect(r.paygGrossCents).toBe(5950685);
+    expect(r.paygGrossSource).toBe('prorated');
+    expect(r.paygWithheldCents).toBe(1434115);
+    expect(r.paygWithheldSource).toBe('prorated');
+    expect(r.taxableDollars).toBe(59506);
+    expect(r.totalCents).toBe(956192);
+    expect(r.owingCents).toBe(-477923);
+    expect(r.hasSalaryInfo).toBe(true);
+  });
+
+  it('R14.9 B: left 2026-09-30 → FY 2026 owing -3,743.42', () => {
+    const r = estimateFor('Female', { jobs: [job('Female', 9000000, '2025-03-01', '2026-09-30')] });
+    expect(r.taxableDollars).toBe(22684);
+    expect(r.totalCents).toBe(112628);
+    expect(r.owingCents).toBe(-374342);
+  });
+
+  it('R14.9 D: two overlapping jobs → owing 3,604.81, no error', () => {
+    const r = estimateFor('Female', {
+      jobs: [
+        job('Female', 8000000, '2025-01-01', null),
+        job('Female', 3000000, '2026-10-01', '2027-03-31'),
+      ],
+    });
+    expect(r.paygGrossCents).toBe(9495890);
+    expect(r.paygWithheldCents).toBe(1730175);
+    expect(r.taxableDollars).toBe(94958);
+    expect(r.totalCents).toBe(2090656);
+    expect(r.owingCents).toBe(360481);
+  });
+
+  it('R14.9: another person’s job is not counted', () => {
+    const r = estimateFor('Female', { jobs: [job('Male', 12000000, '2027-01-01', null)] });
+    expect(r.paygGrossCents).toBe(0);
+    expect(r.hasSalaryInfo).toBe(false);
+  });
+
+  describe('R14.3 E：实际数和折算混用（Zeta 120,000 全年）', () => {
+    const zeta = [job('Male', 12000000, '2024-02-01', null)];
+
+    it.each([
+      [
+        'E-1',
+        { paygGrossCents: null, paygWithheldCents: 2800000 },
+        12000000,
+        'prorated',
+        2800000,
+        'actual',
+        92000,
+      ],
+      [
+        'E-2',
+        { paygGrossCents: 11500000, paygWithheldCents: null },
+        11500000,
+        'actual',
+        2892000,
+        'prorated',
+        -160000,
+      ],
+      ['E-3', { paygGrossCents: 0, paygWithheldCents: 0 }, 0, 'actual', 0, 'actual', 0],
+    ] as const)(
+      'R14.3 %s: each actual amount overrides its own prorated amount',
+      (_, amounts, gross, grossSource, withheld, withheldSource, owing) => {
+        const r = estimateFor('Male', {
+          jobs: zeta,
+          profiles: [profile('Male', { ...amounts, expectedInterestCents: null })],
+        });
+        expect(r.paygGrossCents).toBe(gross);
+        expect(r.paygGrossSource).toBe(grossSource);
+        expect(r.paygWithheldCents).toBe(withheld);
+        expect(r.paygWithheldSource).toBe(withheldSource);
+        expect(r.owingCents).toBe(owing);
+        expect(r.hasSalaryInfo).toBe(true);
+      },
+    );
+
+    it('R14.3 E-2: taxable 115,000 → total 27,320', () => {
+      const r = estimateFor('Male', {
+        jobs: zeta,
+        profiles: [
+          profile('Male', {
+            paygGrossCents: 11500000,
+            paygWithheldCents: null,
+            expectedInterestCents: null,
+          }),
+        ],
+      });
+      expect(r.taxableDollars).toBe(115000);
+      expect(r.totalCents).toBe(2732000);
+    });
+
+    it('R14.3 E-4: no tax_profile row → both prorated, owing 0', () => {
+      const r = estimateFor('Male', { jobs: zeta });
+      expect(r.paygGrossCents).toBe(12000000);
+      expect(r.paygWithheldCents).toBe(2892000);
+      expect(r.owingCents).toBe(0);
+      expect(r.hasProfile).toBe(false);
+    });
+
+    it('R14.9 E-5: old row without jobs still counts as actual', () => {
+      const r = estimateFor('Male', {
+        profiles: [
+          profile('Male', {
+            paygGrossCents: 6000000,
+            paygWithheldCents: 972000,
+            expectedInterestCents: null,
+          }),
+        ],
+      });
+      expect(r.paygGrossCents).toBe(6000000);
+      expect(r.paygGrossSource).toBe('actual');
+      expect(r.paygWithheldCents).toBe(972000);
+      expect(r.paygWithheldSource).toBe('actual');
+    });
+
+    it('R14.3: tax_profile of another year does not override this year’s proration', () => {
+      const r = estimateFor('Male', {
+        jobs: zeta,
+        profiles: [
+          profile(
+            'Male',
+            { paygGrossCents: 0, paygWithheldCents: 0, expectedInterestCents: null },
+            2025,
+          ),
+        ],
+      });
+      expect(r.paygGrossCents).toBe(12000000);
+      expect(r.paygGrossSource).toBe('prorated');
+    });
+  });
+
+  describe('R14.10 F：预计利息比已到账少（Female 工资 60,000 / 已代扣 9,720）', () => {
+    const splits = [split('2026-09-30', 30000, 'Female', true)];
+
+    it.each([
+      ['F-1', 20000, 30000, 'received', 60300, 981600, 9600, false],
+      ['F-2', 80000, 80000, 'expected', 60800, 997600, 25600, false],
+      ['F-3', null, 30000, 'received', 60300, 981600, 9600, true],
+      ['F-4', 0, 30000, 'received', 60300, 981600, 9600, false],
+    ] as const)(
+      'R14.10 %s: expected %s → interest part %i',
+      (_, expected, interest, source, taxable, total, owing, partial) => {
+        const r = estimateFor('Female', {
+          splits,
+          profiles: [
+            profile('Female', {
+              paygGrossCents: 6000000,
+              paygWithheldCents: 972000,
+              expectedInterestCents: expected,
+            }),
+          ],
+        });
+        expect(r.interestReceivedCents).toBe(30000);
+        expect(r.interestCents).toBe(interest);
+        expect(r.interestSource).toBe(source);
+        expect(r.preTaxIncomeCents).toBe(interest);
+        expect(r.taxableDollars).toBe(taxable);
+        expect(r.totalCents).toBe(total);
+        expect(r.owingCents).toBe(owing);
+        expect(r.interestPartial).toBe(partial);
+      },
+    );
+  });
+
+  describe('R14.10 G：Home 利息平分 + 预计利息', () => {
+    const splits = [
+      split('2026-09-30', 10000, 'Home', true),
+      split('2026-10-31', 2000, 'Male', true),
+      split('2026-10-15', 300000, 'Male', true, 'Income / Contract income (B2B)'),
+      split('2026-10-31', 1500, 'Female', true),
+    ];
+    const profiles = [
+      profile('Male', {
+        paygGrossCents: null,
+        paygWithheldCents: null,
+        expectedInterestCents: 15000,
+      }),
+    ];
+
+    it('R14.10 G: Male expected 150 replaces received 70, B2B unchanged', () => {
+      const r = estimateFor('Male', { splits, profiles });
+      expect(r.interestReceivedCents).toBe(7000);
+      expect(r.interestCents).toBe(15000);
+      expect(r.interestSource).toBe('expected');
+      expect(r.preTaxIncomeCents).toBe(315000);
+      expect(r.interestPartial).toBe(false);
+    });
+
+    it('R14.10 G: Female without expected → received 65 incl. half of Home, partial', () => {
+      const r = estimateFor('Female', { splits, profiles });
+      expect(r.interestReceivedCents).toBe(6500);
+      expect(r.interestCents).toBe(6500);
+      expect(r.interestSource).toBe('received');
+      expect(r.preTaxIncomeCents).toBe(6500);
+      expect(r.interestPartial).toBe(true);
+    });
+
+    it('R14.6 G-2: Female received interest 0 → not partial', () => {
+      const r = estimateFor('Female', { splits: [splits[1], splits[2]], profiles });
+      expect(r.interestReceivedCents).toBe(0);
+      expect(r.interestPartial).toBe(false);
+    });
+  });
+
+  describe('R14.6 H：没填任何工资时', () => {
+    const splits = [split('2026-10-20', 3000000, 'Female', true, 'Income / Contract income (B2B)')];
+
+    it.each([
+      ['H-1', [], [], false, 237000],
+      ['H-2', [job('Female', 9000000, '2025-03-01', '2026-06-30')], [], false, 237000],
+      [
+        'H-3',
+        [],
+        [
+          profile('Female', {
+            paygGrossCents: 0,
+            paygWithheldCents: 0,
+            expectedInterestCents: null,
+          }),
+        ],
+        true,
+        237000,
+      ],
+      [
+        'H-4',
+        [],
+        [
+          profile('Female', {
+            paygGrossCents: null,
+            paygWithheldCents: 100000,
+            expectedInterestCents: null,
+          }),
+        ],
+        false,
+        137000,
+      ],
+    ])('R14.6 %s: hasSalaryInfo and owing', (_, jobs, profiles, hasSalaryInfo, owing) => {
+      const r = estimateFor('Female', { splits, jobs, profiles });
+      expect(r.hasSalaryInfo).toBe(hasSalaryInfo);
+      expect(r.owingCents).toBe(owing);
+    });
   });
 });

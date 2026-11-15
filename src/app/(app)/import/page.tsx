@@ -10,7 +10,7 @@ import { getHouseholdContext } from '@/server/context';
 import { getImportCoverage } from '@/server/imports';
 import { ImportForm, type ImportAccount } from './import-form';
 
-// F2 导入（设计图 06）：CSV，ANZ、ANZ Plus、CBA 能传 PDF 对账单（R1C、R1D、R1E）；R12.2 上次导到哪天。结果页 /import/[batchId]，历史页 /import/history
+// F2 导入（设计图 06）：CSV，ANZ、ANZ Plus、CBA、BOQ、Westpac 能传 PDF 对账单（R1C 到 R1G）；R12.2 上次导到哪天。结果页 /import/[batchId]，历史页 /import/history
 export default function ImportPage() {
   return (
     <>
@@ -39,7 +39,7 @@ export default function ImportPage() {
 
 async function ImportSection() {
   const ctx = await getHouseholdContext();
-  // 只列能导入、没归档的账户（现金、其他不出现）；ANZ Plus 只能导对账单（R1D）
+  // 只列能导入、没归档的账户（现金、其他不出现）；ANZ Plus、BOQ、Westpac 只能导对账单（R1D、R1F、R1G）
   const importable = (await listAccounts(ctx)).filter(
     (a) => canImportCsv(a.bank) || canImportStatement(a.bank),
   );
@@ -58,7 +58,7 @@ async function ImportSection() {
   if (accounts.length === 0) {
     return (
       <p className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">
-        还没有能导入的账户（ANZ、CBA 或 ANZ Plus）。先去{' '}
+        还没有能导入的账户（ANZ、ANZ Plus、CBA、BOQ 或 Westpac）。先去{' '}
         <Link href="/settings/accounts" className="text-primary underline underline-offset-4">
           账户设置
         </Link>{' '}

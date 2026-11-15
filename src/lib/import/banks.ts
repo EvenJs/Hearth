@@ -4,15 +4,15 @@ import type { Bank } from '@/lib/accounts/account-input';
 
 const CSV_IMPORTABLE_BANKS: readonly Bank[] = ['anz', 'cba'];
 
-// R1C、R1D、R1E：ANZ、ANZ Plus 和 CBA 有 PDF 对账单解析器。ANZ Plus 只能导对账单
-const STATEMENT_IMPORTABLE_BANKS: readonly Bank[] = ['anz', 'anz_plus', 'cba'];
+// R1C 到 R1G：ANZ、ANZ Plus、CBA、BOQ、Westpac 有 PDF 对账单解析器。ANZ Plus、BOQ、Westpac 只能导对账单
+const STATEMENT_IMPORTABLE_BANKS: readonly Bank[] = ['anz', 'anz_plus', 'cba', 'boq', 'westpac'];
 
 // R1
 export function canImportCsv(bank: Bank): boolean {
   return CSV_IMPORTABLE_BANKS.includes(bank);
 }
 
-// R1C、R1D、R1E
+// R1C 到 R1G
 export function canImportStatement(bank: Bank): boolean {
   return STATEMENT_IMPORTABLE_BANKS.includes(bank);
 }

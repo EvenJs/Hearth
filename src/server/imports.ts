@@ -1,8 +1,8 @@
-// CSV 和 ANZ / ANZ Plus PDF 对账单导入（business-rules.md R12、R1C、R1D），第 1 到 10 步；导入结果页（M3-8）；撤销导入（R12.1）
+// CSV 和 PDF 对账单导入（business-rules.md R12、R1C 到 R1G），第 1 到 10 步；导入结果页（M3-8）；撤销导入（R12.1）
 // 业务判断全部用 src/lib/ 的纯函数，这里只负责读写数据库和串流程
 // 不保存上传的原文件；日志和报错里不打印原始描述
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, gt, gte, inArray, isNull, lt, lte, ne, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, gte, inArray, isNull, lte, ne, or, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import {
   card,
@@ -15,17 +15,19 @@ import {
   transaction,
   transactionSplit,
 } from '@/db/schema';
-import type { Bank } from '@/lib/accounts/account-input';
+import { BANK_LABELS, type Bank } from '@/lib/accounts/account-input';
 import type { StatementLine } from '@/lib/import/anz-statement';
 import { canImportCsv, canImportStatement } from '@/lib/import/banks';
 import { checkBalanceContinuity, deriveBalances, type BalanceWarning } from '@/lib/import/cba';
 import {
   csvGapWarning,
   importCoverage,
+  overlappingStatements,
+  previousStatement,
   type ImportCoverage,
   type ImportGap,
 } from '@/lib/import/coverage';
-import { ANZ_PLUS_PDF_ONLY, checkPdfFile } from '@/lib/import/import-input';
+import { checkPdfFile } from '@/lib/import/import-input';
 import { identifyBankStatement, parseBankStatement } from '@/lib/import/index';
 import { processFile, processRows, type HouseholdConfig } from '@/lib/import/process';
 import { findBalanceDuplicates, type BalanceCandidate } from '@/lib/rules/dedupe';
@@ -76,7 +78,7 @@ export type ImportStatementLinesInput = {
   lines: readonly StatementLine[];
 };
 
-// R12.2 首尾衔接：上一份对账单（同账户、source = pdf、date_to 比本次早的里面最大的）
+// R12.2 首尾衔接：上一份对账单（同账户、source = pdf、date_to 早于本次 date_from 的里面最大的）
 export type PreviousStatement = { batchId: string; dateFrom: string; dateTo: string };
 export type StatementContinuity =
   | { status: 'connected'; previous: PreviousStatement } // 上一份的期末 = 本次的期初
@@ -90,6 +92,7 @@ export type ImportWarnings = {
   pendingTransferSplits: string[]; // R8.3 例外：pending 有多个拆分，没改，F8 提示
   reconciliation: Reconciliation; // R9，差额只能在导入时算准，存下来给结果页
   statementContinuity?: StatementContinuity; // R12.2，只有 PDF 批次有
+  statementOverlaps?: PreviousStatement[]; // R12.2 账期重叠的那几份，只有 PDF 批次、有重叠时才有
   importGap?: ImportGap; // R12.2，只有 CSV 批次、和以前的导入没有重叠时才有
 };
 
@@ -163,6 +166,8 @@ async function loadHouseholdConfig(ctx: HouseholdContext): Promise<HouseholdConf
         type: financialAccount.type,
         defaultMemberId: financialAccount.defaultMemberId,
         numberSuffix: financialAccount.numberSuffix,
+        statementName: financialAccount.statementName, // R6.1 按账户名认
+        isArchived: financialAccount.isArchived,
       })
       .from(financialAccount)
       .where(eq(financialAccount.householdId, hh)),
@@ -201,7 +206,8 @@ async function loadHouseholdConfig(ctx: HouseholdContext): Promise<HouseholdConf
       .from(categoryRule)
       .where(eq(categoryRule.householdId, hh)),
   ]);
-  return { accounts, cards, categories, rules };
+  // R6.1 按账户名认：同一个数组，归档的在 detectTransfer 里排除
+  return { accounts, named: accounts, cards, categories, rules };
 }
 
 type ImportTarget = {
@@ -224,15 +230,17 @@ async function loadImportTarget(
   if (!target) return fail('not_importable', '账户不存在');
   if (target.isArchived) return fail('not_importable', '这个账户已经归档了，不能导入');
   if (kind === 'csv' && !canImportCsv(target.bank)) {
-    // R1D：ANZ Plus 不能导出 CSV（B7）
+    // R1D、R1F、R1G：ANZ Plus、BOQ、Westpac 不能导出 CSV（B7）
     return fail(
       'not_importable',
-      target.bank === 'anz_plus' ? ANZ_PLUS_PDF_ONLY : '这个账户不能导入 CSV',
+      canImportStatement(target.bank)
+        ? `${BANK_LABELS[target.bank]} 只能导 PDF 对账单`
+        : '这个账户不能导入 CSV',
     );
   }
-  // R1C、R1D、R1E：只有 ANZ、ANZ Plus 和 CBA 有对账单解析器
+  // R1C 到 R1G：只有这五家有对账单解析器
   if (kind === 'pdf' && !canImportStatement(target.bank)) {
-    return fail('not_importable', '只有 ANZ、ANZ Plus 和 CBA 账户能导入 PDF 对账单');
+    return fail('not_importable', '只有 ANZ、ANZ Plus、CBA、BOQ 和 Westpac 账户能导入 PDF 对账单');
   }
 
   const config = await loadHouseholdConfig(ctx);
@@ -321,7 +329,7 @@ export async function importStatement(
   const fileError = checkPdfFile({ name: input.fileName, size: input.buffer.byteLength });
   if (fileError) return fail('invalid_file', fileError);
 
-  // 指定了账户：先看账户，不是 ANZ、ANZ Plus、CBA 就不用读 PDF
+  // 指定了账户：先看账户，不能导对账单的就不用读 PDF
   if (input.accountId !== undefined) {
     const target = await loadImportTarget(ctx, input.accountId, 'pdf');
     if ('ok' in target) return target;
@@ -338,12 +346,12 @@ export async function importStatement(
   });
 }
 
-// R1C、R1D、R1E 第二层以后：解析 → R2 到 R5（processRows）→ R12 第 3 到 9 步
+// R1C 到 R1G 第二层以后：解析 → R2 到 R5（processRows）→ R12 第 3 到 9 步
 export async function importStatementLines(
   ctx: HouseholdContext,
   input: ImportStatementLinesInput,
 ): Promise<ImportResult> {
-  // R1C、R1D、R1E 自动认账户：没指定账户时用账号找
+  // R1C 到 R1G 自动认账户：没指定账户时用账号找
   let accountId = input.accountId;
   if (accountId === undefined) {
     const identified = await identifyAccount(ctx, input.lines);
@@ -355,7 +363,7 @@ export async function importStatementLines(
   if ('ok' in target) return target;
   const { config, account } = target;
 
-  // R1C、R1D、R1E：按账户的银行选解析器。任何一条检查不过整份失败。账号尾号核对在解析里做，不存
+  // R1C 到 R1G：按账户的银行选解析器。任何一条检查不过整份失败。账号尾号核对在解析里做，不存
   const parsed = parseBankStatement(account.bank, input.lines, account.numberSuffix);
   if (!parsed.ok) {
     // 信息里已经写了第几页第几笔
@@ -368,7 +376,7 @@ export async function importStatementLines(
     fileName: input.fileName,
     source: 'pdf',
     rows: processRows(parsed.rows, account, config),
-    // R1C 的 date_from 是账期开始日的第二天，R1D、R1E 是开始日（parseBankStatement 算好了）
+    // R1C 的 date_from 是账期开始日的第二天，R1D 到 R1G 是开始日（parseBankStatement 算好了）
     dateFrom: parsed.dateFrom,
     dateTo: parsed.dateTo,
     // R9：期初期末从汇总来
@@ -378,7 +386,7 @@ export async function importStatementLines(
   });
 }
 
-// R1C、R1D、R1E 自动认账户：在没归档的账户里找，只找和对账单同一家银行的账户（identifyBankStatement 筛）
+// R1C 到 R1G 自动认账户：在没归档的账户里找，只找和对账单同一家银行的账户（identifyBankStatement 筛）
 async function identifyAccount(ctx: HouseholdContext, lines: readonly StatementLine[]) {
   const candidates = await db
     .select({
@@ -436,15 +444,18 @@ export async function identifyStatement(
   return { ok: true, account, coverage: await getImportCoverage(ctx, account.id) };
 }
 
-// R12.2 首尾衔接：同账户上一份对账单（source = pdf，date_to 比本次早的里面最大的）
-async function findStatementContinuity(
+// R12.2 PDF 对账单：首尾衔接（上一份 = date_to 早于本次 date_from 的里面最大的）和账期重叠
+// 在创建本次批次之前查，免得找到自己
+async function checkStatementPeriods(
   tx: Tx,
   ctx: HouseholdContext,
   accountId: string,
+  dateFrom: string,
   dateTo: string,
   openingBalanceCents: number | null,
-): Promise<StatementContinuity> {
-  const [previous] = await tx
+): Promise<{ continuity: StatementContinuity; overlaps: PreviousStatement[] }> {
+  // 按创建时间从新到旧：date_to 一样大时 previousStatement 取最近导入的那份
+  const batches = await tx
     .select({
       batchId: importBatch.id,
       dateFrom: importBatch.dateFrom,
@@ -457,20 +468,27 @@ async function findStatementContinuity(
         eq(importBatch.householdId, ctx.householdId),
         eq(importBatch.accountId, accountId),
         eq(importBatch.source, 'pdf'),
-        lt(importBatch.dateTo, dateTo),
       ),
     )
-    .orderBy(desc(importBatch.dateTo), desc(importBatch.createdAt))
-    .limit(1);
+    .orderBy(desc(importBatch.createdAt));
+  const toPrevious = (b: (typeof batches)[number]): PreviousStatement => ({
+    batchId: b.batchId,
+    dateFrom: b.dateFrom,
+    dateTo: b.dateTo,
+  });
+  const overlaps = overlappingStatements(batches, dateFrom, dateTo).map(toPrevious);
+
+  const previous = previousStatement(batches, dateFrom);
   // 对账单批次都有期初期末（R1C），防御一下
   if (!previous || previous.closingBalanceCents === null || openingBalanceCents === null) {
-    return null;
+    return { continuity: null, overlaps };
   }
-  const prev = { batchId: previous.batchId, dateFrom: previous.dateFrom, dateTo: previous.dateTo };
   const differenceCents = openingBalanceCents - previous.closingBalanceCents;
-  return differenceCents === 0
-    ? { status: 'connected', previous: prev }
-    : { status: 'mismatch', previous: prev, differenceCents };
+  const continuity: StatementContinuity =
+    differenceCents === 0
+      ? { status: 'connected', previous: toPrevious(previous) }
+      : { status: 'mismatch', previous: toPrevious(previous), differenceCents };
+  return { continuity, overlaps };
 }
 
 // R12.2：这个账户所有导入批次的来源和 date_to
@@ -502,10 +520,10 @@ async function runImport(ctx: HouseholdContext, p: PreparedImport): Promise<Impo
     const pendingTransferSplits: string[] = [];
 
     // R12.2：在创建本次批次之前找，免得找到自己
-    // PDF：首尾衔接。CSV：和这个账户所有批次（CSV、PDF）里最大的 date_to 比，没有重叠就警告
-    const statementContinuity =
+    // PDF：首尾衔接和账期重叠。CSV：和这个账户所有批次（CSV、PDF）里最大的 date_to 比，没有重叠就警告
+    const statementPeriods =
       p.source === 'pdf'
-        ? await findStatementContinuity(tx, ctx, account.id, dateTo, openingBalanceCents)
+        ? await checkStatementPeriods(tx, ctx, account.id, dateFrom, dateTo, openingBalanceCents)
         : undefined;
     const importGap =
       p.source === 'csv'
@@ -733,6 +751,7 @@ async function runImport(ctx: HouseholdContext, p: PreparedImport): Promise<Impo
     const transfers = await pairHouseholdTransfers(tx, ctx, config, {
       newIds,
       knownTransferAccount,
+      named: config.named,
     });
 
     // ---------- 7. R9 对账：用数据库里该账户的交易，不只是本次文件 ----------
@@ -767,8 +786,13 @@ async function runImport(ctx: HouseholdContext, p: PreparedImport): Promise<Impo
       possibleDuplicates,
       pendingTransferSplits,
       reconciliation,
-      // CSV 批次不带这个字段
-      ...(statementContinuity === undefined ? {} : { statementContinuity }),
+      // CSV 批次不带这两个字段；没有重叠也不带 statementOverlaps
+      ...(statementPeriods === undefined
+        ? {}
+        : { statementContinuity: statementPeriods.continuity }),
+      ...(statementPeriods && statementPeriods.overlaps.length > 0
+        ? { statementOverlaps: statementPeriods.overlaps }
+        : {}),
       // 没有空档就不带这个字段
       ...(importGap === null ? {} : { importGap }),
     };
@@ -853,7 +877,7 @@ export type ImportResultView = {
   fileName: string;
   createdAt: Date;
   account: { id: string; name: string; bank: Bank; numberSuffix: string | null };
-  source: 'csv' | 'pdf'; // pdf = ANZ / ANZ Plus / CBA 对账单（R1C、R1D、R1E）
+  source: 'csv' | 'pdf'; // pdf = PDF 对账单（R1C 到 R1G）
   dateFrom: string;
   dateTo: string;
   rowCount: number;
@@ -866,6 +890,7 @@ export type ImportResultView = {
   reconciliation: Reconciliation;
   balanceWarnings: BalanceWarning[];
   statementContinuity: StatementContinuity; // R12.2 首尾衔接，CSV 是 null
+  statementOverlaps: PreviousStatement[]; // R12.2 账期重叠的那几份，没有是空数组
   importGap: ImportGap | null; // R12.2 CSV 和上次之间可能有空档
   // 现在的状态：用户之后分了类、确认了 pending，数字会跟着变
   uncategorizedCount: number;
@@ -1005,6 +1030,7 @@ export async function getImportResult(
     reconciliation: warnings.reconciliation ?? NO_RECONCILIATION,
     balanceWarnings: warnings.balance ?? [],
     statementContinuity: warnings.statementContinuity ?? null,
+    statementOverlaps: warnings.statementOverlaps ?? [],
     importGap: warnings.importGap ?? null,
     uncategorizedCount,
     pendingToCheck: pendingsToCheck(stillPending, batch.dateTo).map(
@@ -1029,7 +1055,7 @@ export type ImportHistoryRow = {
   createdAt: Date;
   fileName: string;
   account: { id: string; name: string; bank: Bank; numberSuffix: string | null };
-  source: 'csv' | 'pdf'; // pdf = ANZ / ANZ Plus / CBA 对账单（R1C、R1D、R1E）
+  source: 'csv' | 'pdf'; // pdf = PDF 对账单（R1C 到 R1G）
   dateFrom: string;
   dateTo: string;
   insertedCount: number;
@@ -1271,8 +1297,8 @@ async function loadUndoState(
     },
   }));
 
-  const { accounts, categories, cards } = await loadHouseholdConfig(ctx);
-  const plan = planUndo({ batchTxs, counterparts, accounts, categories, cards });
+  const { accounts, named, categories, cards } = await loadHouseholdConfig(ctx);
+  const plan = planUndo({ batchTxs, counterparts, accounts, named, categories, cards });
   return {
     batch: { id: batch.id, accountId: batch.accountId, fileName: batch.fileName },
     batchTxs,

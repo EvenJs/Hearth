@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   readAnzPlusStatementFixture,
+  readBoqStatementFixture,
   readCbaStatementFixture,
   readFixture,
   readStatementFixture,
+  readWestpacStatementFixture,
 } from '../../../tests/helpers/fixtures';
 import {
   identifyBankStatement,
@@ -15,7 +17,8 @@ import {
 
 // 期望值来自 business-rules.md R1、R1.0-6、R1C、R1D 和 fixtures/README.md（P9）、
 // fixtures/cases/08-anz-statement.md（S1、S11）、10-anz-plus-statement.md（B1、B3、B4）、
-// 13-cba-statement.md（C22、D1、D3、D8、D10）
+// 13-cba-statement.md（C22、D1、D3、D8、D10）、18-boq-westpac-statement.md（W24、Q31、WD1、WD3、WD6 到 WD8、
+// QD1、QD6 到 QD8）
 
 describe('parseBankCsv（R1 按 bank 选解析器）', () => {
   it('R1: anz uses the ANZ parser', () => {
@@ -28,7 +31,7 @@ describe('parseBankCsv（R1 按 bank 选解析器）', () => {
     expect(result.ok && result.rows).toHaveLength(20);
   });
 
-  it.each(['anz_plus', 'cash', 'other'] as const)('R1: %s cannot import CSV (P9)', (bank) => {
+  it.each(['anz_plus', 'boq', 'westpac', 'cash', 'other'] as const)('R1: %s cannot import CSV (P9)', (bank) => {
     const result = parseBankCsv(bank, readFixture('anz/joint-2026-09.csv'));
     expect(result).toEqual({ ok: false, message: '这个账户不能导入 CSV', line: null });
   });
@@ -50,12 +53,19 @@ describe('parseBankCsv（R1 按 bank 选解析器）', () => {
   });
 });
 
-// M8.5-5：PDF 对账单按格式三选一（R1E 认格式），都不像 → null
-describe('statementBank（R1C / R1D / R1E 三选一）', () => {
+// M8.5-5、M9.5-9：PDF 对账单按格式五选一（R1F 认格式），都不像 → null
+describe('statementBank（R1C / R1D / R1E / R1F / R1G 五选一）', () => {
   it('R1E / C22: CBA, ANZ and ANZ Plus statements each go to their own parser', () => {
     expect(statementBank(readCbaStatementFixture('female-2026-09.txt'))).toBe('cba');
     expect(statementBank(readStatementFixture('joint-2026-09.txt'))).toBe('anz');
     expect(statementBank(readAnzPlusStatementFixture('growth-2026-09.txt'))).toBe('anz_plus');
+  });
+
+  it('R1F / Q31, R1G / W24: BOQ and Westpac statements each go to their own parser', () => {
+    expect(statementBank(readBoqStatementFixture('everyday-2026-11.txt'))).toBe('boq');
+    expect(statementBank(readBoqStatementFixture('saver-2026-11.txt'))).toBe('boq');
+    expect(statementBank(readWestpacStatementFixture('choice-2026-11.txt'))).toBe('westpac');
+    expect(statementBank(readWestpacStatementFixture('life-2026-11.txt'))).toBe('westpac');
   });
 
   it('R1E / C22: a text that looks like none of them → null', () => {
@@ -67,15 +77,19 @@ describe('statementBank（R1C / R1D / R1E 三选一）', () => {
   });
 });
 
-// fixtures/README.md 的家庭账户（都没归档）
+// fixtures/README.md 的家庭账户 + 18 号的 4 个（都没归档）
 const ACCOUNTS = [
   { id: 'joint', bank: 'anz', numberSuffix: '0001' },
   { id: 'male', bank: 'anz', numberSuffix: '0002' },
   { id: 'female', bank: 'cba', numberSuffix: '0003' },
   { id: 'plus', bank: 'anz_plus', numberSuffix: '0004' },
+  { id: 'everyday', bank: 'boq', numberSuffix: '0007' },
+  { id: 'saver', bank: 'boq', numberSuffix: '0008' },
+  { id: 'choice', bank: 'westpac', numberSuffix: '005' },
+  { id: 'life', bank: 'westpac', numberSuffix: '006' },
 ] as const;
 
-describe('identifyBankStatement（R1C / R1D / R1E 自动认账户，三家不混着找）', () => {
+describe('identifyBankStatement（R1C 到 R1G 自动认账户，几家不混着找）', () => {
   it('R1C / S11: an ANZ statement → ANZ Joint', () => {
     expect(identifyBankStatement(readStatementFixture('joint-2026-09.txt'), ACCOUNTS)).toEqual({
       ok: true,
@@ -125,10 +139,64 @@ describe('identifyBankStatement（R1C / R1D / R1E 自动认账户，三家不混
     ).toEqual({ ok: false, message: '有 2 个 CBA 账户的尾号都对得上，去账户设置把尾号填长一点' });
   });
 
-  it('R1E / C22: a text that looks like none of them → fail', () => {
+  it.each([
+    ['QD1', readBoqStatementFixture('everyday-2026-11.txt'), 'everyday'],
+    ['QD6', readBoqStatementFixture('saver-2026-11.txt'), 'saver'],
+    ['WD1', readWestpacStatementFixture('choice-2026-11.txt'), 'choice'],
+    ['WD8', readWestpacStatementFixture('life-2026-11.txt'), 'life'],
+  ])('R1F / R1G %s: picks the account by suffix within the same bank', (_id, lines, accountId) => {
+    expect(identifyBankStatement(lines, ACCOUNTS)).toEqual({ ok: true, accountId });
+  });
+
+  it('R1F / QD7: BOQ wrong-account.txt (…0002) does not pick ANZ Male', () => {
+    expect(identifyBankStatement(readBoqStatementFixture('wrong-account.txt'), ACCOUNTS)).toEqual({
+      ok: false,
+      message: '找不到尾号是 0002 的 BOQ 账户，先去账户设置填上尾号',
+    });
+  });
+
+  it('R1G / WD6: Westpac wrong-account.txt (…0002) does not pick ANZ Male', () => {
+    expect(
+      identifyBankStatement(readWestpacStatementFixture('wrong-account.txt'), ACCOUNTS),
+    ).toEqual({
+      ok: false,
+      message: '找不到尾号是 0002 的 Westpac 账户，先去账户设置填上尾号',
+    });
+  });
+
+  it('R1F / QD8: two BOQ accounts match the suffix → fail', () => {
+    expect(
+      identifyBankStatement(readBoqStatementFixture('everyday-2026-11.txt'), [
+        ...ACCOUNTS,
+        { id: 'everyday2', bank: 'boq', numberSuffix: '00007' },
+      ]),
+    ).toEqual({ ok: false, message: '有 2 个 BOQ 账户的尾号都对得上，去账户设置把尾号填长一点' });
+  });
+
+  it('R1G / WD7: two Westpac accounts match the suffix → fail', () => {
+    expect(
+      identifyBankStatement(readWestpacStatementFixture('choice-2026-11.txt'), [
+        ...ACCOUNTS,
+        { id: 'choice2', bank: 'westpac', numberSuffix: '0005' },
+      ]),
+    ).toEqual({
+      ok: false,
+      message: '有 2 个 Westpac 账户的尾号都对得上，去账户设置把尾号填长一点',
+    });
+  });
+
+  it('R1F / R1G: a BOQ statement does not pick a Westpac account with the same suffix', () => {
+    expect(
+      identifyBankStatement(readBoqStatementFixture('everyday-2026-11.txt'), [
+        { id: 'w', bank: 'westpac', numberSuffix: '0007' },
+      ]),
+    ).toEqual({ ok: false, message: '找不到尾号是 0007 的 BOQ 账户，先去账户设置填上尾号' });
+  });
+
+  it('R1F / Q31: a text that looks like none of them → fail', () => {
     expect(identifyBankStatement([{ page: 1, text: 'Hello' }], ACCOUNTS)).toEqual({
       ok: false,
-      message: '认不出这份对账单，只支持 ANZ、ANZ Plus、CBA 的 PDF 对账单',
+      message: '认不出这份对账单，只支持 ANZ、ANZ Plus、CBA、BOQ、Westpac 的 PDF 对账单',
     });
   });
 });
@@ -208,6 +276,41 @@ describe('parseBankStatement（R1C / R1D / R1E 按 bank 选解析器）', () => 
     expect(r).toMatchObject({ ok: false, page: 2, index: 2 });
   });
 
+  it('R1F / QD1: boq → 10 rows with balances, batch date_from = periodFrom (closed period)', () => {
+    const r = parseBankStatement('boq', readBoqStatementFixture('everyday-2026-11.txt'), '0007');
+    if (!r.ok) throw new Error(r.message);
+    expect(r.rows).toHaveLength(10);
+    expect(r.rows.every((row) => row.balanceCents !== null)).toBe(true);
+    expect(r).toMatchObject({
+      dateFrom: '2026-11-01',
+      dateTo: '2026-11-30',
+      openingCents: 0,
+      closingCents: 198750,
+    });
+  });
+
+  it('R1G / WD1: westpac → 5 rows, batch date_from = periodFrom', () => {
+    const r = parseBankStatement('westpac', readWestpacStatementFixture('choice-2026-11.txt'), '005');
+    if (!r.ok) throw new Error(r.message);
+    expect(r.rows).toHaveLength(5);
+    expect(r).toMatchObject({
+      dateFrom: '2026-11-01',
+      dateTo: '2026-11-30',
+      openingCents: 100000,
+      closingCents: 246355,
+    });
+  });
+
+  it('R1G / WD3: westpac one-day statement → date_from = date_to', () => {
+    const r = parseBankStatement('westpac', readWestpacStatementFixture('one-day.txt'), '005');
+    expect(r).toMatchObject({ ok: true, dateFrom: '2026-11-03', dateTo: '2026-11-03' });
+  });
+
+  it('R1F: boq failures keep page and index (Q9)', () => {
+    const r = parseBankStatement('boq', readBoqStatementFixture('broken-balance.txt'), '0007');
+    expect(r).toMatchObject({ ok: false, page: 2, index: 3 });
+  });
+
   it.each(['cash', 'other'] as const)('R1: %s cannot import a PDF statement', (bank) => {
     expect(
       parseBankStatement(bank, readAnzPlusStatementFixture('growth-2026-09.txt'), '0004'),
@@ -228,6 +331,13 @@ describe('statementPeriod（R1C / R1D / R1E 页面显示的账期）', () => {
     expect(statementPeriod('anz_plus', '2026-09-01', '2026-09-30')).toEqual({
       from: '2026-09-01',
       to: '2026-09-30',
+    });
+  });
+
+  it.each(['boq', 'westpac'] as const)('R1F / R1G: %s batch date_from is the printed periodFrom, unchanged', (bank) => {
+    expect(statementPeriod(bank, '2026-11-01', '2026-11-30')).toEqual({
+      from: '2026-11-01',
+      to: '2026-11-30',
     });
   });
 
