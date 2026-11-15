@@ -17,6 +17,7 @@ import {
   suggestTransfers,
   type HouseholdTransferTx,
   type RedetectTx,
+  type StatementNameAccount,
   type SuggestionTx,
   type TransferTx,
 } from './transfer';
@@ -102,6 +103,130 @@ describe('detectTransfer（R6.1）', () => {
     expect(
       detectTransfer({ transferAccount: '012345400000001' }, male, h.accounts).transferAccountId,
     ).toBe(joint.id);
+  });
+});
+
+// ---------- R6.1 按账户名认（fixtures 18 号识别用例 T1 到 T19） ----------
+
+describe('detectTransfer 按账户名认（R6.1，同一家银行内部）', () => {
+  // bank = boq、westpac 和 statement_name 是 M9.5-7 才进表的，先单独用 StatementNameAccount 传
+  // Account.bank 暂时填 other（M9 期间这几个账户就是按 other 建的）
+  function bankAcct(name: string, numberSuffix: string): Account {
+    return { ...acct(`acc:${name}`, numberSuffix), name, bank: 'other', defaultMemberId: 'member:Male' };
+  }
+  const choice = bankAcct('Westpac Choice Male', '0005');
+  const life = bankAcct('Westpac Life Male', '0006');
+  const everyday = bankAcct('BOQ Everyday Male', '0007');
+  const futureSaver = bankAcct('BOQ Future Saver Male', '0008');
+  const anzPlusMale = h.account('ANZ Plus Male');
+
+  const accounts = [...h.accounts, choice, life, everyday, futureSaver];
+  const named: StatementNameAccount[] = [
+    ...h.accounts.map((a) => ({ id: a.id, bank: a.bank, statementName: null, isArchived: false })),
+    { id: choice.id, bank: 'westpac', statementName: 'Westpac Choice', isArchived: false },
+    { id: life.id, bank: 'westpac', statementName: 'Westpac Life', isArchived: false },
+    { id: everyday.id, bank: 'boq', statementName: 'Everyday Account', isArchived: false },
+    { id: futureSaver.id, bank: 'boq', statementName: 'Future Saver', isArchived: false },
+  ];
+
+  // 测试里现改某个账户
+  const changed = (id: string, patch: Partial<StatementNameAccount>) =>
+    named.map((n) => (n.id === id ? { ...n, ...patch } : n));
+
+  // 和导入时一样：先 R2 提取和脱敏，再 R6.1
+  function detect(
+    description: string,
+    current: Account,
+    opts: { accounts?: readonly Account[]; named?: readonly StatementNameAccount[] } = {},
+  ) {
+    const { description: masked, transferAccount } = extractAndMask(description);
+    return detectTransfer(
+      { transferAccount, description: masked },
+      current,
+      opts.accounts ?? accounts,
+      opts.named ?? named,
+    );
+  }
+
+  const auto = (a: Account) => ({ transferStatus: 'auto', transferAccountId: a.id });
+  const NONE = { transferStatus: 'none', transferAccountId: null };
+
+  it.each([
+    ['T1', choice, 'Withdrawal Mobile 1000002 Tfr Westpac Lif', life],
+    ['T2', life, 'Deposit Online 2000001 Tfr Westpac Cho', choice],
+    ['T3', everyday, 'To: Future Saver NOTPROVIDED', futureSaver],
+    ['T4', futureSaver, 'From: Everyday Account NOTPROVIDED', everyday],
+    ['T5', choice, 'Withdrawal Mobile 1000002 Tfr Westpac Life', life],
+    ['T6', everyday, 'To: Future Saver Holiday NOTPROVIDED', futureSaver],
+  ] as const)('R6.1 %s: %s "%s" → auto', (_id, current, description, counterpart) => {
+    expect(detect(description, current)).toEqual(auto(counterpart));
+  });
+
+  it('R6.1 T7: case-insensitive, whitespace collapsed (statement_name "westpac  LIFE")', () => {
+    expect(
+      detect('Withdrawal Mobile 1000002 Tfr Westpac Lif', choice, {
+        named: changed(life.id, { statementName: 'westpac  LIFE' }),
+      }),
+    ).toEqual(auto(life));
+  });
+
+  it('R6.1 T8: truncated name matches two westpac accounts → none', () => {
+    const bonus = bankAcct('Westpac Life Bonus', '0009');
+    expect(
+      detect('Withdrawal Mobile 1000002 Tfr Westpac Lif', choice, {
+        accounts: [...accounts, bonus],
+        named: [
+          ...named,
+          { id: bonus.id, bank: 'westpac', statementName: 'Westpac Life Bonus', isArchived: false },
+        ],
+      }),
+    ).toEqual(NONE);
+  });
+
+  it('R6.1 T9: "Future" and "Future Saver" both match → none', () => {
+    const future = bankAcct('BOQ Future', '0010');
+    expect(
+      detect('To: Future Saver NOTPROVIDED', everyday, {
+        accounts: [...accounts, future],
+        named: [...named, { id: future.id, bank: 'boq', statementName: 'Future', isArchived: false }],
+      }),
+    ).toEqual(NONE);
+  });
+
+  it.each([
+    ['T10', '同名的在别家银行', { bank: 'westpac' }],
+    ['T12', 'statement_name 为空', { statementName: null }],
+    ['T13', '归档', { isArchived: true }],
+  ] as const)('R6.1 %s: Future Saver %s → none', (_id, _why, patch) => {
+    expect(
+      detect('To: Future Saver NOTPROVIDED', everyday, { named: changed(futureSaver.id, patch) }),
+    ).toEqual(NONE);
+  });
+
+  it.each([
+    ['T11', everyday, 'To: Everyday Account NOTPROVIDED'], // 对上的是自己
+    ['T14', everyday, 'To: Future Savers NOTPROVIDED'], // Future Saver 后面紧跟的不是空格
+    ['T15', futureSaver, 'From: TEST FRIEND NA'], // 外行转入，靠 R6.3
+    ['T16', choice, 'Deposit-Osko Payment 1000001 TEST FRIEND 31 Oct 2026'], // 不是表里的开头
+    ['T17', male, 'To: Future Saver NOTPROVIDED'], // anz 不在按名字认的表里
+    ['T18', everyday, 'To: Future Saver TRANSFER FROM 400009999'], // R2.2 取到了账号，只按账号认
+    ['T20', everyday, 'To: '], // 开头后面是空的
+  ] as const)('R6.1 %s: %s "%s" → none', (_id, current, description) => {
+    expect(detect(description, current)).toEqual(NONE);
+  });
+
+  it('R6.1 T19: account-number match is unaffected (ANZ Male → ANZ Plus Male)', () => {
+    expect(detect('TRANSFER TO 012345-400000004 #123456', male)).toEqual(auto(anzPlusMale));
+  });
+
+  it('R6.1: without statement-name accounts only the account number is used', () => {
+    expect(
+      detectTransfer(
+        { transferAccount: null, description: 'To: Future Saver NOTPROVIDED' },
+        everyday,
+        accounts,
+      ),
+    ).toEqual(NONE);
   });
 });
 

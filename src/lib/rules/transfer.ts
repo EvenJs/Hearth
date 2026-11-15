@@ -17,15 +17,70 @@ function suffixMatches(extracted: string, suffix: string): boolean {
   return extracted.endsWith(suffix) || suffix.endsWith(extracted);
 }
 
+// R6.1 按账户名认要用的账户字段。bank 先用 string：boq、westpac 和 statement_name 列都是 M9.5-7 才加
+// M9.5-7 以后可以并进 Account
+export type StatementNameAccount = {
+  id: string;
+  bank: string;
+  statementName: string | null;
+  isArchived: boolean;
+};
+
+// R6.1 按账户名认：每家银行本行转账的描述开头，捕获组是后面剩下的全部。大小写照真实的写法，不放宽
+const STATEMENT_NAME_PREFIXES: Record<string, readonly RegExp[]> = {
+  westpac: [/^Withdrawal Mobile \d{7} Tfr (.*)$/, /^Deposit Online \d{7} Tfr (.*)$/],
+  boq: [/^To: (.*)$/, /^From: (.*)$/],
+};
+
+// R6.1：不分大小写、连续空白压成一个空格
+function normalizeName(s: string): string {
+  return s.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+// R6.1：截断（取出来的是 statement_name 的前缀），或后面带了东西（statement_name 是前缀且后面紧跟空格）
+function statementNameMatches(extracted: string, statementName: string): boolean {
+  return statementName.startsWith(extracted) || extracted.startsWith(`${statementName} `);
+}
+
+// R6.1 按账户名认：同一个 bank、没归档、不是自己、statement_name 不为空，对上恰好 1 个才算
+function detectByStatementName(
+  description: string,
+  account: Account,
+  named: readonly StatementNameAccount[],
+): string | null {
+  const bank = named.find((n) => n.id === account.id)?.bank;
+  const prefixes = bank ? STATEMENT_NAME_PREFIXES[bank] : undefined;
+  if (!prefixes) return null;
+
+  const captured = prefixes.map((re) => re.exec(description)?.[1]).find((c) => c !== undefined);
+  if (captured === undefined) return null;
+  const extracted = normalizeName(captured);
+  if (!extracted) return null; // 开头后面什么都没有（规则没写，先不认）
+
+  const matches = named.filter((n) => {
+    if (n.id === account.id || n.bank !== bank || n.isArchived || !n.statementName) return false;
+    const statementName = normalizeName(n.statementName);
+    return statementName !== '' && statementNameMatches(extracted, statementName);
+  });
+  return matches.length === 1 ? matches[0].id : null;
+}
+
 // R6.1 自动识别。row.transferAccount 是 R2.2 提取的对方账号（已经检查过 FUNDS TFER / TRANSFER 关键词）
 // 不能是当前账户自己；没有尾号的账户（现金）跳过；对上多个账户时不认，留给 R6.3
+// R2.2 没取到账号时才按账户名认（row.description + named）；取到了账号就只按账号，对不上走 R7
 export function detectTransfer(
-  row: { transferAccount: string | null },
+  row: { transferAccount: string | null; description?: string },
   account: Account,
   allAccounts: readonly Account[],
+  named: readonly StatementNameAccount[] = [],
 ): DetectResult {
   const extracted = row.transferAccount;
-  if (!extracted) return { transferStatus: 'none', transferAccountId: null };
+  if (!extracted) {
+    const byName = row.description ? detectByStatementName(row.description, account, named) : null;
+    return byName
+      ? { transferStatus: 'auto', transferAccountId: byName }
+      : { transferStatus: 'none', transferAccountId: null };
+  }
 
   const matches = allAccounts.filter(
     (a) => a.id !== account.id && a.numberSuffix && suffixMatches(extracted, a.numberSuffix),

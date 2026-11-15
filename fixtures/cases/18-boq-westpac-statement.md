@@ -447,6 +447,7 @@ Page 4 of 4
 | T17 | ANZ Male | `To: Future Saver NOTPROVIDED` | | 不认（`anz` 不在按名字认的表里） |
 | T18 | BOQ Everyday Male | `To: Future Saver TRANSFER FROM 400009999` | | 不认：R2.2 取到了 `400009999`，只按账号认，对不上就走 R7，不再按名字试（描述是编的） |
 | T19 | ANZ Male | `TRANSFER TO 012345-400000004 #123456` | | auto，对方 `ANZ Plus Male`（原来按账号认的不受影响） |
+| T20 | BOQ Everyday Male | `To: ` | | 不认（开头后面是空的） |
 
 ### 导入用例（连数据库，M9.5-9）
 
