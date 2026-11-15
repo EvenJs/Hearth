@@ -7,6 +7,7 @@ import {
   Clock,
   Copy,
   History,
+  Layers,
   List,
   Link2,
   Unlink,
@@ -37,7 +38,7 @@ import { getImportResult, type ImportResultView, type ResultTx } from '@/server/
 import { UndoImportButton } from '../undo-import-button';
 
 // F2 导入结果（设计图 07）：R12 第 10 步的结果。撤销用导入历史页同一个按钮和弹窗
-// M6.6-6：ANZ 对账单显示账期、首尾衔接（R12.2）；CSV 和上次之间可能有空档时提醒
+// M6.6-6：ANZ 对账单显示账期、首尾衔接（R12.2）；CSV 和上次之间可能有空档时提醒；M9.5-10：对账单账期重叠时提示
 export default function ImportResultPage(props: PageProps<'/import/[batchId]'>) {
   return (
     <>
@@ -155,6 +156,10 @@ function ImportResult({ r }: { r: ImportResultView }) {
       <ReconciliationCard r={r} />
 
       {isPdf && r.statementContinuity && <ContinuityCard continuity={r.statementContinuity} bank={r.account.bank} />}
+
+      {isPdf && r.statementOverlaps.length > 0 && (
+        <OverlapCard overlaps={r.statementOverlaps} bank={r.account.bank} />
+      )}
 
       {r.importGap && (
         <Card className="border-amber-300">
@@ -473,6 +478,44 @@ function ContinuityCard({
         <CardDescription>
           上一份（{prevLink}
           ）的期末余额和这一份的期初余额不一样，可能中间少了一份对账单。导入照常完成了。
+        </CardDescription>
+      </CardHeader>
+    </Card>
+  );
+}
+
+// R12.2 账期重叠（M9.5-1）：和以前哪几份对账单的账期有交集。只提示，不比余额，不算进"需要处理的提醒"
+// 重叠的那几份是同一个账户的，银行一样
+function OverlapCard({
+  overlaps,
+  bank,
+}: {
+  overlaps: ImportResultView['statementOverlaps'];
+  bank: ImportResultView['account']['bank'];
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Layers className="size-5 text-muted-foreground" />
+          和以前的对账单账期重叠
+        </CardTitle>
+        <CardDescription className="flex flex-col gap-1">
+          {overlaps.map((o) => {
+            const p = statementPeriod(bank, o.dateFrom, o.dateTo);
+            return (
+              <span key={o.batchId}>
+                和{' '}
+                <Link
+                  href={`/import/${o.batchId}`}
+                  className="tabular-nums underline-offset-4 hover:underline"
+                >
+                  {p.from} 至 {p.to}
+                </Link>{' '}
+                那份对账单的账期重叠了，重叠的交易已经跳过。
+              </span>
+            );
+          })}
         </CardDescription>
       </CardHeader>
     </Card>

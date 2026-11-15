@@ -50,18 +50,21 @@ import type { Account } from '@/server/accounts';
 import type { Member } from '@/server/members';
 import { previewAccountSaveAction, saveAccountAction } from './actions';
 
-// 选了银行以后的说明（R1、R1C、R1D、R1E）
+// 选了银行以后的说明（R1、R1C 到 R1G）
 const BANK_IMPORT_HINT: Record<Bank, string> = {
   anz: '可以导入 CSV 和 PDF 对账单，导对账单要填尾号',
   anz_plus: '导入 PDF 对账单（不能导 CSV），要填尾号',
   cba: '可以导入 CSV 和 PDF 对账单，导对账单要填尾号',
-  // M9.5-9、M9.6 接上导入以后改
-  boq: '暂时只能手动录入，以后能导入 PDF 对账单',
-  westpac: '暂时只能手动录入，以后能导入 PDF 对账单',
+  boq: '导入 PDF 对账单（不能导 CSV），要填尾号',
+  westpac: '导入 PDF 对账单（不能导 CSV），要填尾号',
+  // M9.6 接上导入以后改
   ing: '暂时只能手动录入，以后能导入 PDF 对账单',
   cash: '不能导入，只能手动录入',
   other: '不能导入，只能手动录入',
 };
+
+// R6.1 按账户名认：只有 BOQ、Westpac 的转账描述里是对方的银行产品名（schema.md financial_account.statement_name）
+const STATEMENT_NAME_BANKS: readonly Bank[] = ['boq', 'westpac'];
 
 // R6.4 弹窗：保存后会认成内部转账的 N 笔、对上了但不改的 M 笔，和当时的表单输入
 type RedetectPrompt = { count: number; keptCount: number; input: AccountInput };
@@ -95,16 +98,24 @@ export function AccountForm({ account, accounts, members, onDone }: Props) {
           type: account.type,
           defaultMemberId: account.defaultMemberId,
           numberSuffix: account.numberSuffix ?? '',
+          statementName: account.statementName ?? '',
           purpose: account.purpose,
           linkedAccountId: account.linkedAccountId,
         }
       : // 新建时银行、类型、归属人不预选，避免没注意就保存
-        ({ name: '', numberSuffix: '', purpose: 'everyday', linkedAccountId: null } as AccountInput),
+        ({
+          name: '',
+          numberSuffix: '',
+          statementName: '',
+          purpose: 'everyday',
+          linkedAccountId: null,
+        } as AccountInput),
   });
 
   const bank = useWatch({ control: form.control, name: 'bank' });
   const type = useWatch({ control: form.control, name: 'type' });
   const isCash = type === 'cash';
+  const hasStatementName = !!bank && STATEMENT_NAME_BANKS.includes(bank);
 
   // R23.4：下拉里去掉自己、已归档的、现金账户
   const linkOptions = accounts.filter(
@@ -211,6 +222,8 @@ export function AccountForm({ account, accounts, members, onDone }: Props) {
                   field.onChange(v);
                   // R23.4：现金账户不能关联别的账户
                   if (v === 'cash') form.setValue('linkedAccountId', null);
+                  // R6.1：别的银行不用账户名，藏起来的值不保存
+                  if (!STATEMENT_NAME_BANKS.includes(v as Bank)) form.setValue('statementName', null);
                 }}
               >
                 <FormControl>
@@ -314,9 +327,9 @@ export function AccountForm({ account, accounts, members, onDone }: Props) {
               </FormControl>
               <FormDescription>
                 {bank === 'westpac'
-                  ? '只填最后 3 位数字（Westpac 账号只有 6 位，不能填满）。两个 Westpac 账户后 3 位一样时各加 1 位，最多 5 位。'
-                  : bank === 'anz_plus'
-                  ? '只填最后 4 到 6 位数字。导入 PDF 对账单时按尾号认账户，ANZ Plus 账户要填。'
+                  ? '只填最后 3 位数字（Westpac 账号只有 6 位，不能填满）。两个 Westpac 账户后 3 位一样时各加 1 位，最多 5 位。导入 PDF 对账单时按尾号认账户，要填。'
+                  : bank === 'anz_plus' || bank === 'boq'
+                  ? `只填最后 4 到 6 位数字。导入 PDF 对账单时按尾号认账户，${BANK_LABELS[bank]} 账户要填。`
                   : canImportStatement(bank)
                     ? '只填最后 4 到 6 位数字，用来识别内部转账；导入 PDF 对账单时按尾号认账户，只导 CSV 可以不填。'
                     : '只填最后 4 到 6 位数字，用来识别内部转账。可以不填。'}
@@ -330,6 +343,30 @@ export function AccountForm({ account, accounts, members, onDone }: Props) {
             </FormItem>
           )}
         />
+
+        {hasStatementName && (
+          <FormField
+            control={form.control}
+            name="statementName"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>对账单上的账户名</FormLabel>
+                <FormControl>
+                  <Input
+                    autoComplete="off"
+                    placeholder="如 Westpac Life"
+                    {...field}
+                    value={field.value ?? ''}
+                  />
+                </FormControl>
+                <FormDescription>
+                  对账单上的账户名，如 Westpac Life。同一家银行的账户之间转账，描述里只有这个名字，按它认成内部转账（R6.1）。可以不填。
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        )}
 
         <FormField
           control={form.control}

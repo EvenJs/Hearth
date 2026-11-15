@@ -61,7 +61,7 @@ export type ImportAccount = {
   coverage: ImportCoverage; // R12.2
 };
 
-// 第 1 步的文字按 fileBank 分：anz = CSV 和对账单都收，anz_plus = 只收对账单（家里只有 ANZ Plus 账户）
+// 第 1 步的文字按 fileBank 分：anz = CSV 和对账单都收，anz_plus = 只收对账单（家里只有 ANZ Plus、BOQ、Westpac 账户）
 // R1E 以后能导 CSV 的银行（ANZ、CBA）都能导对账单，没有只收 CSV 的情况
 type FileBank = Extract<Bank, 'anz' | 'anz_plus'>;
 const UPLOAD_TITLE: Record<FileBank, string> = {
@@ -147,8 +147,8 @@ function ImportFormInner({
     defaultValues: { accountId: defaultAccountId, openingBalance: '', closingBalance: '' },
   });
 
-  // R1C、R1D、R1E：ANZ、ANZ Plus、CBA 有对账单，ANZ、CBA 有 CSV。选账户之前按家里有的账户粗查文件类型：
-  // 有 ANZ 或 CBA 时用 anz（收 .csv 和 .pdf），只有 ANZ Plus 用 anz_plus（只收 .pdf）
+  // R1C 到 R1G：ANZ、ANZ Plus、CBA、BOQ、Westpac 有对账单，ANZ、CBA 有 CSV。选账户之前按家里有的账户粗查文件类型：
+  // 有 ANZ 或 CBA 时用 anz（收 .csv 和 .pdf），只有 ANZ Plus、BOQ、Westpac 用 anz_plus（只收 .pdf）
   const hasCsv = accounts.some((a) => canImportCsv(a.bank));
   const fileBank: FileBank = hasCsv ? 'anz' : 'anz_plus';
   const kind = file ? checkImportFile(file, fileBank).kind : null;
@@ -157,7 +157,7 @@ function ImportFormInner({
   const accountId = useWatch({ control: form.control, name: 'accountId' });
   const selected = isPdf ? undefined : accounts.find((a) => a.id === accountId);
   const identified = isPdf && identity.status === 'ok' ? identity.account : null;
-  // R1D：CSV 选了 ANZ Plus 账户，页面上就拦住，不用等服务端
+  // R1D、R1F、R1G：CSV 选了 ANZ Plus、BOQ、Westpac 账户，页面上就拦住，不用等服务端
   const accountFileError =
     file && selected && !isPdf ? checkImportFile(file, selected.bank).error : null;
   const csvAccount = accountFileError ? undefined : selected;
@@ -254,7 +254,7 @@ function ImportFormInner({
       <form onSubmit={form.handleSubmit(onSubmit)} className="flex max-w-3xl flex-col gap-6">
         <CoverageTable accounts={accounts} today={today} />
 
-        {/* 1. 先传文件：PDF 对账单自动认账户（R1C、R1D、R1E），CSV 再选账户 */}
+        {/* 1. 先传文件：PDF 对账单自动认账户（R1C 到 R1G），CSV 再选账户 */}
         <Card>
           <CardHeader>
             <CardTitle>{UPLOAD_TITLE[fileBank]}</CardTitle>
@@ -324,7 +324,7 @@ function ImportFormInner({
           </Card>
         )}
 
-        {/* 3. 对账（ANZ CSV 可选手填；ANZ 对账单从汇总页读；CBA 从余额列自动算） */}
+        {/* 3. 对账（ANZ CSV 可选手填；对账单从对账单上读；CBA CSV 从余额列自动算） */}
         {(identified || csvAccount) && (
           <Card>
             <CardHeader>
@@ -336,7 +336,7 @@ function ImportFormInner({
               </CardTitle>
               <CardDescription>
                 {isPdf
-                  ? '对账单的期初和期末余额会从汇总页自动读出来，不用填。还会和上一份对账单检查首尾接不接得上'
+                  ? '对账单的期初和期末余额会从对账单上自动读出来，不用填。还会和上一份对账单检查首尾接不接得上'
                   : balanceInputs
                     ? '可以参考 PDF 对账单填期初和期末余额，检查有没有漏导或重复。不填也能导入；也可以直接导入 PDF 对账单'
                     : 'CBA 的 CSV 带余额列，期初期末会自动算出来，不用填；也可以直接导入 PDF 对账单'}
@@ -561,15 +561,15 @@ function AccountOption({
   );
 }
 
-// R1C、R1D、R1E 自动认账户的结果（M6.6-6b）
+// R1C 到 R1G 自动认账户的结果（M6.6-6b）
 function IdentityCard({ identity }: { identity: Identity }) {
   return (
     <Card>
       <CardHeader>
         <CardTitle>2. 账户</CardTitle>
         <CardDescription>
-          按对账单上的账号找尾号对得上的账户：ANZ 对账单只找 ANZ 账户，ANZ Plus 只找 ANZ Plus，CBA
-          只找 CBA
+          按对账单上的账号找尾号对得上的账户，只在同一家银行的账户里找（ANZ 对账单只找 ANZ
+          账户，以此类推）
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
@@ -614,7 +614,7 @@ function IdentityCard({ identity }: { identity: Identity }) {
 }
 
 // R12.2 导入前：上次导到哪天、建议导出范围、对账单导到哪天。没导入过不显示
-// 下一份对账单的开始日：ANZ 账期 (from, to]，下一份印的开始日就是 to（R1C）；ANZ Plus、CBA 是 [from, to]，从第二天开始（R1D、R1E）
+// 下一份对账单的开始日：ANZ 账期 (from, to]，下一份印的开始日就是 to（R1C）；其他是 [from, to]，从第二天开始（R1D 到 R1G）
 function CoverageNotice({ bank, coverage }: { bank: Bank; coverage: ImportCoverage }) {
   if (coverage.lastDateTo === null) return null;
   const nextStatementFrom =
