@@ -24,6 +24,7 @@ export type Account = {
   defaultMemberId: string;
   defaultMemberName: string;
   numberSuffix: string | null;
+  statementName: string | null; // R6.1
   isArchived: boolean;
   purpose: AccountPurpose;
   // R23.4 关联账户。对方归档了也照样返回，显示"（已归档）"
@@ -63,6 +64,7 @@ export async function listAccounts(
       defaultMemberId: financialAccount.defaultMemberId,
       defaultMemberName: member.name,
       numberSuffix: financialAccount.numberSuffix,
+      statementName: financialAccount.statementName,
       isArchived: financialAccount.isArchived,
       purpose: financialAccount.purpose,
       linkedAccountId: financialAccount.linkedAccountId,

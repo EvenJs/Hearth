@@ -54,6 +54,10 @@ const BANK_IMPORT_HINT: Record<Bank, string> = {
   anz: '可以导入 CSV 和 PDF 对账单，导对账单要填尾号',
   anz_plus: '导入 PDF 对账单（不能导 CSV），要填尾号',
   cba: '可以导入 CSV 和 PDF 对账单，导对账单要填尾号',
+  // M9.5-9、M9.6 接上导入以后改
+  boq: '暂时只能手动录入，以后能导入 PDF 对账单',
+  westpac: '暂时只能手动录入，以后能导入 PDF 对账单',
+  ing: '暂时只能手动录入，以后能导入 PDF 对账单',
   cash: '不能导入，只能手动录入',
   other: '不能导入，只能手动录入',
 };
@@ -308,7 +312,9 @@ export function AccountForm({ account, accounts, members, onDone }: Props) {
                 />
               </FormControl>
               <FormDescription>
-                {bank === 'anz_plus'
+                {bank === 'westpac'
+                  ? '只填最后 3 位数字（Westpac 账号只有 6 位，不能填满）。两个 Westpac 账户后 3 位一样时各加 1 位，最多 5 位。'
+                  : bank === 'anz_plus'
                   ? '只填最后 4 到 6 位数字。导入 PDF 对账单时按尾号认账户，ANZ Plus 账户要填。'
                   : canImportStatement(bank)
                     ? '只填最后 4 到 6 位数字，用来识别内部转账；导入 PDF 对账单时按尾号认账户，只导 CSV 可以不填。'

@@ -13,9 +13,9 @@ import { parseCbaStatement } from './cba-statement';
 import { looksLikeWestpacStatement, parseWestpacStatement } from './westpac-statement';
 
 // 期望值来自 business-rules.md R1G、R1G.1 和 fixtures/cases/18-boq-westpac-statement.md
-// fixture 是编的：Westpac Choice Male 尾号 0005，Westpac Life Male 尾号 0006（18 号另加的账户）
+// fixture 是编的：Westpac Choice Male 尾号 005，Westpac Life Male 尾号 006（18 号另加的账户）
 
-const SUFFIX = '0005';
+const SUFFIX = '005';
 const MAIN_TEXT = readFixture('westpac-statement/choice-2026-11.txt');
 
 // 在 choice-2026-11.txt 上改几处再解析。每个 from 必须正好出现一次，免得改错地方测试还通过
@@ -110,7 +110,7 @@ describe('parseWestpacStatement（R1G）', () => {
   });
 
   it('R1G: W3 life-2026-11.txt parses 3 credits, opening 0', () => {
-    const result = expectSuccess(parseFixture('life-2026-11.txt', '0006'));
+    const result = expectSuccess(parseFixture('life-2026-11.txt', '006'));
     expect(result.rows).toEqual([
       {
         date: '2026-11-03',

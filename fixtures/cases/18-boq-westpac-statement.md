@@ -9,8 +9,8 @@
 | --- | --- | --- | --- | --- | --- |
 | BOQ Everyday Male | boq | everyday | Male | `0007` | `Everyday Account` |
 | BOQ Future Saver Male | boq | savings | Male | `0008` | `Future Saver` |
-| Westpac Choice Male | westpac | everyday | Male | `0005` | `Westpac Choice` |
-| Westpac Life Male | westpac | savings | Male | `0006` | `Westpac Life` |
+| Westpac Choice Male | westpac | everyday | Male | `005` | `Westpac Choice` |
+| Westpac Life Male | westpac | savings | Male | `006` | `Westpac Life` |
 
 ## Westpac（R1G，M9.5-1）
 
@@ -18,7 +18,7 @@
 
 户名、地址、BSB `039-999`、账号 `120 005` / `120 006`、流水号、金额都是编的。
 
-### 主文件 `choice-2026-11.txt`（导入到 `Westpac Choice Male`，尾号 `0005`）
+### 主文件 `choice-2026-11.txt`（导入到 `Westpac Choice Male`，尾号 `005`）
 
 ```
 Statement Period
@@ -75,7 +75,7 @@ Westpac Banking Corporation ABN 00 000 000 000 AFSL and Australian credit licenc
 
 解析结果：5 行，**旧的在前**，和 R1G.1 那张表一样。账期 `2026-11-01` 到 `2026-11-30`，期初 100000，期末 246355，借合计 178645，贷合计 325000。
 
-### `life-2026-11.txt`（导入到 `Westpac Life Male`，尾号 `0006`）
+### `life-2026-11.txt`（导入到 `Westpac Life Male`，尾号 `006`）
 
 Choice 那 3 笔转出在 Life 这边的样子（流水号和 Choice 那边**不一样**，真实的也是）：
 
@@ -145,13 +145,13 @@ Westpac Banking Corporation ABN 00 000 000 000 AFSL and Australian credit licenc
 
 | 用例 | 输入 | 期望 |
 | --- | --- | --- |
-| W1 | `choice-2026-11.txt`，尾号 `0005` | 5 行，和 R1G.1 那张表一样（旧的在前）；账期 `2026-11-01` 到 `2026-11-30`，期初 100000，期末 246355。户名、地址、汇总、利率表、说明、页脚、后两页都没进任何描述 |
+| W1 | `choice-2026-11.txt`，尾号 `005` | 5 行，和 R1G.1 那张表一样（旧的在前）；账期 `2026-11-01` 到 `2026-11-30`，期初 100000，期末 246355。户名、地址、汇总、利率表、说明、页脚、后两页都没进任何描述 |
 | W2 | 同上 | 第 1 行是 `2026-11-01`、`50000`、描述 `Deposit-Osko Payment 1000001 TEST FRIEND 31 Oct 2026`（日期用 `DATE` 那列，不是描述里的 `31 Oct`；账期第一天算这一份）；两笔 `2026-11-03` 的顺序是余额 120000 在前、90000 在后 |
-| W3 | `life-2026-11.txt`，尾号 `0006` | 3 行：`2026-11-03`、`30000`、`Deposit Online 2000001 Tfr Westpac Cho`、`30000`；`2026-11-03`、`30000`、`Deposit Online 2000002 Tfr Westpac Cho`、`60000`；`2026-11-15`、`118645`、`Deposit Online 2000003 Tfr Westpac Cho`、`178645`。期初 0，期末 178645 |
-| W4 | `one-day.txt`，尾号 `0005` | 2 行，和 W1 的第 2、3 行完全一样（日期、金额、描述、余额）；账期 `2026-11-03` 到 `2026-11-03`，期初 150000，期末 90000 |
+| W3 | `life-2026-11.txt`，尾号 `006` | 3 行：`2026-11-03`、`30000`、`Deposit Online 2000001 Tfr Westpac Cho`、`30000`；`2026-11-03`、`30000`、`Deposit Online 2000002 Tfr Westpac Cho`、`60000`；`2026-11-15`、`118645`、`Deposit Online 2000003 Tfr Westpac Cho`、`178645`。期初 0，期末 178645 |
+| W4 | `one-day.txt`，尾号 `005` | 2 行，和 W1 的第 2、3 行完全一样（日期、金额、描述、余额）；账期 `2026-11-03` 到 `2026-11-03`，期初 150000，期末 90000 |
 | W5 | `empty-2026-12.txt` | 0 行，成功；期初 = 期末 = 246355（期初带 `+` 也认） |
 | W6 | `broken-balance.txt` | 失败"第 4 笔余额接不上"，`page = 1`，`index = 4` |
-| W7 | `wrong-account.txt`，尾号 `0005` | 失败"这份对账单不是这个账户的"；信息里没有 `120002`、`120 002`、`039-999`、`039999`，最多有 `0002` |
+| W7 | `wrong-account.txt`，尾号 `005` | 失败"这份对账单不是这个账户的"；信息里没有 `120002`、`120 002`、`039-999`、`039999`，最多有 `0002` |
 | W8 | `choice-2026-11.txt`，尾号 `null` | 失败，提示先去账户设置填尾号 |
 | W9 | 主文件删掉账号那行 `039-999  120 005`（测试里现改） | 失败"找不到账号" |
 | W10 | `unknown-line.txt` | 失败"交易表里第 2 笔下面有一行认不出来"，`page = 1`，`index = 2` |
@@ -182,7 +182,7 @@ Westpac Banking Corporation ABN 00 000 000 000 AFSL and Australian credit licenc
 | WD4 | WD1 | 导入 `empty-2026-12.txt` | 新增 0，建了批次，`date_from = 2026-12-01`，`reconciled = true`；R12.2 提示"和上一份对账单（2026-11-01 到 2026-11-30）接上了"，没有重叠提示 |
 | WD5 | WD1 | 导入 `one-day.txt` | 跳过 2，新增 0；R12.2 不提示首尾衔接，提示和 2026-11-01 到 2026-11-30 那份重叠 |
 | WD6 | 空数据库 | 不选账户，导入 `wrong-account.txt` | 整份失败"找不到尾号是 0002 的 Westpac 账户"（`ANZ Male` 尾号是 `0002` 也不算）；什么都没写 |
-| WD7 | 再建一个 `westpac` 账户，尾号 `20005` | 不选账户，导入 `choice-2026-11.txt` | 整份失败"有 2 个 Westpac 账户的尾号都对得上"；什么都没写 |
+| WD7 | 再建一个 `westpac` 账户，尾号 `0005`（加 1 位，也对得上） | 不选账户，导入 `choice-2026-11.txt` | 整份失败"有 2 个 Westpac 账户的尾号都对得上"；什么都没写 |
 | WD8 | 空数据库 | 不选账户，导入 `life-2026-11.txt` | 认出 `Westpac Life Male`（不是 Choice）；新增 3 |
 | WD9 | 空数据库 | 不选账户，导入 `anz-statement/joint-2026-09.txt`、`anz-plus-statement/growth-2026-09.txt`、`cba-statement/female-2026-09.txt` | 照旧分别认出 `ANZ Joint`、`ANZ Plus Male`、`CBA Female`（四选一以后 R1C、R1D、R1E 不受影响） |
 
@@ -435,7 +435,7 @@ Page 4 of 4
 | T5 | Westpac Choice Male | `Withdrawal Mobile 1000002 Tfr Westpac Life` | | auto，对方 `Westpac Life Male`（没截断，一字不差也算） |
 | T6 | BOQ Everyday Male | `To: Future Saver Holiday NOTPROVIDED` | | auto，对方 `BOQ Future Saver Male`（名字后面是备注） |
 | T7 | Westpac Choice Male | `Withdrawal Mobile 1000002 Tfr Westpac Lif` | Westpac Life Male 的 `statement_name` 改成 `westpac  LIFE` | auto（不分大小写，空白压成一个） |
-| T8 | Westpac Choice Male | `Withdrawal Mobile 1000002 Tfr Westpac Lif` | 加一个 westpac 账户 `statement_name = Westpac Life Bonus`，尾号 `0009` | 不认（对上 2 个） |
+| T8 | Westpac Choice Male | `Withdrawal Mobile 1000002 Tfr Westpac Lif` | 加一个 westpac 账户 `statement_name = Westpac Life Bonus`，尾号 `009` | 不认（对上 2 个） |
 | T9 | BOQ Everyday Male | `To: Future Saver NOTPROVIDED` | 加一个 boq 账户 `statement_name = Future`，尾号 `0010` | 不认（`Future`、`Future Saver` 都对上） |
 | T10 | BOQ Everyday Male | `To: Future Saver NOTPROVIDED` | BOQ Future Saver Male 的 `bank` 改成 `westpac` | 不认（同名的在别家银行） |
 | T11 | BOQ Everyday Male | `To: Everyday Account NOTPROVIDED` | | 不认（对上的是自己） |

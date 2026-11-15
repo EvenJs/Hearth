@@ -114,8 +114,8 @@ describe('detectTransfer 按账户名认（R6.1，同一家银行内部）', () 
   function bankAcct(name: string, numberSuffix: string): Account {
     return { ...acct(`acc:${name}`, numberSuffix), name, bank: 'other', defaultMemberId: 'member:Male' };
   }
-  const choice = bankAcct('Westpac Choice Male', '0005');
-  const life = bankAcct('Westpac Life Male', '0006');
+  const choice = bankAcct('Westpac Choice Male', '005');
+  const life = bankAcct('Westpac Life Male', '006');
   const everyday = bankAcct('BOQ Everyday Male', '0007');
   const futureSaver = bankAcct('BOQ Future Saver Male', '0008');
   const anzPlusMale = h.account('ANZ Plus Male');
@@ -171,7 +171,7 @@ describe('detectTransfer 按账户名认（R6.1，同一家银行内部）', () 
   });
 
   it('R6.1 T8: truncated name matches two westpac accounts → none', () => {
-    const bonus = bankAcct('Westpac Life Bonus', '0009');
+    const bonus = bankAcct('Westpac Life Bonus', '009');
     expect(
       detect('Withdrawal Mobile 1000002 Tfr Westpac Lif', choice, {
         accounts: [...accounts, bonus],

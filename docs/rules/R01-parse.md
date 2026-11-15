@@ -581,12 +581,12 @@ Westpac 没有 CSV 要对齐，只导 PDF 对账单。Choice（日常）和 Life
 **账号核对、自动认账户**：照 R1E，只是账号的位置和长度不一样：
 
 - 账号：第 1 页以 `  BSB  Account Number` 结尾的那行的**下一行**，`ddd-ddd  ddd ddd`，取两个空格后面那段、去掉空格，是 6 位数字【2 份】。不是这个样子 → 整份失败"找不到账号"。**BSB、账号、户名不存、不进日志，错误信息里最多带后 4 位**
-- **Westpac 账号只有 6 位**，`number_suffix` 填 6 位就等于存了完整账号。Westpac 账户的尾号**只填 4 位**（账户设置里提示，M9.5-10）；R1G 只看账号是不是以 `number_suffix` 结尾，不另外限制位数
+- **Westpac 账号只有 6 位**，`number_suffix` 填 6 位就等于存了完整账号。Westpac 账户的尾号**只填 3 位**，撞了再加 1 位，最多 5 位（2026-11-15 改，原来是 4 位）。位数在 `account-input.ts` 和表的检查约束里限（`schema.md` financial_account）；R1G 只看账号是不是以 `number_suffix` 结尾，不另外限制位数
 - 账号要以账户的 `number_suffix` 结尾，不然整份失败"这份对账单不是这个账户的"。账户没填尾号也失败
 - 不选账户时，只在本家庭**没归档的 `westpac` 账户**里按尾号找（`bank` 的 `westpac` 值 M9.5-7 加），不和别的银行混着找：
   - 正好一个 → 导入这个账户
   - 一个都没有 → 整份失败"找不到尾号是 dddd 的 Westpac 账户，先去账户设置填上尾号"（别的银行尾号对得上也不算）
-  - 两个以上 → 整份失败"有 n 个 Westpac 账户的尾号都对得上，去账户设置把尾号填长一点"（Choice 和 Life 账号后 4 位一样时会碰到，填 5 位；6 位就是完整账号，不填）
+  - 两个以上 → 整份失败"有 n 个 Westpac 账户的尾号都对得上，去账户设置把尾号填长一点"（Choice 和 Life 账号后 3 位一样时会碰到：两个都加 1 位填 4 位，还一样再填 5 位；6 位就是完整账号，不能填）
 
 **汇总**【2 份都在第 1 页、交易表上面】：
 
@@ -645,7 +645,7 @@ Westpac 没有 CSV 要对齐，只导 PDF 对账单。Choice（日常）和 Life
 
 ## R1G.1 例子
 
-`fixtures/westpac-statement/choice-2026-11.txt`（编的，导入到测试家庭的 `Westpac Choice Male`，尾号 `0005`，见 fixtures 18 号）第 1 页的交易表：
+`fixtures/westpac-statement/choice-2026-11.txt`（编的，导入到测试家庭的 `Westpac Choice Male`，尾号 `005`，见 fixtures 18 号）第 1 页的交易表：
 
 ```
 DATE  TRANSACTION DESCRIPTION  DEBIT  CREDIT  BALANCE
