@@ -32,6 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { AccountLabel } from '@/components/account-badge';
 import {
   ACCOUNT_TYPES,
   ACCOUNT_TYPE_LABELS,
@@ -220,7 +221,7 @@ export function AccountForm({ account, accounts, members, onDone }: Props) {
                 <SelectContent>
                   {BANKS.map((b) => (
                     <SelectItem key={b} value={b}>
-                      {BANK_LABELS[b]}
+                      <AccountLabel bank={b} name={BANK_LABELS[b]} />
                     </SelectItem>
                   ))}
                 </SelectContent>
