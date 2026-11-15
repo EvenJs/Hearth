@@ -188,8 +188,8 @@ async function loadConditionTxs(
     .groupBy(transaction.id, pair.accountId);
 }
 
-// R24.6：每个账户最晚一笔 confirmed 交易的日期。不限 13 个月，所以单独查
-async function loadLatestConfirmed(
+// R24.6：每个账户最晚一笔 confirmed 交易的日期。不限 13 个月，所以单独查。税务卡（R14.6）也用
+export async function loadLatestConfirmed(
   ctx: HouseholdContext,
   accountIds: string[],
 ): Promise<Map<string, string>> {

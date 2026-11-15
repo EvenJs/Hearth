@@ -425,11 +425,38 @@ M12（F15，R26）：`verification` 表存重置密码的链接（验证邮箱�
 | household_id        | uuid        | FK, not null          |                                     |
 | member_id           | uuid        | FK → member, not null | 只能是 kind = person                |
 | financial_year      | smallint    | not null              | 财年开始的年份，2026 = 2026-27 财年 |
-| payg_gross_cents    | integer     | not null, default 0   | 全年工资税前总额（实际或预计）      |
-| payg_withheld_cents | integer     | not null, default 0   | 全年雇主已代扣的税                  |
+| payg_gross_cents    | integer     | null                  | 全年工资税前总额（实际数）。空 = 用 R14.9 折算（M14-3 去掉 not null 和 default） |
+| payg_withheld_cents | integer     | null                  | 全年雇主已代扣的税（实际数）。空 = 用 R14.9 折算（同上） |
+| expected_interest_cents | integer | null                  | 预计全年利息（R14.10）。空 = 只算已到账（M14-3 加） |
 | updated_at          | timestamptz | not null              |                                     |
 
 唯一：`(member_id, financial_year)`
+
+- 三个金额各自为空，三个都空也可以存一行（卡片上有"清除"按钮，估算和没填一样）
+- 填 0 是"填过了"，和空不一样（R14.6）
+- 清除 = 删整行（R14.8），`tax_job` 不受影响
+
+### tax_job（M14-3 建）
+
+在职段（R14.9）。一份工作跨财年也只存一行，每个财年各自折算，不按财年分开存。
+
+| 字段                | 类型        | 约束                  | 说明                                |
+| ------------------- | ----------- | --------------------- | ----------------------------------- |
+| id                  | uuid        | PK                    |                                     |
+| household_id        | uuid        | FK, not null          |                                     |
+| member_id           | uuid        | FK → member, not null | 只能是 kind = person（应用层保证）  |
+| employer            | text        | null                  | 雇主，只用来显示                    |
+| annual_salary_cents | integer     | not null              | 年薪，税前，不含 super              |
+| start_date          | date        | not null              | 开始日期，算在内                    |
+| end_date            | date        | null                  | 结束日期，算在内。空 = 还在职       |
+| created_at          | timestamptz | not null              |                                     |
+| updated_at          | timestamptz | not null              |                                     |
+
+索引：`(household_id, member_id)`
+检查：
+- `annual_salary_cents > 0`
+- `end_date is null or end_date >= start_date`（开始等于结束 = 1 天）
+- 删除是硬删除，只删本家庭的；归属人不能改，换人就删了重建
 
 **税率表不进数据库**，按财年写在 `src/lib/tax/rates.ts`。
 
