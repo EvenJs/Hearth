@@ -105,15 +105,15 @@
 
 ### F1：账户管理
 
-- 账户信息：银行（ANZ / ANZ Plus / CBA / Westpac / 现金 / 其他，Westpac M9.5 加）、账户名、类型（日常 / 储蓄 / 信用卡 / joint / 现金）、默认归属人
-- 银行决定能导入什么：ANZ、CBA 导 CSV，也能导 PDF 对账单（ANZ 是 R1C，CBA 是 R1E）；ANZ Plus 只能导 PDF 对账单（R1D）；Westpac 只能导 PDF 对账单（R1G，M9.5）；现金、其他不能导入，只能手动录入
+- 账户信息：银行（ANZ / ANZ Plus / CBA / BOQ / Westpac / 现金 / 其他，BOQ、Westpac M9.5 加）、账户名、类型（日常 / 储蓄 / 信用卡 / joint / 现金）、默认归属人
+- 银行决定能导入什么：ANZ、CBA 导 CSV，也能导 PDF 对账单（ANZ 是 R1C，CBA 是 R1E）；ANZ Plus 只能导 PDF 对账单（R1D）；BOQ、Westpac 只能导 PDF 对账单（BOQ 是 R1F，Westpac 是 R1G，M9.5）；现金、其他不能导入，只能手动录入
 - 现金账户：我和老婆各一个
 - 每个账户配置账号**尾号**（只存后几位），用于识别内部转账
 - 卡号后四位映射到归属人（joint account 上两人各一张卡）
 
 ### F2：CSV 导入
 
-- 上传 CSV，导入时选择账户，按账户所属银行解析。ANZ、ANZ Plus、CBA、Westpac 账户能上传 PDF 对账单（R1C、R1D、R1E、R1G），按对账单的样子认是哪家银行、按账号尾号认账户
+- 上传 CSV，导入时选择账户，按账户所属银行解析。ANZ、ANZ Plus、CBA、BOQ、Westpac 账户能上传 PDF 对账单（R1C、R1D、R1E、R1F、R1G），按对账单的样子认是哪家银行、按账号尾号认账户
 - **防漏导**：导入页显示上次导到哪天、建议从哪天开始导出；和上次没有重叠时提醒；对账单之间检查首尾衔接（R12.2）
 - **脱敏**：描述里的完整账号替换成只留后 4 位再入库，不存卡号和账号
 - **清洗**：去掉前缀、支付通道前缀、反斜杠、多余空格，得到商家名。原始描述（脱敏后）和清洗后商家都保存

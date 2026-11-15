@@ -3,10 +3,12 @@
 > 测试数据的一部分。格式、家庭配置（账户、卡、成员）、文件清单见 [`fixtures/README.md`](../README.md)，写测试前先看那里。
 > 前提：看各用例自己的前提。Westpac 部分 M9.5-1 写，BOQ 部分 M9.5-3 写，同行内部转账（R6.1）M9.5-5 补。
 
-**这一组另加的账户**（导入用例要先建好，解析用例只用尾号）。`bank = westpac` 是 M9.5-7 加的值：
+**这一组另加的账户**（导入用例要先建好，解析用例只用尾号）。`bank = boq`、`westpac` 是 M9.5-7 加的值：
 
 | 账户 | bank | type | 默认归属人 | number_suffix |
 | --- | --- | --- | --- | --- |
+| BOQ Everyday Male | boq | everyday | Male | `0007` |
+| BOQ Future Saver Male | boq | savings | Male | `0008` |
 | Westpac Choice Male | westpac | everyday | Male | `0005` |
 | Westpac Life Male | westpac | savings | Male | `0006` |
 
@@ -166,7 +168,7 @@ Westpac Banking Corporation ABN 00 000 000 000 AFSL and Australian credit licenc
 | W21 | 主文件删掉第 1 行 `Statement Period`（测试里现改） | 失败"这不像 Westpac 对账单" |
 | W22 | `fixtures/anz-statement/joint-2026-09.txt`、`fixtures/anz-plus-statement/growth-2026-09.txt`、`fixtures/cba-statement/female-2026-09.txt` 给 R1G | 都失败"这不像 Westpac 对账单" |
 | W23 | `choice-2026-11.txt` 给 R1C（`parseAnzStatement`）、R1D（`parseAnzPlusStatement`）、R1E（`parseCbaStatement`） | 分别失败"找不到对账单标题"、"这不像 ANZ Plus 对账单"、"这不像 CBA 对账单" |
-| W24 | 自动选解析器：`choice-2026-11.txt`、`life-2026-11.txt`、`joint-2026-09.txt`、`growth-2026-09.txt`、`female-2026-09.txt`、一份只有 `Hello` 一行的文字 | 分别是 R1G、R1G、R1C、R1D、R1E、失败"认不出这份对账单，只支持 ANZ、ANZ Plus、CBA、Westpac 的 PDF 对账单"（M9.5-3 加 BOQ 以后这句跟着改） |
+| W24 | 自动选解析器：`choice-2026-11.txt`、`life-2026-11.txt`、`joint-2026-09.txt`、`growth-2026-09.txt`、`female-2026-09.txt`、一份只有 `Hello` 一行的文字 | 分别是 R1G、R1G、R1C、R1D、R1E、失败"认不出这份对账单，只支持 ANZ、ANZ Plus、CBA、BOQ、Westpac 的 PDF 对账单"（五选一，R1F；BOQ 的见 Q30） |
 
 ### 导入用例（连数据库，M9.5-9）
 
@@ -186,4 +188,234 @@ Westpac Banking Corporation ABN 00 000 000 000 AFSL and Australian credit licenc
 
 ## BOQ（R1F，M9.5-3）
 
-M9.5-3 写。
+`boq-statement/` 里是**编的**对账单文字，模拟 `unpdf` 读出来再拼成行的样子（R1F 第一层的输出），不是 PDF，也不是真对账单。格式照 2026-11-15 看到的 2 份真实对账单（Everyday、Future Saver 各一份）的行结构（R1F）：每页第 1 行标题、`Statement period`、账期行、户名地址、`Account summary` 下面 7 行两栏交错（产品名、汇总、BSB、账号）、交易表（小标题、表头、第一个表头下面的 `A` 和年份行、每笔 2 到 3 行、日期 `DD-Mon  DD-Mon`）、页脚（`Bank of Queensland Limited ABN …`、`Page X of Y  | Statement continues over`）、后两页说明。分页用单独一行 `<<<PAGE>>>`（和 R1C 到 R1G 一样）。
+
+户名、地址、BSB `129-999`、账号 `100000007` / `100000008`、金额都是编的。
+
+### 主文件 `everyday-2026-11.txt`（导入到 `BOQ Everyday Male`，尾号 `0007`）
+
+```
+Everyday Account Statement
+Statement period
+01 Nov 2026 - 30 Nov 2026
+MR MALE A TEST
+UNIT 1 0000/000 TEST ST
+EXAMPLETON VIC 3000
+Account summary
+Account name  Everyday Account
+Opening balance  $0.00
+Account BSB  129-999
+Total credits  $3,500.00
+Account number  100000007
+Total debits  $ 1,512.50
+Closing balance  $1,987.50
+Transactions
+Date  Processed  Description  Debits ($)  Credits ($)  Balance ($)
+A
+2026
+03-Nov  03-Nov  From: TEST FRIEND  1,000.00  1,000.00
+NA
+03-Nov  03-Nov  To: Future Saver  -400.00  600.00
+NOTPROVIDED
+03-Nov  03-Nov  To: Future Saver  -600.00
+NOTPROVIDED
+Bank of Queensland Limited ABN 00 000 000 000 (BOQ) AFSL and Australian credit licence 000000
+Page 1 of 4  | Statement continues over
+<<<PAGE>>>
+Everyday Account Statement
+Transactions
+Date  Processed  Description  Debits ($)  Credits ($)  Balance ($)
+05-Nov  05-Nov  From: ACME PTY LTD  2,500.00  2,500.00
+Wages
+NA
+06-Nov  06-Nov  To: Future Saver  -100.00  2,400.00
+NOTPROVIDED
+06-Nov  06-Nov  To: Future Saver  -100.00  2,300.00
+NOTPROVIDED
+06-Nov  06-Nov  To: Future Saver  -100.00  2,200.00
+NOTPROVIDED
+06-Nov  06-Nov  To: Future Saver  -100.00  2,100.00
+NOTPROVIDED
+06-Nov  06-Nov  To: Future Saver  -100.00  2,000.00
+NOTPROVIDED
+10-Nov  10-Nov  TEST CAFE MELBOURNE  -12.50  1,987.50
+Eftpos Purchase -
+Card 1234
+Bank of Queensland Limited ABN 00 000 000 000 (BOQ) AFSL and Australian credit licence 000000
+Page 2 of 4  | Statement continues over
+<<<PAGE>>>
+Everyday Account Statement
+Important information about your account and how to report a lost card.
+Page 3 of 4  | Statement continues over
+<<<PAGE>>>
+Everyday Account Statement
+How we calculate interest
+Interest is paid monthly. Interest is calculated on the daily closing balance of your account.
+Bank of Queensland Limited ABN 00 000 000 000 (BOQ) AFSL and Australian credit licence 000000
+Page 4 of 4
+```
+
+几处故意的：
+
+- 第 3 笔**余额没印**（上一笔 600.00 − 600.00 = 0），是第 1 页最后一笔，和真实的一样
+- 表跨 2 页，第 2 页表头下面**没有年份行**；第 3 页没有 ABN 那行（真实的也没有）
+- `11-06` 一天 5 笔 `To: Future Saver`，同额同描述，余额不同
+- 两种 `From:`：`TEST FRIEND`（续行只有 `NA`）、`ACME PTY LTD`（续行是备注 `Wages` + `NA`，3 行）
+- `Account name  Everyday Account` 是产品名；户名地址、`Card 1234` 都不进卡号映射
+- 说明页里的 `closing balance` 不在行首，不是汇总
+
+解析结果：10 行，**旧的在前**：
+
+| # | date | amountCents | description | balanceCents |
+| --- | --- | --- | --- | --- |
+| 1 | 2026-11-03 | 100000 | `From: TEST FRIEND NA` | 100000 |
+| 2 | 2026-11-03 | -40000 | `To: Future Saver NOTPROVIDED` | 60000 |
+| 3 | 2026-11-03 | -60000 | `To: Future Saver NOTPROVIDED` | 0 |
+| 4 | 2026-11-05 | 250000 | `From: ACME PTY LTD Wages NA` | 250000 |
+| 5 | 2026-11-06 | -10000 | `To: Future Saver NOTPROVIDED` | 240000 |
+| 6 | 2026-11-06 | -10000 | `To: Future Saver NOTPROVIDED` | 230000 |
+| 7 | 2026-11-06 | -10000 | `To: Future Saver NOTPROVIDED` | 220000 |
+| 8 | 2026-11-06 | -10000 | `To: Future Saver NOTPROVIDED` | 210000 |
+| 9 | 2026-11-06 | -10000 | `To: Future Saver NOTPROVIDED` | 200000 |
+| 10 | 2026-11-10 | -1250 | `TEST CAFE MELBOURNE Eftpos Purchase - Card 1234` | 198750 |
+
+账期 `2026-11-01` 到 `2026-11-30`，期初 0，期末 198750，借合计 151250，贷合计 350000。第 1 到 3 笔在第 1 页（`index` 1 到 3），第 4 到 10 笔在第 2 页（`index` 1 到 7）。
+
+### `saver-2026-11.txt`（导入到 `BOQ Future Saver Male`，尾号 `0008`）
+
+主文件那 7 笔 `To: Future Saver` 在 Saver 这边的样子。表从第 2 页开始：
+
+```
+Future Saver Statement
+Statement period
+01 Nov 2026 - 30 Nov 2026
+MR MALE A TEST  Current rate
+UNIT 1 0000/000 TEST ST  0.00% p.a
+EXAMPLETON VIC 3000
+Base rate
+0.00% p.a.
+Bonus rate
+0.00% p.a.
+Account summary
+Account name  Future Saver
+Opening balance  $0.00
+Account BSB  129-999
+Total credits  $1,500.00
+Account number  100000008
+Total debits  $ 0.00
+Closing balance  $1,500.00
+Bank of Queensland Limited ABN 00 000 000 000 (BOQ) AFSL and Australian credit licence 000000
+Page 1 of 4  | Statement continues over
+<<<PAGE>>>
+Future Saver Statement
+Transactions
+Date  Processed  Description  Debits ($)  Credits ($)  Balance ($)
+A
+2026
+03-Nov  03-Nov  From: Everyday  400.00  400.00
+Account
+NOTPROVIDED
+03-Nov  03-Nov  From: Everyday  600.00  1,000.00
+Account
+NOTPROVIDED
+06-Nov  06-Nov  From: Everyday  100.00  1,100.00
+Account
+NOTPROVIDED
+06-Nov  06-Nov  From: Everyday  100.00  1,200.00
+Account
+NOTPROVIDED
+06-Nov  06-Nov  From: Everyday  100.00  1,300.00
+Account
+NOTPROVIDED
+06-Nov  06-Nov  From: Everyday  100.00  1,400.00
+Account
+NOTPROVIDED
+06-Nov  06-Nov  From: Everyday  100.00  1,500.00
+Account
+NOTPROVIDED
+Bank of Queensland Limited ABN 00 000 000 000 (BOQ) AFSL and Australian credit licence 000000
+Page 2 of 4  | Statement continues over
+<<<PAGE>>>
+Future Saver Statement
+Important information about your account and how to report a lost card.
+Page 3 of 4  | Statement continues over
+<<<PAGE>>>
+Future Saver Statement
+How we calculate interest
+Interest is paid monthly. Interest is calculated on the daily closing balance of your account.
+Bank of Queensland Limited ABN 00 000 000 000 (BOQ) AFSL and Australian credit licence 000000
+Page 4 of 4
+```
+
+- 第 1 页只有汇总，没有表头；第 1 页右边粘着的利率、`Base rate` / `Bonus rate` 几行都不用
+- `From: Everyday` + 续行 `Account`：对方产品名被拆成两行，和真实的一样
+- `Total debits  $ 0.00`
+
+解析结果：7 行（都在第 2 页），描述都是 `From: Everyday Account NOTPROVIDED`：`2026-11-03` `40000` 余额 `40000`；`2026-11-03` `60000` `100000`；`2026-11-06` `10000` 五笔，余额 `110000`、`120000`、`130000`、`140000`、`150000`。期初 0，期末 150000。
+
+### 其他文件
+
+除了 `cross-year.txt`，都是在 `everyday-2026-11.txt` 上改一点：
+
+| 文件 | 和主文件的区别 |
+| --- | --- |
+| `on-demand.txt` | 网银按需申请的：账期 `03 Nov 2026 - 06 Nov 2026`；汇总 `Total debits  $ 1,500.00`、`Closing balance  $2,000.00`（`Opening balance`、`Total credits` 不变）；删掉第 10 笔（`10-Nov  TEST CAFE …` 和它的 2 行续行）。和主文件账期重叠 |
+| `empty-2026-12.txt` | 账期 `01 Dec 2026 - 31 Dec 2026`；汇总 `Opening balance  $1,987.50`、`Total credits  $0.00`、`Total debits  $ 0.00`、`Closing balance  $1,987.50`；删掉第 1 页的 3 笔（`2026` 下面直接是页脚）和整个第 2 页，后面的页码改成 `of 3`，0 笔（空的样子是编的） |
+| `cross-year.txt` | 单独写的：账期 `15 Dec 2026 - 14 Jan 2027`；汇总 `Opening balance  $1,987.50`、`Total credits  $0.00`、`Total debits  $ 112.50`、`Closing balance  $1,875.00`；表只有第 1 页，`A`、`2026` 下面是 `20-Dec  20-Dec  TEST CAFE MELBOURNE  -12.50  1,975.00` / `Eftpos Purchase -` / `Card 1234`、`05-Jan  05-Jan  To: Future Saver  -100.00  1,875.00` / `NOTPROVIDED`，然后页脚（跨年的样子是编的） |
+| `broken-balance.txt` | 第 6 笔（第 2 页 `2,300.00` 那笔）的余额改成 `2,300.10` |
+| `wrong-account.txt` | 账号那行改成 `Account number  100000002`（`ANZ Male` 的尾号） |
+| `summary-mismatch.txt` | 汇总改成 `Total debits  $ 1,512.51` |
+
+### 解析用例（纯函数，M9.5-4）
+
+失败的 `page`、`index` 照 R1F：`index` 是这一页从上往下数的第几笔，和交易无关的错误两个都是 `null`。"测试里现改"的都在主文件上改。
+
+| 用例 | 输入 | 期望 |
+| --- | --- | --- |
+| Q1 | `everyday-2026-11.txt`，尾号 `0007` | 10 行，和上面那张表一样（旧的在前）；账期 `2026-11-01` 到 `2026-11-30`，期初 0，期末 198750。户名、地址、汇总、`A`、`2026`、小标题、表头、页脚、后两页都没进任何描述 |
+| Q2 | 同上 | 第 3 行余额 0（**没印，算出来的**）；第 5 到 9 行是 5 笔同日同额同描述，余额 240000 到 200000 依次递减；第 4 到 10 行年份都是 2026（第 2 页没有年份行） |
+| Q3 | `saver-2026-11.txt`，尾号 `0008` | 7 行，描述都是 `From: Everyday Account NOTPROVIDED`（拆成两行的产品名拼回去了），余额和上面一样；期初 0，期末 150000 |
+| Q4 | 第 3 笔第一行末尾补上 `  0.00`（印了 0） | 和 Q1 完全一样（第 3 行余额 0） |
+| Q5 | 第 3 笔金额改成 `-500.00`，余额照旧空着 | 失败"第 3 笔没有余额，算出来也不是 0"，`page = 1`，`index = 3` |
+| Q6 | `on-demand.txt` | 9 行，和 Q1 的第 1 到 9 行完全一样（日期、金额、描述、余额）；账期 `2026-11-03` 到 `2026-11-06`，期初 0，期末 200000 |
+| Q7 | `cross-year.txt` | 2 行：`2026-12-20`、`-1250`、`TEST CAFE MELBOURNE Eftpos Purchase - Card 1234`、`197500`；`2027-01-05`、`-10000`、`To: Future Saver NOTPROVIDED`、`187500`（Dec → Jan 加一年） |
+| Q8 | `empty-2026-12.txt` | 0 行，成功；期初 = 期末 = 198750 |
+| Q9 | `broken-balance.txt` | 失败"第 3 笔余额接不上"，`page = 2`，`index = 3` |
+| Q10 | 第 2 笔的 `-400.00` 改成 `400.00`（符号和余额对不上） | 失败"第 2 笔余额接不上"，`page = 1`，`index = 2` |
+| Q11 | `wrong-account.txt`，尾号 `0007` | 失败"这份对账单不是这个账户的"；信息里没有 `100000002`、`129-999`、`129999`，最多有 `0002` |
+| Q12 | `everyday-2026-11.txt`，尾号 `null` | 失败，提示先去账户设置填尾号 |
+| Q13 | 删掉 `Account number  100000007` 那行 | 失败"找不到账号" |
+| Q14 | `summary-mismatch.txt` | 失败，信息里有逐笔借合计 $1,512.50 和 Total debits $1,512.51，`page = null` |
+| Q15 | 删掉 `Total credits` 那行 | 失败"找不到汇总" |
+| Q16 | `Closing balance  $1,987.50` 改成 `Closing balance  -$1,987.50` | 失败"没见过透支的对账单"，`page = null` |
+| Q17 | 第 10 笔的余额 `1,987.50` 改成 `-1,987.50` | 失败"没见过透支的对账单"，`page = 2`，`index = 7` |
+| Q18 | 第 10 笔改成 `10-Nov  11-Nov  TEST CAFE …` | 失败"第 7 笔的 Date 和 Processed 不一样，还没见过"，`page = 2`，`index = 7` |
+| Q19 | 第 4 笔两个日期改成 `02-Nov` | 失败"第 1 笔的日期比上一笔早"，`page = 2`，`index = 1` |
+| Q20 | 第 10 笔两个日期改成 `01-Dec` | 失败"第 7 笔的日期不在账期里"，`page = 2`，`index = 7` |
+| Q21 | 第 10 笔两个日期改成 `31-Nov` | 失败"第 7 笔的日期不对"，`page = 2`，`index = 7` |
+| Q22 | 删掉第 1 页的 `2026` 那行 | 失败"找不到年份"，`page = 1`，`index = null` |
+| Q23 | 第 1 页的 `2026` 改成 `2025` | 失败"年份行和账期对不上"，`page = null` |
+| Q24 | 第 3 笔的 `NOTPROVIDED` 挪到第 2 页表头下面 | 失败"第 3 笔跨页了，还没见过跨页的交易"，`page = 1`，`index = 3` |
+| Q25 | 第 4 笔的 `NA` 下面插一行 `EXTRA NOTE` | 失败"第 1 笔的描述超过 3 行，还没见过"，`page = 2`，`index = 1` |
+| Q26 | 第 2 笔的 `NOTPROVIDED` 下面插一行 `NOTE  5.00` | 失败"第 2 笔下面有一行像金额，认不出来"，`page = 1`，`index = 2` |
+| Q27 | 第 10 笔的 `Card 1234` 改成 `2027` | 失败"第 7 笔下面有一行像年份行，还没见过跨年时的样子"，`page = 2`，`index = 7` |
+| Q28 | 删掉 `Account summary` 那行 | 失败"这不像 BOQ 对账单" |
+| Q29 | `anz-statement/joint-2026-09.txt`、`anz-plus-statement/growth-2026-09.txt`、`cba-statement/female-2026-09.txt`、`westpac-statement/choice-2026-11.txt` 给 R1F | 都失败"这不像 BOQ 对账单" |
+| Q30 | `everyday-2026-11.txt`、`saver-2026-11.txt` 给 R1C、R1D、R1E、R1G | 分别失败"找不到对账单标题，这不像 ANZ 对账单"、"这不像 ANZ Plus 对账单"、"这不像 CBA 对账单"、"这不像 Westpac 对账单" |
+| Q31 | 自动选解析器：`everyday-2026-11.txt`、`saver-2026-11.txt`、`choice-2026-11.txt`、`joint-2026-09.txt`、`growth-2026-09.txt`、`female-2026-09.txt`、一份只有 `Hello` 一行的文字 | 分别是 R1F、R1F、R1G、R1C、R1D、R1E、失败"认不出这份对账单，只支持 ANZ、ANZ Plus、CBA、BOQ、Westpac 的 PDF 对账单" |
+
+### 导入用例（连数据库，M9.5-9）
+
+前提：建好上面两个 BOQ 账户。`To: Future Saver` / `From: Everyday Account` 那几笔认不认成内部转账，等 M9.5-5（R6.1）定了再补，这里只看解析、去重、对账。
+
+| 用例 | 前置 | 操作 | 期望 |
+| --- | --- | --- | --- |
+| QD1 | 空数据库 | 不选账户，导入 `everyday-2026-11.txt` | 认出 `BOQ Everyday Male`；新增 10，`source = pdf`，`date_from = 2026-11-01`，`date_to = 2026-11-30`，期初 0、期末 198750，`reconciled = true`；归属人都是 Male（账户默认，`Card 1234` 不进卡号映射）。第 3 笔的 `balance_cents = 0`；`import_batch`、`transaction` 里没有 `100000007`、`129999` |
+| QD2 | QD1 | 再导入 `everyday-2026-11.txt` | 新增 0，跳过 10 |
+| QD3 | QD1 | 导入主文件改成 Q4 那样（第 3 笔印了 `0.00`） | 新增 0，跳过 10（余额不印和印 0 的 key 一样） |
+| QD4 | 空数据库 | 先导 `on-demand.txt`，再导 `everyday-2026-11.txt` | `on-demand.txt`：新增 9，`date_from = 2026-11-03`，`date_to = 2026-11-06`。`everyday-2026-11.txt`：R4.2 跳过 9（5 笔同日同额的 `occurrence` 两边都是 1 到 5），新增 1，`reconciled = true`；R12.2 不提示首尾衔接，提示"和 2026-11-03 到 2026-11-06 那份对账单的账期重叠了，重叠的交易已经跳过" |
+| QD5 | QD1 | 导入 `empty-2026-12.txt` | 新增 0，建了批次，`date_from = 2026-12-01`，`reconciled = true`；R12.2 提示"和上一份对账单（2026-11-01 到 2026-11-30）接上了" |
+| QD6 | 空数据库 | 不选账户，导入 `saver-2026-11.txt` | 认出 `BOQ Future Saver Male`（不是 Everyday）；新增 7 |
+| QD7 | 空数据库 | 不选账户，导入 `wrong-account.txt` | 整份失败"找不到尾号是 0002 的 BOQ 账户"（`ANZ Male` 尾号是 `0002` 也不算）；什么都没写 |
+| QD8 | 再建一个 `boq` 账户，尾号 `00007` | 不选账户，导入 `everyday-2026-11.txt` | 整份失败"有 2 个 BOQ 账户的尾号都对得上"；什么都没写 |
+| QD9 | 空数据库 | 不选账户，导入 `anz-statement/joint-2026-09.txt`、`anz-plus-statement/growth-2026-09.txt`、`cba-statement/female-2026-09.txt`、`westpac-statement/choice-2026-11.txt` | 照旧分别认出 `ANZ Joint`、`ANZ Plus Male`、`CBA Female`、`Westpac Choice Male`（五选一以后不受影响） |

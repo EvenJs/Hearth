@@ -58,6 +58,7 @@
 | `anz-statement/*.txt`           | ANZ Joint  | ANZ PDF 对账单（R1C、R12.2），读文字以后的样子，见"ANZ 对账单用例" |
 | `anz-plus-statement/*.txt`      | ANZ Plus Male | ANZ Plus PDF 对账单（R1D），读文字以后的样子，见"ANZ Plus 对账单用例" |
 | `cba-statement/*.txt`           | CBA Female | CBA PDF 对账单（R1E），读文字以后的样子；主文件和 `cba/female-2026-09.csv` 同样的 20 笔，见"CBA 对账单用例" |
+| `boq-statement/*.txt`           | BOQ Everyday Male、BOQ Future Saver Male（18 号另加） | BOQ PDF 对账单（R1F），读文字以后的样子，见"BOQ、Westpac 对账单用例" |
 | `westpac-statement/*.txt`       | Westpac Choice Male、Westpac Life Male（18 号另加） | Westpac PDF 对账单（R1G），读文字以后的样子，见"BOQ、Westpac 对账单用例" |
 | `receipts/*.json`               | —          | 小票识别（R20），见"小票用例"；商品类型（R21）也用这几张，见"小票商品类型用例" |
 
@@ -87,5 +88,5 @@
 | 每月条件用例（R24，M10） | [`cases/15-monthly-conditions.md`](cases/15-monthly-conditions.md) | 不用 CSV、PDF，条件、锚点、交易写在用例里，所有场景共用一份；账户沿用 14 号；今天固定 2026-12-28 |
 | 目标和应急金用例（R25，M11） | [`cases/16-goals.md`](cases/16-goals.md) | 不用 CSV、PDF，目标、锚点、交易、月均、收支写在用例里，所有场景共用一份；账户沿用 14 号；今天固定 2026-12-15 |
 | 邀请码注册用例（R26，M12） | [`cases/17-invite.md`](cases/17-invite.md) | 不用 CSV、PDF，家庭、用户、邀请码、识别记录写在用例里，所有场景共用一份；另加一个别人的家庭 H2；现在固定 2026-12-10T10:00+11:00 |
-| BOQ、Westpac 对账单用例（R1F、R1G，M9.5） | [`cases/18-boq-westpac-statement.md`](cases/18-boq-westpac-statement.md) | 看各用例自己的前提；另加 2 个 Westpac 账户（`bank = westpac`，M9.5-7 加）。BOQ 部分 M9.5-3 写 |
+| BOQ、Westpac 对账单用例（R1F、R1G，M9.5） | [`cases/18-boq-westpac-statement.md`](cases/18-boq-westpac-statement.md) | 看各用例自己的前提；另加 2 个 BOQ 账户、2 个 Westpac 账户（`bank = boq`、`westpac`，M9.5-7 加） |
 | 在职段折算和预计利息用例（R14.9、R14.10、R14.6，M14） | [`cases/19-tax-jobs.md`](cases/19-tax-jobs.md) | 不用 CSV、PDF，在职段、`tax_profile`、税前拆分写在用例里，每个场景独立；今天固定 2026-11-15 |
