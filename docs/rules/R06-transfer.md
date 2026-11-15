@@ -58,7 +58,8 @@ BOQ、Westpac 本行账户之间的转账，描述里只有对方的**银行产�
 **在哪些账户里找**：本家庭、`bank` 和当前账户相同、没归档、不是当前账户自己、`statement_name` 不为空。
 
 - 对上恰好 1 个 → 结果和按账号认一样：`transfer_status = auto`，分类内部转账，`category_source = system`；R6.2 的"对方账户"就是它
-- 对上多个 → 不认，走 R7，留给 R6.3
+- 对上多个 → **也认成转账**：`transfer_status = auto`，分类内部转账，`category_source = system`，但**对方账户未知**。R6.2 不从这一边找另一半（对方那边认出唯一一个的，照旧从那边找）；R24.3 当未知。钱是在本家庭同一家银行里转，转进哪一个都不影响收支（2026-11-15 改，M9.5-8：BOQ 有 9 个 Future Saver，`statement_name` 都是 `Future Saver`，描述里看不出是哪一个；原来的"不认"会把 Everyday 的每笔转出都算成支出）
+  - 只管按账户名认。按账号对上多个的照旧不认（见上面）
 - 对上 0 个 → 走 R7。外行转入 `From: <户名>` 一般对不上，照旧靠 R6.3
 - 别的银行里同名的账户不算（只在同一个 `bank` 里找）
 
@@ -68,13 +69,16 @@ BOQ、Westpac 本行账户之间的转账，描述里只有对方的**银行产�
 | Westpac Life | `Deposit Online 2000001 Tfr Westpac Cho` | westpac `Westpac Choice` | auto，对方 Westpac Choice |
 | BOQ Everyday | `To: Future Saver NOTPROVIDED` | boq `Future Saver` | auto，对方 Future Saver |
 | BOQ Future Saver | `From: Everyday Account NOTPROVIDED` | boq `Everyday Account` | auto，对方 Everyday |
-| Westpac Choice | `Withdrawal Mobile 1000002 Tfr Westpac Lif` | westpac `Westpac Life`、westpac `Westpac Life Bonus` | 多个，不认 |
+| Westpac Choice | `Withdrawal Mobile 1000002 Tfr Westpac Lif` | westpac `Westpac Life`、westpac `Westpac Life Bonus` | 多个，auto，对方未知 |
+| BOQ Everyday | `To: Future Saver NOTPROVIDED` | boq 9 个 `Future Saver` | 多个，auto，对方未知 |
 | BOQ Everyday | `To: Future Saver NOTPROVIDED` | 只有 westpac `Future Saver` | 别家银行，不认 |
 | BOQ Everyday | `To: Everyday Account NOTPROVIDED` | 只有自己是 `Everyday Account` | 是自己，不认 |
 | BOQ Future Saver | `From: TEST FRIEND NA` | boq `Everyday Account` | 不认，走 R7 / R6.3 |
 | BOQ Everyday | `To: Future Saver NOTPROVIDED` | boq Future Saver 的 `statement_name` 为空 | 不认 |
 
 **同金额多笔**：两边都各自按名字认成 auto（不计收支），不靠 R6.2 把另一半改过来。R6.2 找到多笔时照旧不配对，`transfer_pair_id` 留空（一天 5 笔 `To: Future Saver` 就是这样，2026-11-15 定不改 R6.2）。R24.3 没配对时从描述重跑 R6.1，按名字认也要能用。
+
+**几个同名账户**（如 9 个 `Future Saver`）：Everyday 的 `To: Future Saver` 是 auto、对方未知，不从它出发配对；每个 Saver 的 `From: Everyday Account` 只对上一个 Everyday，从 Saver 那边照常走 R6.2，对方那笔是这条 auto，恰好 1 笔就配上，多笔就不配。两边都不计收支。
 
 ## R6.2 配对
 
@@ -140,7 +144,7 @@ R6.1 只在导入时跑。账户是后来才建的、尾号是后来才填的、
 
 - 改尾号时，以前按**旧尾号**认成转账的交易不退回去。很少见，真遇到了在 F8 手动处理
 - 尾号是空的不触发
-- **`statement_name`（2026-11-15，M9.5）**：保存 `statement_name` 不为空的账户时同样触发，第 2 步换成对候选的描述跑 R6.1 的"按账户名认"，只看能不能对上这个账户（同一个 `bank` 里对上多个的不算）。尾号和 `statement_name` 都填了就两种都跑，一次弹窗，N 合在一起算。为的是先导了 Everyday、后来才给 Future Saver 填名字的情况
+- **`statement_name`（2026-11-15，M9.5）**：保存 `statement_name` 不为空的账户时同样触发，第 2 步换成对候选的描述跑 R6.1 的"按账户名认"，只看能不能对上这个账户（对上多个、其中有这个账户的也算，结果是 auto、对方未知，同 R6.1）。尾号和 `statement_name` 都填了就两种都跑，一次弹窗，N 合在一起算。为的是先导了 Everyday、后来才给 Future Saver 填名字的情况
 - 已经认过的交易 `transfer_status` 不是 `none` 了，不在候选里，所以重复保存不会重复改，N 一般是 0、不弹
 
 例子 2（带 BSB）：ANZ Male 里有一笔 `TRANSFER TO 012345-****0004 #123456`（规则补上以前导入的，是 Uncategorised）。编辑 ANZ Plus Male（尾号 `0004`）直接保存 → 弹窗 N = 1 → 变成 auto、Internal transfer。
