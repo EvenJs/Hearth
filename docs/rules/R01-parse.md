@@ -2,7 +2,7 @@
 
 > 业务规则的一部分，总则和索引见 [`docs/business-rules.md`](../business-rules.md)。其他规则按编号去 `docs/rules/` 找。
 
-**输入**：CSV 文件文本（R1A、R1B），或 ANZ / ANZ Plus / CBA 对账单读出来的文字行（R1C、R1D、R1E）+ 账户的银行
+**输入**：CSV 文件文本（R1A、R1B），或 ANZ / ANZ Plus / CBA / Westpac 对账单读出来的文字行（R1C、R1D、R1E、R1G）+ 账户的银行
 **输出**：`ParsedRow[]`，每行 `{ date: 'YYYY-MM-DD', amountCents: number, description: string, balanceCents: number | null, rowIndex: number }`
 
 按 `financial_account.bank` 选解析器：
@@ -12,11 +12,12 @@
 | anz                   | R1A    | CSV。PDF 对账单用 R1C（2026-10-28） |
 | cba                   | R1B    | CSV。PDF 对账单用 R1E（2026-11-02），以后主要导 PDF |
 | anz_plus              | R1D    | 不能导入 CSV，只能导 PDF 对账单（R1D，2026-10-30） |
+| westpac               | R1G    | 没有 CSV，只能导 PDF 对账单（R1G，2026-11-15）。`bank` 的值 M9.5-7 加 |
 | cash、other           | 无     | 不能导入，只能手动录入（R8.1）     |
 
 ## R1.0 两个解析器共用的规则
 
-> R1A、R1B 两个 CSV 解析器都用。R1C 对账单只用第 4（金额）、6（出错整份失败）、7（按文件顺序输出）条。R1D 只用第 4、5、6 条，输出顺序见 R1D。R1E 只用第 4、6 条，描述和输出顺序见 R1E。
+> R1A、R1B 两个 CSV 解析器都用。R1C 对账单只用第 4（金额）、6（出错整份失败）、7（按文件顺序输出）条。R1D 只用第 4、5、6 条，输出顺序见 R1D。R1E 只用第 4、6 条，描述和输出顺序见 R1E。R1G 也只用第 4、6 条，描述和输出顺序见 R1G。
 
 > 引用下面某一条时写 `R1.0-N`，如 `R1.0-4` 是金额。
 
@@ -377,6 +378,145 @@ Value Date 03/09/2026  6.80  8,851.85 CR
 - 账期 `2026-09-01` 到 `2026-09-30`，期初 1000000，期末 1156159，借合计 342585，贷合计 498744，账号尾号 `0003`
 
 更多用例见 fixtures/README 的"CBA 对账单用例"。
+
+## R1G Westpac PDF 对账单（2026-11-15 新增，M9.5）
+
+Westpac 没有 CSV 要对齐，只导 PDF 对账单。Choice（日常）和 Life（存款）是**同一套模板**，一个解析器。对账单每行都有余额，期初期末自动进 R9，上一份和下一份首尾衔接（R12.2）。
+
+2026-11-15 用 `tests/local/westpac/` 里 2 份真实对账单看过（`unpdf` 读出来遮掉数字字母看行结构，脚本 `tests/local/westpac-shape.test.ts`）：Choice 一份、Life 一份，都是 2026-11 刚开户、网银里按需申请的，`Statement No. 1`，账期都只有一天，期初 $0，3 页（表在第 1 页，后两页是说明）。Choice 4 笔、Life 2 笔，记作【Choice】【Life】，两份都是记作【2 份】。下面每条后面的【】写的是从哪几份看到的，【没见过】的情况碰到就整份失败，回来改规则。**按周期出的那份还没见过**（M9.5-0），到了以后再确认一次格式；R1G 不假设账期多长。
+
+**两层**：和 R1E 一样。第一层复用 `src/server/pdf/text.ts`，**不改**（`unpdf` 拼出来的行 2 份都能用，没有乱码、没有读不出来的字符）；第二层是 `src/lib/import/westpac-statement.ts`（纯函数），不改 R1C、R1D、R1E 的解析器。测试只用 `fixtures/westpac-statement/` 里编的文字
+
+**认格式**（三条缺一条 → 整份失败"这不像 Westpac 对账单"）：
+
+- 第 1 页第 1 行**整行**是 `Statement Period`【2 份】
+- 有交易表表头（见下）【2 份】
+- 有 `STATEMENT OPENING BALANCE` 那行（见下）【2 份】
+- 和 R1C、R1D、R1E 不会互相认错：2 份 Westpac 喂给 R1C 失败"找不到对账单标题"、喂给 R1D 失败"这不像 ANZ Plus 对账单"、喂给 R1E 失败"这不像 CBA 对账单"；`tests/local/` 里另外 18 份 PDF（ANZ、ANZ Plus、CBA、BOQ、ING 对账单和别的）这三条一条都不满足
+- **上传对账单时四选一**（取代 R1E 的三选一）：满足 R1D 的两条 → R1D；满足 R1E 的三条 → R1E；满足上面三条 → R1G；满足 R1C 的标题两条 → R1C；都不满足 → 整份失败"认不出这份对账单，只支持 ANZ、ANZ Plus、CBA、Westpac 的 PDF 对账单"。M9.5-3 加 BOQ（R1F）以后是五选一，那时再改这句
+
+**第 1 页上半部分**【2 份都是这个顺序】：
+
+| 行 | 内容 | 用不用 |
+| --- | --- | --- |
+| 1 | `Statement Period` | 认格式 |
+| 2 | `DD Month YYYY - DD Month YYYY`（日补 0，月份是**英文全称**，如 `02 November 2026 - 02 November 2026`） | 账期 |
+| 3 | `<产品名>  Account Name`（`Westpac Choice`、`Westpac Life`） | 不用（M9.5-5 要不要用再定） |
+| 4 到 7 | 户名、`Customer ID`、地址、电话 | 不用，不进日志 |
+| 8 | `…  BSB  Account Number`（前面是地址的最后一段） | 账号的标签 |
+| 9 | `ddd-ddd  ddd ddd`（BSB 6 位、账号 **6 位**） | 账号 |
+| 10 到 13 | `Opening Balance  $x`、`Total Credits  + $x`、`Total Debits  - $x`、`Closing Balance  + $x` | 汇总 |
+| 之后 | 利率表（`INTEREST RATES (…) ON CREDIT BALANCES`，Life 还有 `BONUS INTEREST RATES (…)`，表里的行是 `DD Mon YYYY  d.dd %`）、一段说明 | 不用 |
+
+**每页的页脚和页眉**（跳过）【2 份每一页】：
+
+- 每页最后一行以 `Statement No. N  Page X of Y` **结尾**，前面是银行的 ABN、AFSL 那段。`Statement No.` 和页码**不用**（key 不能依赖它们，按需申请和按周期出的会混着导）
+- 第 2 页起第 1 行是产品名（`Westpac Choice`），后面都是说明，不看
+
+**账期**：
+
+- 第 1 页第 2 行**整行**是 `DD Month YYYY - DD Month YYYY` → `periodFrom`、`periodTo`【2 份】。不是 → 整份失败"找不到账期"
+- **闭区间 `[periodFrom, periodTo]`**，同 R1D、R1E。`STATEMENT OPENING BALANCE` 是 `periodFrom` 当天开始前的余额。**一天的账期合法**（`periodFrom = periodTo`）【2 份都是一天】。按周期出的首尾怎么接【没见过】，第一份到了再确认（M9.5-0）
+- `STATEMENT OPENING BALANCE` 那行的日期要等于 `periodFrom`，`CLOSING BALANCE` 那行的日期要等于 `periodTo`【2 份都相等】，不然整份失败"账期和 OPENING / CLOSING BALANCE 的日期对不上"
+- `periodFrom` 晚于 `periodTo` → 整份失败"账期不对"；`periodTo` 不早于 `periodFrom` 加 12 个月 → 整份失败"账期超过 12 个月，还没见过这么长的 Westpac 对账单"【没见过】。跨年照常支持（日期带年份，不用推）
+
+**账号核对、自动认账户**：照 R1E，只是账号的位置和长度不一样：
+
+- 账号：第 1 页以 `  BSB  Account Number` 结尾的那行的**下一行**，`ddd-ddd  ddd ddd`，取两个空格后面那段、去掉空格，是 6 位数字【2 份】。不是这个样子 → 整份失败"找不到账号"。**BSB、账号、户名不存、不进日志，错误信息里最多带后 4 位**
+- **Westpac 账号只有 6 位**，`number_suffix` 填 6 位就等于存了完整账号。Westpac 账户的尾号**只填 4 位**（账户设置里提示，M9.5-10）；R1G 只看账号是不是以 `number_suffix` 结尾，不另外限制位数
+- 账号要以账户的 `number_suffix` 结尾，不然整份失败"这份对账单不是这个账户的"。账户没填尾号也失败
+- 不选账户时，只在本家庭**没归档的 `westpac` 账户**里按尾号找（`bank` 的 `westpac` 值 M9.5-7 加），不和别的银行混着找：
+  - 正好一个 → 导入这个账户
+  - 一个都没有 → 整份失败"找不到尾号是 dddd 的 Westpac 账户，先去账户设置填上尾号"（别的银行尾号对得上也不算）
+  - 两个以上 → 整份失败"有 n 个 Westpac 账户的尾号都对得上，去账户设置把尾号填长一点"（Choice 和 Life 账号后 4 位一样时会碰到，填 5 位；6 位就是完整账号，不填）
+
+**汇总**【2 份都在第 1 页、交易表上面】：
+
+- 交易表表头之前，**整行**分别是：`Opening Balance  $x`、`Total Credits  + $x`、`Total Debits  - $x`、`Closing Balance  + $x`，各取第一个。`x` 是 `1,234.56` 这样（带千分位逗号），去掉 `$` 和逗号，按 R1.0-4 转成分（可以是 0）。少一行或样子不对 → 整份失败"找不到汇总"
+- 期初、期末前面可以有 `+ `，也可以没有：期初 $0 时印的是 `$0.00`，不带 `+`【2 份】；不是 0 的期初带不带 `+` 【没见过】，两种都认。借合计是 0 时印 `- $0.00`【Life】
+- 期初或期末印成 `- $x`（透支）→ 整份失败"没见过透支的对账单"【没见过】
+- 第 2 页说明里有 `Closing Balance` 字样，但不在行首，不会认错【2 份】
+
+**交易表**：
+
+- 表头：整行是 `DATE  TRANSACTION DESCRIPTION  DEBIT  CREDIT  BALANCE`【2 份，只在第 1 页】。**借在前、贷在后**，但下面不按栏位认。一个都没有 → 整份失败"找不到交易表"
+- 表的开头：表头下面紧挨着 `DD/MM/YY  STATEMENT OPENING BALANCE  余额`，只有一个金额，是期初【2 份】。找不到 → 整份失败"找不到 OPENING BALANCE"
+- 表的结尾：`DD/MM/YY  CLOSING BALANCE  余额`，只有一个金额，是期末【2 份，在第 1 页】。找不到 → 整份失败"找不到 CLOSING BALANCE"
+- 中间只有交易和续行。表后面是一段说明和页脚，不看
+- **表头到表底必须在同一页**（照 R1D）：`STATEMENT OPENING BALANCE` 和 `CLOSING BALANCE` 不在同一页 → 整份失败"交易表跨页了，还没见过跨页的 Westpac 对账单"，`page` 是表头那页，`index` 为空。**先查这一条再逐笔读**，不然会先报页脚那行认不出来【没见过，2 份都只有 2 到 4 笔】。表在第 1 页、后面还有只放说明的页，不影响。按周期出的那份笔数多了会跨页，到时候看了真实的样子再改
+- 顺序：**旧的在前**【2 份，从 `STATEMENT OPENING BALANCE` 往下逐笔余额都接得上】
+
+**交易**【2 份，共 6 笔】：
+
+- 第一行以 `DD/MM/YY` 加两个空格开头，后面是描述的第一段。**例外**：后面是 `STATEMENT OPENING BALANCE` / `CLOSING BALANCE` 的是表头表尾，不是交易
+- 日期：**两位年份**，`YY` → `20YY`【2 份】。日期非法（如 `31/02/26`）→ 整份失败"第 n 笔的日期不对"
+- 描述有 **1 到 2 行**【1 行 4 笔、2 行 2 笔】，**金额和余额在最后一行的末尾**：`…  金额  余额`。金额和余额都是 `1,234.56` 这样，没有 `$`、没有正负号、没有 `CR`。去掉千分位逗号，按 R1.0-4 转成分（余额可以是 0，金额不能是 0）
+  - 一行末尾是两个金额时这一笔结束。还没结束时下一行是续行；**已经结束、下一行又不是新的一笔**（不以 `DD/MM/YY` 开头、不是 `CLOSING BALANCE`）→ 整份失败"交易表里第 n 笔下面有一行认不出来"（n 是它上面那笔；紧挨着 `STATEMENT OPENING BALANCE` 时写"OPENING BALANCE 下面"）。还没结束就来了新的一笔或 `CLOSING BALANCE` → 整份失败"第 n 笔找不到金额和余额"
+  - 行末有三个以上金额【没见过】：只取最后两个，前面的留在描述里（像 R1E）。描述本身以 `.dd` 结尾的数字结束时会被当成金额，余额就接不上，整份失败，不会悄悄导错
+- **Osko 收款是 2 行，金额在第 2 行**【Choice 2 笔】：`unpdf` 读出来第 1 行是 `DD/MM/YY  Deposit-Osko Payment ddddddd <户名> DD`，第 2 行是 `Mon YYYY  金额  余额`，也就是**原始日期被拆成两半**（日在第 1 行末尾，月份年份在第 2 行开头）。`pdftotext` 看起来像金额在第一行，以 `unpdf` 为准。原始日期比 `DATE` 早 1 天【2 笔都是】，**不用**，交易日期照旧用 `DATE` 那列；原始日期按拼起来的样子留在描述里（`… <户名> DD Mon YYYY`），R3 要不要去掉以后再说
+- 见过的描述【2 份】：
+  - `Deposit-Osko Payment ddddddd <户名>` + 原始日期：外行转入，只有户名，没有账号
+  - `Withdrawal Mobile ddddddd Tfr Westpac Lif`：Choice 转到 Life（对方产品名截断）
+  - `Deposit Online ddddddd Tfr Westpac Cho`：Life 收到 Choice 转来的（对方产品名截断）
+  - `ddddddd` 是 7 位流水号，同一份里每笔都不一样；Choice 转出和 Life 转入的流水号**不一样**，不能拿来配对【2 份】
+- **方向用余额判断**（照 R1D、R1E）：上一笔余额（第一笔用期初）− 金额 = 这一笔余额 → 借（负数）；+ 金额 = 这一笔余额 → 贷（正数）；都不是 → 整份失败"第 n 笔余额接不上"。不靠栏位位置【6 笔都能这样判断】
+- 描述：第一行日期之后的部分和续行（都去掉末尾的金额余额、去首尾空白）用**一个空格**拼起来，其余原样（R1.0-5）
+- 7 位流水号 R2.3 不脱敏【6 笔都没被改】；描述里有 8 位以上数字的话照 R2.3 脱敏
+- 没有利息、手续费行【2 份】。Westpac 利息每月付、Life 有 bonus，以后有了也是普通交易，不特殊处理；要是长得不一样（比如没有余额），会失败，看了再改
+- `balanceCents`：每笔的余额，写进 R4.1 的 key
+
+**日期顺序**：
+
+- 日期比上一笔早 → 整份失败"第 n 笔的日期比上一笔早"【没见过】
+- 不在 `[periodFrom, periodTo]` 里 → 整份失败"第 n 笔的日期不在账期里"
+
+**检查**（任何一条不过 → 整份失败，什么都不导，错误带第几笔和页码；第几笔是**这一页从上往下数**。同 R1C 到 R1E）【2 份每一条都通过】：
+
+- 期初 + 逐笔 = 每一笔的余额（上面判断方向时已经做了）
+- 最后一笔的余额 = `CLOSING BALANCE`；一笔都没有时，`STATEMENT OPENING BALANCE` = `CLOSING BALANCE`
+- 汇总的期初 = `STATEMENT OPENING BALANCE`，汇总的期末 = `CLOSING BALANCE`
+- 汇总的 `Total Credits`、`Total Debits` = 逐笔贷、借合计（都按正数比）
+
+**输出顺序**：**旧的在前**（就是表里的顺序），同 R1D，和 R1.0-7 不一样。R4.1 的 `occurrence` 按输出顺序数。没有 CSV 要对齐，数法只要每次一样就行。
+
+**一笔都没有**【没见过】：`STATEMENT OPENING BALANCE` 下面直接是 `CLOSING BALANCE` → 照 R1D 能导入，只建 `import_batch` 做对账和首尾衔接（R12.2）。汇总的借贷合计要是 0。要是空的对账单长得不一样（比如没有表头），会失败，碰到再改。
+
+**R9 的日期范围**：照 R1D，`import_batch.date_from` 存 `periodFrom`（不加一天），`date_to` 存 `periodTo`，`source = pdf`。一天的账期 `date_from = date_to`。
+
+**按需申请和按周期出的混着导**：两份账期可能重叠（比如按需申请的 11-02 和按周期出的 11-01 到 11-30）。key 只用每笔的日期、金额、描述、余额（R4.1），**不用账期、页码、`Statement No.`**，重叠的那几笔两份读出来一样，R4.2 跳过。R12.2 只拿 `date_to` 早于本次 `date_from` 的那份比余额，重叠的那份单独提示"账期重叠了"、不比余额（2026-11-15 定），都不拦。
+
+## R1G.1 例子
+
+`fixtures/westpac-statement/choice-2026-11.txt`（编的，导入到测试家庭的 `Westpac Choice Male`，尾号 `0005`，见 fixtures 18 号）第 1 页的交易表：
+
+```
+DATE  TRANSACTION DESCRIPTION  DEBIT  CREDIT  BALANCE
+01/11/26  STATEMENT OPENING BALANCE  1,000.00
+01/11/26  Deposit-Osko Payment 1000001 TEST FRIEND 31
+Oct 2026  500.00  1,500.00
+03/11/26  Withdrawal Mobile 1000002 Tfr Westpac Lif  300.00  1,200.00
+03/11/26  Withdrawal Mobile 1000003 Tfr Westpac Lif  300.00  900.00
+10/11/26  Deposit-Osko Payment 1000004 ACME PTY LTD 09
+Nov 2026  2,750.00  3,650.00
+15/11/26  Withdrawal Mobile 1000005 Tfr Westpac Lif  1,186.45  2,463.55
+30/11/26  CLOSING BALANCE  2,463.55
+```
+
+解析出（旧的在前）：
+
+| date | amountCents | description | balanceCents |
+| --- | --- | --- | --- |
+| 2026-11-01 | 50000 | `Deposit-Osko Payment 1000001 TEST FRIEND 31 Oct 2026` | 150000 |
+| 2026-11-03 | -30000 | `Withdrawal Mobile 1000002 Tfr Westpac Lif` | 120000 |
+| 2026-11-03 | -30000 | `Withdrawal Mobile 1000003 Tfr Westpac Lif` | 90000 |
+| 2026-11-10 | 275000 | `Deposit-Osko Payment 1000004 ACME PTY LTD 09 Nov 2026` | 365000 |
+| 2026-11-15 | -118645 | `Withdrawal Mobile 1000005 Tfr Westpac Lif` | 246355 |
+
+- 11/1 是账期第一天，算这一份（闭区间）；Osko 的原始日期 `31 Oct 2026` 在账期前一天，只留在描述里，不当交易日期
+- 方向全靠余额：表里借贷两栏的金额读出来没有区别
+- 账期 `2026-11-01` 到 `2026-11-30`，期初 100000，期末 246355，借合计 178645，贷合计 325000，账号尾号 `0005`
+
+更多用例见 fixtures/README 的"Westpac 对账单用例"。
 
 ## R1B CBA（2026-10 用真实导出确认）
 

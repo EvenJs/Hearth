@@ -440,7 +440,7 @@
 
 ## M9.6：ING PDF 对账单导入（2026-11-08 加，占位）
 
-> ING（Orange Everyday、Savings Booster）2026-11 开户，和 M9.5 一样要有流水和余额。手上只有 interim 对账单：只有截止日期、没有开始日期，还写着"可能不包含所有交易"，不拿它写规则。**等月末正式对账单出来再拆任务**。照 M9.5 的做法，规则用 R1H。本行转账描述是产品名（`Transfer to Savings Booster`、`Transfer from Orange Everyday`），走 M9.5 加的同行按账户名认；外行转入只有户名，靠 R6.3
+> ING（Orange Everyday、Savings Booster）2026-11 开户，和 M9.5 一样要有流水和余额。手上只有 interim 对账单：只有截止日期、没有开始日期，还写着"可能不包含所有交易"，不拿它写规则。**等月末正式对账单出来再拆任务**。2026-11-15 拿到新的 interim（`tests/local/ing/`，2026-07-01 到 11-14）：有了开始、结束日期和 `Brought Forward` 期初，但还写着可能不含所有交易，照旧等月末。照 M9.5 的做法，规则用 R1H。本行转账描述是产品名（`Transfer to Savings Booster`、`Transfer from Orange Everyday`），走 M9.5 加的同行按账户名认；外行转入只有户名，靠 R6.3
 
 **做什么**
 
