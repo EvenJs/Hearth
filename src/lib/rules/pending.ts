@@ -77,7 +77,7 @@ export type PendingTransferResult =
   | {
       kind: 'transfer';
       transferStatus: 'auto';
-      transferAccountId: string; // R6.2 配对用，不入库
+      transferAccountId: string | null; // R6.2 配对用，不入库。null = 按账户名对上多个，对方未知（R6.1）
       primarySplit: {
         categoryId: string;
         categorySource: CategorySource;
@@ -87,7 +87,7 @@ export type PendingTransferResult =
       };
     }
   // pending 有多个拆分：什么都不改，保留用户的拆分，F8 提示
-  | { kind: 'multiple_splits'; transferAccountId: string };
+  | { kind: 'multiple_splits'; transferAccountId: string | null };
 
 // R8.3 例外：pending 被确认时，银行那行 R6.1 认出是内部转账
 // bankRow 是 processFile 处理过的那行（R6.1 已经跑过）；primaryMember 是 pending 主拆分现在的归属人
@@ -97,9 +97,7 @@ export function confirmPendingTransfer(
   pending: { splitCount: number; primaryMember: { memberId: string; memberSource: MemberSource } },
   ctx: MemberContext,
 ): PendingTransferResult {
-  if (bankRow.transferStatus !== 'auto' || !bankRow.transferAccountId) {
-    return { kind: 'not_transfer' };
-  }
+  if (bankRow.transferStatus !== 'auto') return { kind: 'not_transfer' };
   if (pending.splitCount > 1) {
     return { kind: 'multiple_splits', transferAccountId: bankRow.transferAccountId };
   }

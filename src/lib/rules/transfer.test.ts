@@ -170,7 +170,10 @@ describe('detectTransfer 按账户名认（R6.1，同一家银行内部）', () 
     ).toEqual(auto(life));
   });
 
-  it('R6.1 T8: truncated name matches two westpac accounts → none', () => {
+  // R6.1 按账户名对上多个：也认成转账，对方未知（2026-11-15 改，M9.5-8a）
+  const AUTO_UNKNOWN = { transferStatus: 'auto', transferAccountId: null };
+
+  it('R6.1 T8: truncated name matches two westpac accounts → auto, counterpart unknown', () => {
     const bonus = bankAcct('Westpac Life Bonus', '009');
     expect(
       detect('Withdrawal Mobile 1000002 Tfr Westpac Lif', choice, {
@@ -180,16 +183,39 @@ describe('detectTransfer 按账户名认（R6.1，同一家银行内部）', () 
           { id: bonus.id, bank: 'westpac', statementName: 'Westpac Life Bonus', isArchived: false },
         ],
       }),
-    ).toEqual(NONE);
+    ).toEqual(AUTO_UNKNOWN);
   });
 
-  it('R6.1 T9: "Future" and "Future Saver" both match → none', () => {
+  it('R6.1 T9: "Future" and "Future Saver" both match → auto, counterpart unknown', () => {
     const future = bankAcct('BOQ Future', '0010');
     expect(
       detect('To: Future Saver NOTPROVIDED', everyday, {
         accounts: [...accounts, future],
         named: [...named, { id: future.id, bank: 'boq', statementName: 'Future', isArchived: false }],
       }),
+    ).toEqual(AUTO_UNKNOWN);
+  });
+
+  it('R6.1: nine accounts with statement_name "Future Saver" → auto, counterpart unknown', () => {
+    const savers = Array.from({ length: 8 }, (_, i) => bankAcct(`BOQ Saver ${i}`, `002${i}`));
+    expect(
+      detect('To: Future Saver NOTPROVIDED', everyday, {
+        accounts: [...accounts, ...savers],
+        named: [
+          ...named,
+          ...savers.map((s) => ({ id: s.id, bank: 'boq', statementName: 'Future Saver', isArchived: false })),
+        ],
+      }),
+    ).toEqual(AUTO_UNKNOWN);
+  });
+
+  it('R6.1: account number matching several accounts is still none (unchanged)', () => {
+    expect(
+      detectTransfer(
+        { transferAccount: '5678' },
+        joint,
+        [joint, acct('a1', '115678'), acct('a2', '225678')],
+      ),
     ).toEqual(NONE);
   });
 
@@ -1092,5 +1118,157 @@ describe('planTransferRedetect（R6.4 保存带尾号的账户时重新识别旧
         keptCount: 0,
       });
     });
+  });
+});
+
+describe('planTransferRedetect 按账户名认（R6.4 保存 statement_name 时重新识别）', () => {
+  const ctx = { categories: h.categories, cards: h.cards };
+  const MALE = h.member('Male').id;
+
+  function boqAcct(name: string, numberSuffix: string | null): Account {
+    return { ...acct(`acc:${name}`, ''), name, bank: 'boq', defaultMemberId: MALE, numberSuffix };
+  }
+  const everyday = boqAcct('BOQ Everyday Male', '0007');
+  const futureSaver = boqAcct('BOQ Future Saver Male', '0008');
+  const accounts = [...h.accounts, everyday, futureSaver];
+
+  const entry = (a: Account, statementName: string | null): StatementNameAccount => ({
+    id: a.id,
+    bank: a.bank,
+    statementName,
+    isArchived: false,
+  });
+  // 保存前：Future Saver 的 statement_name 还空着（TD4）
+  const before = [
+    ...h.accounts.map((a) => entry(a, null)),
+    entry(everyday, 'Everyday Account'),
+    entry(futureSaver, null),
+  ];
+  // 保存时 named 里这个账户那一条是新值
+  const saving = (statementName: string | null, extra: StatementNameAccount[] = []) => [
+    ...before.map((n) => (n.id === futureSaver.id ? { ...n, statementName } : n)),
+    ...extra,
+  ];
+
+  // Everyday 里导入时没认出来的转出（Uncategorised、Male account）
+  function tx(id: string, rawDescription: string, accountId = everyday.id): RedetectTx {
+    return {
+      id,
+      accountId,
+      rawDescription,
+      cardLast4: null,
+      transferStatus: 'none',
+      transferPairId: null,
+      splits: [
+        {
+          id: `split:${id}`,
+          categoryId: UNCATEGORIZED,
+          categorySource: 'system',
+          memberId: MALE,
+          memberSource: 'account',
+          isPreTax: false,
+        },
+      ],
+    };
+  }
+  const toSaver = tx('tx:1', 'To: Future Saver NOTPROVIDED');
+
+  it('R6.4 TD4: filling statement_name "Future Saver" → To: Future Saver becomes auto, Internal transfer, Male', () => {
+    expect(
+      planTransferRedetect(futureSaver, [toSaver], accounts, ctx, saving('Future Saver')),
+    ).toEqual({
+      updates: [
+        {
+          transactionId: 'tx:1',
+          transferStatus: 'auto',
+          split: {
+            id: 'split:tx:1',
+            categoryId: INTERNAL,
+            categorySource: 'system',
+            memberId: MALE,
+            memberSource: 'account',
+            isPreTax: false,
+          },
+        },
+      ],
+      keptCount: 0,
+    });
+  });
+
+  it('R6.4: empty suffix but statement_name filled still triggers', () => {
+    const noSuffix = { ...futureSaver, numberSuffix: null };
+    expect(
+      planTransferRedetect(noSuffix, [toSaver], accounts, ctx, saving('Future Saver')).updates,
+    ).toHaveLength(1);
+  });
+
+  it('R6.4: suffix and statement_name both empty → nothing', () => {
+    const noSuffix = { ...futureSaver, numberSuffix: null };
+    expect(planTransferRedetect(noSuffix, [toSaver], accounts, ctx, saving(null))).toEqual({
+      updates: [],
+      keptCount: 0,
+    });
+  });
+
+  it('R6.4: statement_name still empty → name not used (suffix only)', () => {
+    expect(planTransferRedetect(futureSaver, [toSaver], accounts, ctx, saving(null))).toEqual({
+      updates: [],
+      keptCount: 0,
+    });
+  });
+
+  it('R6.4: name matches several accounts, this one included → counted (auto, counterpart unknown)', () => {
+    const other = boqAcct('BOQ Test', '0011');
+    const plan = planTransferRedetect(
+      futureSaver,
+      [toSaver],
+      [...accounts, other],
+      ctx,
+      saving('Future Saver', [entry(other, 'Future Saver')]),
+    );
+    expect(plan.updates.map((u) => u.transactionId)).toEqual(['tx:1']);
+  });
+
+  it('R6.4: name matches only another account → not changed, not counted', () => {
+    const bills = boqAcct('BOQ Bills', '0012');
+    const t = tx('tx:2', 'To: Bills NOTPROVIDED');
+    const manual: RedetectTx = {
+      ...tx('tx:3', 'To: Bills NOTPROVIDED'),
+      splits: [{ ...t.splits[0], id: 'split:tx:3', categorySource: 'manual' }],
+    };
+    expect(
+      planTransferRedetect(
+        futureSaver,
+        [t, manual],
+        [...accounts, bills],
+        ctx,
+        saving('Future Saver', [entry(bills, 'Bills')]),
+      ),
+    ).toEqual({ updates: [], keptCount: 0 });
+  });
+
+  it('R6.4: manual category on a name match → kept (M)', () => {
+    const manual: RedetectTx = {
+      ...toSaver,
+      splits: [{ ...toSaver.splits[0], categorySource: 'manual' }],
+    };
+    expect(
+      planTransferRedetect(futureSaver, [manual], accounts, ctx, saving('Future Saver')),
+    ).toEqual({ updates: [], keptCount: 1 });
+  });
+
+  it('R6.4: R2.2 found an account number → only the number is used, name ignored', () => {
+    const t = tx('tx:4', 'To: Future Saver TRANSFER FROM ****9999');
+    expect(
+      planTransferRedetect(futureSaver, [t], accounts, ctx, saving('Future Saver')).updates,
+    ).toEqual([]);
+  });
+
+  it('R6.4: same name on a different bank → not matched', () => {
+    const westpacSaver = { ...futureSaver, bank: 'westpac' as const };
+    const named = saving('Future Saver').map((n) =>
+      n.id === futureSaver.id ? { ...n, bank: 'westpac' } : n,
+    );
+    expect(planTransferRedetect(westpacSaver, [toSaver], accounts, ctx, named).updates).toEqual([]);
   });
 });

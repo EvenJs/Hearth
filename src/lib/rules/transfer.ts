@@ -8,8 +8,9 @@ import type { Account, CategorySource, MemberSource, TransferStatus } from './ty
 
 // ---------- R6.1 ----------
 
+// auto 的 transferAccountId 为 null：按账户名对上多个，对方未知（R6.1）。R6.2 不从这一边配对，R24.3 当未知
 export type DetectResult =
-  | { transferStatus: 'auto'; transferAccountId: string }
+  | { transferStatus: 'auto'; transferAccountId: string | null }
   | { transferStatus: 'none'; transferAccountId: null };
 
 // R6.1：尾部对得上就算。提取的数字以尾号结尾（ANZ 完整账号），或尾号以提取的数字结尾（CBA 4 位）
@@ -42,32 +43,35 @@ function statementNameMatches(extracted: string, statementName: string): boolean
   return statementName.startsWith(extracted) || extracted.startsWith(`${statementName} `);
 }
 
-// R6.1 按账户名认：同一个 bank、没归档、不是自己、statement_name 不为空，对上恰好 1 个才算
-function detectByStatementName(
+// R6.1 按账户名认：同一个 bank、没归档、不是自己、statement_name 不为空的账户里，对上的 id
+// 描述不是表里的开头、开头后面是空的 → 空数组
+function statementNameMatchIds(
   description: string,
   account: Account,
   named: readonly StatementNameAccount[],
-): string | null {
+): string[] {
   const bank = named.find((n) => n.id === account.id)?.bank;
   const prefixes = bank ? STATEMENT_NAME_PREFIXES[bank] : undefined;
-  if (!prefixes) return null;
+  if (!prefixes) return [];
 
   const captured = prefixes.map((re) => re.exec(description)?.[1]).find((c) => c !== undefined);
-  if (captured === undefined) return null;
+  if (captured === undefined) return [];
   const extracted = normalizeName(captured);
-  if (!extracted) return null; // 开头后面什么都没有（规则没写，先不认）
+  if (!extracted) return []; // 开头后面什么都没有 → 走 R7
 
-  const matches = named.filter((n) => {
-    if (n.id === account.id || n.bank !== bank || n.isArchived || !n.statementName) return false;
-    const statementName = normalizeName(n.statementName);
-    return statementName !== '' && statementNameMatches(extracted, statementName);
-  });
-  return matches.length === 1 ? matches[0].id : null;
+  return named
+    .filter((n) => {
+      if (n.id === account.id || n.bank !== bank || n.isArchived || !n.statementName) return false;
+      const statementName = normalizeName(n.statementName);
+      return statementName !== '' && statementNameMatches(extracted, statementName);
+    })
+    .map((n) => n.id);
 }
 
 // R6.1 自动识别。row.transferAccount 是 R2.2 提取的对方账号（已经检查过 FUNDS TFER / TRANSFER 关键词）
-// 不能是当前账户自己；没有尾号的账户（现金）跳过；对上多个账户时不认，留给 R6.3
+// 不能是当前账户自己；没有尾号的账户（现金）跳过；按账号对上多个账户时不认，留给 R6.3
 // R2.2 没取到账号时才按账户名认（row.description + named）；取到了账号就只按账号，对不上走 R7
+// 按账户名对上多个 → auto、对方未知（transferAccountId = null）
 export function detectTransfer(
   row: { transferAccount: string | null; description?: string },
   account: Account,
@@ -76,10 +80,9 @@ export function detectTransfer(
 ): DetectResult {
   const extracted = row.transferAccount;
   if (!extracted) {
-    const byName = row.description ? detectByStatementName(row.description, account, named) : null;
-    return byName
-      ? { transferStatus: 'auto', transferAccountId: byName }
-      : { transferStatus: 'none', transferAccountId: null };
+    const byName = row.description ? statementNameMatchIds(row.description, account, named) : [];
+    if (byName.length === 0) return { transferStatus: 'none', transferAccountId: null };
+    return { transferStatus: 'auto', transferAccountId: byName.length === 1 ? byName[0] : null };
   }
 
   const matches = allAccounts.filter(
@@ -416,7 +419,7 @@ export function planTransfers(
   };
 }
 
-// ---------- R6.4 保存带尾号的账户时重新识别 ----------
+// ---------- R6.4 保存带尾号或 statement_name 的账户时重新识别 ----------
 
 // 本家庭的旧交易：脱敏后的描述 + 拆分（第 1 个是主拆分）
 export type RedetectTx = {
@@ -441,17 +444,42 @@ export type RedetectPlan = {
   keptCount: number; // 对上了，但分类是 manual 或有多个拆分，不改（弹窗里的 M）
 };
 
+// R6.4 第 2 步：候选能不能对上正在保存的账户
+// 按尾号：脱敏后的描述重跑 R2.2、R6.1，唯一对上这个账户才算
+// 按账户名：R2.2 没取到账号时，对上的账户里有这个账户就算（对上多个也算，同 R6.1）
+function matchesSavedAccount(
+  tx: RedetectTx,
+  txAccount: Account,
+  account: Account,
+  accounts: readonly Account[],
+  named: readonly StatementNameAccount[],
+  byName: boolean,
+): boolean {
+  const byNumber =
+    !!account.numberSuffix &&
+    storedTransferAccountId(tx.rawDescription, txAccount, accounts) === account.id;
+  if (byNumber) return true;
+  return (
+    byName &&
+    !extractMaskedTransferSuffix(tx.rawDescription) &&
+    statementNameMatchIds(tx.rawDescription, txAccount, named).includes(account.id)
+  );
+}
+
 // R6.4 第 1 到 3 步。account 是正在保存的账户（新的尾号），householdAccounts 是本家庭的账户
 // （可以还是保存前的旧值，同 id 的以 account 为准；新建时可以不含 account）
+// named 是本家庭账户的 bank、statement_name（R6.1 按账户名认）；这个账户那一条要是新值，新建时调用方加上
 // 第 4 步 R6.2 配对、弹窗和事务由调用方做
 export function planTransferRedetect(
   account: Account,
   candidates: readonly RedetectTx[],
   householdAccounts: readonly Account[],
   ctx: Omit<MemberContext, 'accounts'>,
+  named: readonly StatementNameAccount[] = [],
 ): RedetectPlan {
   const plan: RedetectPlan = { updates: [], keptCount: 0 };
-  if (!account.numberSuffix) return plan; // 尾号是空的不触发
+  const byName = !!named.find((n) => n.id === account.id)?.statementName?.trim();
+  if (!account.numberSuffix && !byName) return plan; // 尾号和 statement_name 都是空的不触发
 
   const accounts = [...householdAccounts.filter((a) => a.id !== account.id), account];
   const memberCtx: MemberContext = { ...ctx, accounts };
@@ -463,10 +491,10 @@ export function planTransferRedetect(
     if (tx.accountId === account.id) continue;
     if (tx.transferStatus !== 'none' || tx.transferPairId !== null) continue;
 
-    // 第 2 步：脱敏后的描述重跑 R2.2、R6.1，只看是不是唯一对上这个账户
+    // 第 2 步：脱敏后的描述重跑 R2.2、R6.1，只看能不能对上这个账户
     const txAccount = accounts.find((a) => a.id === tx.accountId);
     if (!txAccount) throw new Error(`账户不存在: ${tx.accountId}`);
-    if (storedTransferAccountId(tx.rawDescription, txAccount, accounts) !== account.id) continue;
+    if (!matchesSavedAccount(tx, txAccount, account, accounts, named, byName)) continue;
 
     // 第 3 步：多拆分、manual 的不改，计数
     const [split] = tx.splits;
