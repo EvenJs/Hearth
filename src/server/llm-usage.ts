@@ -1,6 +1,6 @@
 // R26.9 LLM 调用次数的数据访问（M12-3）：只用来数限额，不存图片、请求、返回内容
 // 能不能识别、显示什么用 src/lib/rules/llm-quota.ts 的纯函数
-import { and, between, eq, sql } from 'drizzle-orm';
+import { and, between, eq, lte, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import { llmUsage } from '@/db/schema';
 import { endOfMonth } from '@/lib/rules/periods';
@@ -8,7 +8,8 @@ import type { HouseholdContext } from './context';
 
 export type LlmUsagePurpose = (typeof llmUsage.purpose.enumValues)[number];
 
-// month = 'YYYY-MM'。created_at 换成 Melbourne 时间以后落在这个月的条数，家里所有人一起算
+// month = 'YYYY-MM'。created_at 换成 Melbourne 时间以后落在这个月、而且不晚于现在的条数，家里所有人一起算
+// 现在用 JS 的 new Date()，不用数据库的 now()，和 recordLlmUsage 写入的时间同一个钟（fixtures 17 号 G-4）
 export async function countLlmUsage(
   ctx: HouseholdContext,
   purpose: LlmUsagePurpose,
@@ -23,6 +24,7 @@ export async function countLlmUsage(
       eq(llmUsage.householdId, ctx.householdId),
       eq(llmUsage.purpose, purpose),
       between(sql`(${llmUsage.createdAt} at time zone 'Australia/Melbourne')::date`, start, end),
+      lte(llmUsage.createdAt, new Date()),
     ),
   );
 }
