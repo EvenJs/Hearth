@@ -50,13 +50,15 @@ function expectSuccess(result: Result): Success {
 }
 
 // R1G.1 那张表：5 行，旧的在前，rowIndex 按输出顺序
-const MAIN_ROWS = [
-  ['2026-11-01', 50000, 'Deposit-Osko Payment 1000001 TEST FRIEND 31 Oct 2026', 150000],
-  ['2026-11-03', -30000, 'Withdrawal Mobile 1000002 Tfr Westpac Lif', 120000],
-  ['2026-11-03', -30000, 'Withdrawal Mobile 1000003 Tfr Westpac Lif', 90000],
-  ['2026-11-10', 275000, 'Deposit-Osko Payment 1000004 ACME PTY LTD 09 Nov 2026', 365000],
-  ['2026-11-15', -118645, 'Withdrawal Mobile 1000005 Tfr Westpac Lif', 246355],
-].map(([date, amountCents, description, balanceCents], i) => ({
+const MAIN_ROWS = (
+  [
+    ['2026-11-01', 50000, 'Deposit-Osko Payment 1000001 TEST FRIEND 31 Oct 2026', 150000],
+    ['2026-11-03', -30000, 'Withdrawal Mobile 1000002 Tfr Westpac Lif', 120000],
+    ['2026-11-03', -30000, 'Withdrawal Mobile 1000003 Tfr Westpac Lif', 90000],
+    ['2026-11-10', 275000, 'Deposit-Osko Payment 1000004 ACME PTY LTD 09 Nov 2026', 365000],
+    ['2026-11-15', -118645, 'Withdrawal Mobile 1000005 Tfr Westpac Lif', 246355],
+  ] as [date: string, amountCents: number, description: string, balanceCents: number][]
+).map(([date, amountCents, description, balanceCents], i) => ({
   date,
   amountCents,
   description,
@@ -207,7 +209,9 @@ describe('parseWestpacStatement（R1G）', () => {
 
     it('R1G: last balance differs from CLOSING BALANCE', () => {
       const failure = expectFailure(
-        parseEdited([['30/11/26  CLOSING BALANCE  2,463.55', '30/11/26  CLOSING BALANCE  2,463.56']]),
+        parseEdited([
+          ['30/11/26  CLOSING BALANCE  2,463.55', '30/11/26  CLOSING BALANCE  2,463.56'],
+        ]),
       );
       expect(failure.message).toContain('$2,463.55');
       expect(failure.message).toContain('$2,463.56');
@@ -294,12 +298,7 @@ describe('parseWestpacStatement（R1G）', () => {
 
     it('R1G: an unknown line right under STATEMENT OPENING BALANCE says OPENING BALANCE 下面', () => {
       const failure = expectFailure(
-        parseEdited([
-          [
-            'OPENING BALANCE  1,000.00\n',
-            'OPENING BALANCE  1,000.00\nEXTRA NOTE\n',
-          ],
-        ]),
+        parseEdited([['OPENING BALANCE  1,000.00\n', 'OPENING BALANCE  1,000.00\nEXTRA NOTE\n']]),
       );
       expect(failure.message).toContain('OPENING BALANCE 下面有一行认不出来');
     });
@@ -313,9 +312,7 @@ describe('parseWestpacStatement（R1G）', () => {
 
     it('R1G: CLOSING BALANCE before the last transaction has amount and balance fails', () => {
       const failure = expectFailure(
-        parseEdited([
-          ['1000005 Tfr Westpac Lif  1,186.45  2,463.55', '1000005 Tfr Westpac Lif'],
-        ]),
+        parseEdited([['1000005 Tfr Westpac Lif  1,186.45  2,463.55', '1000005 Tfr Westpac Lif']]),
       );
       expect(failure.message).toContain('第 5 笔找不到金额和余额');
       expect(failure.page).toBe(1);
@@ -330,21 +327,27 @@ describe('parseWestpacStatement（R1G）', () => {
     });
 
     it('R1G: W18 a date earlier than the previous transaction fails', () => {
-      const failure = expectFailure(parseEdited([['10/11/26  Deposit-Osko', '02/11/26  Deposit-Osko']]));
+      const failure = expectFailure(
+        parseEdited([['10/11/26  Deposit-Osko', '02/11/26  Deposit-Osko']]),
+      );
       expect(failure.message).toContain('第 4 笔的日期比上一笔早');
       expect(failure.page).toBe(1);
       expect(failure.index).toBe(4);
     });
 
     it('R1G: W19 a date outside the period fails', () => {
-      const failure = expectFailure(parseEdited([['15/11/26  Withdrawal', '01/12/26  Withdrawal']]));
+      const failure = expectFailure(
+        parseEdited([['15/11/26  Withdrawal', '01/12/26  Withdrawal']]),
+      );
       expect(failure.message).toContain('第 5 笔的日期不在账期里');
       expect(failure.page).toBe(1);
       expect(failure.index).toBe(5);
     });
 
     it('R1G: W20 an invalid date fails', () => {
-      const failure = expectFailure(parseEdited([['15/11/26  Withdrawal', '31/11/26  Withdrawal']]));
+      const failure = expectFailure(
+        parseEdited([['15/11/26  Withdrawal', '31/11/26  Withdrawal']]),
+      );
       expect(failure.message).toContain('第 5 笔的日期不对');
       expect(failure.page).toBe(1);
       expect(failure.index).toBe(5);
@@ -371,7 +374,9 @@ describe('parseWestpacStatement（R1G）', () => {
   describe('账期', () => {
     it('R1G: W16 period end differs from the CLOSING BALANCE date', () => {
       const failure = expectFailure(
-        parseEdited([['01 November 2026 - 30 November 2026', '01 November 2026 - 29 November 2026']]),
+        parseEdited([
+          ['01 November 2026 - 30 November 2026', '01 November 2026 - 29 November 2026'],
+        ]),
       );
       expect(failure.message).toContain('账期和 OPENING / CLOSING BALANCE 的日期对不上');
       expect(failure.page).toBeNull();
@@ -398,7 +403,9 @@ describe('parseWestpacStatement（R1G）', () => {
 
     it('R1G: periodFrom later than periodTo fails', () => {
       const failure = expectFailure(
-        parseEdited([['01 November 2026 - 30 November 2026', '01 November 2026 - 30 October 2026']]),
+        parseEdited([
+          ['01 November 2026 - 30 November 2026', '01 November 2026 - 30 October 2026'],
+        ]),
       );
       expect(failure.message).toContain('账期不对');
     });
@@ -449,7 +456,9 @@ describe('looksLikeWestpacStatement（R1G 认格式）', () => {
 
   it('R1G: R1C, R1D and R1E statements are not', () => {
     expect(looksLikeWestpacStatement(readStatementFixture('joint-2026-09.txt'))).toBe(false);
-    expect(looksLikeWestpacStatement(readAnzPlusStatementFixture('growth-2026-09.txt'))).toBe(false);
+    expect(looksLikeWestpacStatement(readAnzPlusStatementFixture('growth-2026-09.txt'))).toBe(
+      false,
+    );
     expect(looksLikeWestpacStatement(readCbaStatementFixture('female-2026-09.txt'))).toBe(false);
   });
 
